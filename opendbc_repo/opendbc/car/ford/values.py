@@ -6,7 +6,7 @@ from enum import Enum, IntFlag
 from opendbc.car import AngleSteeringLimits, Bus, CarSpecs, DbcDict, PlatformConfig, Platforms, uds
 from opendbc.car.structs import CarParams
 from opendbc.car.docs_definitions import CarFootnote, CarHarness, CarDocs, CarParts, Column, \
-                                                     Device
+                                                     Device, SupportType
 from opendbc.car.fw_query_definitions import FwQueryConfig, LiveFwVersions, OfflineFwVersions, Request, StdQueries, p16
 
 Ecu = CarParams.Ecu
@@ -51,6 +51,9 @@ class FordSafetyFlags(IntFlag):
 class FordFlags(IntFlag):
   # Static flags
   CANFD = 1
+  # These vehicles only publish the steering pinion angle relative to an arbitrary
+  # reference, so CarState reconstructs the absolute angle from the park aid angle.
+  ALT_STEER_ANGLE = 2
 
 
 class RADAR:
@@ -140,6 +143,18 @@ class CAR(Platforms):
       FordCarDocs("Ford Kuga Plug-in Hybrid 2024", "All"),
     ],
     CarSpecs(mass=1750, wheelbase=2.71, steerRatio=16.7),
+  )
+  # Ford Edge 2019-21: these vehicles only publish the steering pinion angle relative to an
+  # arbitrary reference. Manually selectable only: it must not take part in automatic
+  # fingerprinting, so it has no FW_VERSIONS entry and is listed in
+  # opendbc/car/tests/routes.py's non_tested_cars.
+  # Wheelbase is the real 2.85 m. Curb weight is 1850 kg (2.0T FWD 5-seat) to 2057 kg (2.0T AWD
+  # 7-seat); 1970 kg is the 2.0T FWD 7-seat value. steerRatio is only the seed for the
+  # online-learned value, so it keeps the previously validated 16.7.
+  FORD_EDGE_ALT_STEER = FordPlatformConfig(
+    [FordCarDocs("Ford Edge 2019-21 (Alt Steering Angle)", support_type=SupportType.COMMUNITY)],
+    CarSpecs(mass=1970, wheelbase=2.85, steerRatio=16.7),
+    flags=FordFlags.ALT_STEER_ANGLE,
   )
   FORD_EXPLORER_MK6 = FordPlatformConfig(
     [

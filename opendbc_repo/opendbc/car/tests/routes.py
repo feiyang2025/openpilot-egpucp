@@ -28,6 +28,7 @@ non_tested_cars = [
   SUBARU.SUBARU_FORESTER_HYBRID,
   TESLA.TESLA_MODEL_3,
   TESLA.TESLA_MODEL_Y,
+  FORD.FORD_EDGE_ALT_STEER,  # manually selectable only, no route
 ]
 
 

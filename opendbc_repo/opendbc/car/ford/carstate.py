@@ -20,15 +20,28 @@ class CarState(CarStateBase):
     self.distance_button = 0
     self.lc_button = 0
 
+    # Only used by FordFlags.ALT_STEER_ANGLE vehicles
+    self.vehicle_sensors_valid = False
+    self.steering_angle_offset_deg = 0.0
+
   def update(self, can_parsers) -> structs.CarState:
     cp = can_parsers[Bus.pt]
     cp_cam = can_parsers[Bus.cam]
 
     ret = structs.CarState()
 
-    # Occasionally on startup, the ABS module recalibrates the steering pinion offset, so we need to block engagement
-    # The vehicle usually recovers out of this state within a minute of normal driving
-    ret.vehicleSensorsInvalid = cp.vl["SteeringPinion_Data"]["StePinCompAnEst_D_Qf"] != 3
+    if self.CP.flags & FordFlags.ALT_STEER_ANGLE:
+      # These vehicles don't publish a usable pinion angle quality flag, so engagement is not gated on it.
+      # The park aid steering angle is used to recover the absolute steering angle instead (see below).
+      self.vehicle_sensors_valid = (
+        int((cp.vl["ParkAid_Data"]["ExtSteeringAngleReq2"] + 1000) * 10) not in (32766, 32767)
+        and cp.vl["ParkAid_Data"]["EPASExtAngleStatReq"] == 0
+        and cp.vl["ParkAid_Data"]["ApaSys_D_Stat"] in (0, 1)
+      )
+    else:
+      # Occasionally on startup, the ABS module recalibrates the steering pinion offset, so we need to block engagement
+      # The vehicle usually recovers out of this state within a minute of normal driving
+      ret.vehicleSensorsInvalid = cp.vl["SteeringPinion_Data"]["StePinCompAnEst_D_Qf"] != 3
 
     # car speed
     ret.vEgoRaw = cp.vl["BrakeSysFeatures"]["Veh_V_ActlBrk"] * CV.KPH_TO_MS
@@ -46,7 +59,16 @@ class CarState(CarStateBase):
     ret.parkingBrake = cp.vl["DesiredTorqBrk"]["PrkBrkStatus"] in (1, 2)
 
     # steering wheel
-    ret.steeringAngleDeg = cp.vl["SteeringPinion_Data"]["StePinComp_An_Est"]
+    if self.CP.flags & FordFlags.ALT_STEER_ANGLE:
+      # This vehicle only publishes the pinion angle relative to an arbitrary reference, so track
+      # the offset against the park aid module's absolute steering angle estimate.
+      steering_angle_init = cp.vl["SteeringPinion_Data_Alt"]["StePinRelInit_An_Sns"]
+      if self.vehicle_sensors_valid:
+        steering_angle_est = cp.vl["ParkAid_Data"]["ExtSteeringAngleReq2"]
+        self.steering_angle_offset_deg = steering_angle_est - steering_angle_init
+      ret.steeringAngleDeg = steering_angle_init + self.steering_angle_offset_deg
+    else:
+      ret.steeringAngleDeg = cp.vl["SteeringPinion_Data"]["StePinComp_An_Est"]
     ret.steeringTorque = cp.vl["EPAS_INFO"]["SteeringColumnTorque"]
     ret.steeringPressed = self.update_steering_pressed(abs(ret.steeringTorque) > CarControllerParams.STEER_DRIVER_ALLOWANCE, 5)
     ret.steerFaultTemporary = cp.vl["EPAS_INFO"]["EPAS_Failure"] == 1
