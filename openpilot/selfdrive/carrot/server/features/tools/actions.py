@@ -16,6 +16,7 @@ KNOWN_TOOL_ACTIONS = {
   "git_checkout",
   "git_log",
   "git_pull",
+  "git_preserve_pull",
   "git_remote_add",
   "git_remote_set",
   "git_reset",
