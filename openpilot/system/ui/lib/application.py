@@ -476,10 +476,11 @@ class GuiApplication:
 
       rl.init_window(self._scaled_width, self._scaled_height, title)
 
-      # Borderless touch-panel UI: pin window to screen origin.
+      # Borderless touch-panel UI: place below GNOME top panel (32px)
+      # so the window fits fully inside the 1024x600 screen.
       if UNDECORATED:
         try:
-          rl.set_window_position(0, 0)
+          rl.set_window_position(0, 32)
         except Exception:
           pass
 
