@@ -44,6 +44,7 @@ ABS_MT_SLOT = 0x2f
 ABS_MT_TRACKING_ID = 0x39
 
 BIG_UI = os.getenv("BIG", "0") == "1"
+UNDECORATED = os.getenv("UNDECORATED", "1") == "1"  # borderless: avoid GNOME title-bar offset on touch panels
 ENABLE_VSYNC = os.getenv("ENABLE_VSYNC", "0") == "1"
 SHOW_FPS = os.getenv("SHOW_FPS") == "1"
 SHOW_TOUCHES = os.getenv("SHOW_TOUCHES") == "1"
@@ -467,11 +468,20 @@ class GuiApplication:
       atexit.register(self.close)
 
       flags = rl.ConfigFlags.FLAG_MSAA_4X_HINT
+      if UNDECORATED:
+        flags |= rl.ConfigFlags.FLAG_WINDOW_UNDECORATED
       if ENABLE_VSYNC:
         flags |= rl.ConfigFlags.FLAG_VSYNC_HINT
       rl.set_config_flags(flags)
 
       rl.init_window(self._scaled_width, self._scaled_height, title)
+
+      # Borderless touch-panel UI: pin window to screen origin.
+      if UNDECORATED:
+        try:
+          rl.set_window_position(0, 0)
+        except Exception:
+          pass
 
       needs_render_texture = self._scale != 1.0 or BURN_IN_MODE or RECORD
       if self._scale != 1.0:
