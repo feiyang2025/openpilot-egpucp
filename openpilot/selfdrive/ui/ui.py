@@ -3,8 +3,29 @@
 # 若此处未设而环境缺失,GLFW 连默认 :0(NVIDIA X)会失败 → UI 卡死无窗口。
 # 串流/无物理屏场景统一连 :99(Xvfb,raylib 已验证可初始化)。
 import os
+import re
+
 if not os.environ.get("DISPLAY"):
-  os.environ["DISPLAY"] = ":99"
+  os.environ["DISPLAY"] = ":0"
+
+# UI 尺寸兜底:manager fork 丢 UI_WIDTH/UI_HEIGHT/SCALE 时,从 launch_env.sh 恢复
+def _env_fallback(name: str, default: str) -> str:
+  if os.environ.get(name):
+    return os.environ[name]
+  try:
+    with open("/data/openpilot/launch_env.sh") as f:
+      for line in f:
+        m = re.match(r"export\s+%s=\"?([^\"]+)\"?$" % name, line.strip())
+        if m:
+          return m.group(1).strip()
+  except Exception:
+    pass
+  return default
+
+os.environ.setdefault("BIG", _env_fallback("BIG", "0"))
+os.environ.setdefault("UI_WIDTH", _env_fallback("UI_WIDTH", "1024"))
+os.environ.setdefault("UI_HEIGHT", _env_fallback("UI_HEIGHT", "600"))
+os.environ.setdefault("SCALE", _env_fallback("SCALE", "1.0"))
 
 import gc
 
