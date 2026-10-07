@@ -44,7 +44,7 @@ ABS_MT_SLOT = 0x2f
 ABS_MT_TRACKING_ID = 0x39
 
 BIG_UI = os.getenv("BIG", "0") == "1"
-UNDECORATED = os.getenv("UNDECORATED", "0") == "1"  # borderless (default off: keep window manageable on desktop)  # borderless: avoid GNOME title-bar offset on touch panels
+UNDECORATED = os.getenv("UNDECORATED", "1") == "1"  # borderless (default off: keep window manageable on desktop)  # borderless: avoid GNOME title-bar offset on touch panels
 ENABLE_VSYNC = os.getenv("ENABLE_VSYNC", "0") == "1"
 SHOW_FPS = os.getenv("SHOW_FPS") == "1"
 SHOW_TOUCHES = os.getenv("SHOW_TOUCHES") == "1"
