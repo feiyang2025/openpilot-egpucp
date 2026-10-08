@@ -151,10 +151,17 @@ class Source:
       try:
         frames_ok = 0
         src_rk = Ratekeeper(FRAME_HZ, None)
+        import time as _t
+        _ld = 0
         for yuv in cam.read_frames():
+          _lt0 = _t.monotonic()
           # 源层限速:GMSL 相机 30fps,压到 20fps 且帧号连续,
           # 否则 Role 每 50ms 取最新帧会跳号,modeld 计为丢帧。
           src_rk.keep_time()
+          _lt1 = _t.monotonic()
+          _ld += 1
+          if _ld % 10 == 0:
+            print(f"[srctime] {self.name}: loop={( _lt1-_lt0)*1000:.0f}ms", flush=True)
           self._set_alive(True)
           self.consec_fail = 0
           frames_ok += 1
@@ -258,7 +265,15 @@ class Role:
         frame_id, nv12, eof = latest
         self._last_frame_id = frame_id
         sof = eof - 50_000_000  # 估计 20Hz 帧起始
+        import time as _t
+        _s0 = _t.monotonic()
         self.vipc_server.send(self.stream_type, nv12, frame_id, sof, eof)
+        _s1 = _t.monotonic()
+        self.pm.send(self.cam_type_state, dat) if False else None
+        _rd = getattr(self, '_rd', 0) + 1
+        self._rd = _rd
+        if _rd % 10 == 0:
+          print(f"[roletime] {self.cam_type_state}: vipc_send={(_s1-_s0)*1000:.0f}ms", flush=True)
         dat = messaging.new_message(self.cam_type_state, valid=True, logMonoTime=eof)
         msg = {
           "frameId": frame_id,
