@@ -175,8 +175,8 @@ class ModelState:
       import base64, pickle as _p
       self.output_slices = _p.loads(base64.b64decode(jits['metadata']['metadata']['output_slices']))
       self.prev_desire = np.zeros(ModelConstants.DESIRE_LEN, dtype=np.float32)
-      stride, y_height, uv_height, _ = get_nv12_info(cam_w, cam_h)
-      self.frame_copy_size = stride * (y_height + uv_height)
+      # webcamerad packs NV12 with stride == width (no alignment): w*h + w*(h//2)
+      self.frame_copy_size = cam_w * (cam_h + cam_h // 2)
       self._init_generic(jits, cam_w, cam_h)
       return
 
@@ -239,10 +239,11 @@ class ModelState:
         return np.dtype(d) if isinstance(d, np.dtype) else np.dtype('float32')
     self.outputs = {name: Tensor(np.zeros(shape, dtype=_np_dtype2(dtype)), device=device).realize()
                     for name, (shape, dtype, device) in jits['output_specs'].items()}
-    # next_state feedback: copy outputs into state inputs after each run
-    # (buffer aliasing unsupported on NPY-backed state queues)
+    # next_state feedback: alias output buffer to the state input buffer
+    # (zero-copy; CUDA offset views supported; relaxed JIT check accepts it)
     for name, next_name in self.state_pairs.items():
-      pass
+      state = self.input_queues[name]
+      self.outputs[next_name] = _input_view(state._buffer(), state.shape, state.dtype, 0)
     # warp: use classic warp if present, else need a stateful warp from the artifact
     if (cam_w, cam_h) in jits:
       self.run_warp = jits[(cam_w, cam_h)]
@@ -255,8 +256,14 @@ class ModelState:
   def _run_generic(self, bufs, transforms, inputs):
     import numpy as np
     for i, key in enumerate(self.vision_input_names):
-      frame = np.frombuffer(bufs[key].data, dtype=np.uint8, count=self.frame_copy_size)
-      np.copyto(self.frames[i], frame)
+      fdata = np.frombuffer(bufs[key].data, dtype=np.uint8)
+      if len(fdata) != self.frame_copy_size:
+        # tolerate stride/layout drift from the camera source: copy what fits
+        cloudlog.warning(f"generic cam {key} frame size {len(fdata)} != expected {self.frame_copy_size}")
+        n = min(len(fdata), self.frame_copy_size)
+        self.frames[i][:n] = fdata[:n]
+      else:
+        np.copyto(self.frames[i], fdata)
       self.npy['tfm'][i] = transforms[key]
     # desire rising-edge pulse
     inputs['desire_pulse'][0] = 0
@@ -280,23 +287,13 @@ class ModelState:
       frame_t = _T(np.ascontiguousarray(self.frames[0]), device=self.WARP_DEV).realize()
       big_frame_t = _T(np.ascontiguousarray(self.frames[1]), device=self.WARP_DEV).realize()
       warped = self.run_warp(tfm=tfm, big_tfm=big_tfm, frame=frame_t, big_frame=big_frame_t)
-      _warp_np = np.ascontiguousarray(warped.numpy())
-      _new_img = Tensor(np.zeros((2, 6, 128, 256), dtype=np.uint8), device=self.model_device).realize()
-      if hasattr(_new_img._buffer(), 'copyin'):
-        _new_img._buffer().copyin(memoryview(_warp_np))
-      self.input_queues['new_img'] = _new_img
+      self.input_queues['new_img'] = warped
     else:
       raise RuntimeError("generic model requires a warp in the artifact")
     _model_keys = {n for n, (_, _) in self.input_shapes.items() if n not in self.state_pairs} | set(self.state_pairs)
     _model_keys = {n for n, _ in self.input_shapes.items()}
     self.run_model(output_buffers=self.outputs, **{k: v for k, v in self.input_queues.items() if k in _model_keys})
-    for name, next_name in self.state_pairs.items():
-      _out_t = np.ascontiguousarray(self.outputs[next_name].numpy())
-      if 'img' in name or name == 'state_img_q':
-        _out_t = _out_t.astype(np.uint8)
-      _sq = self.input_queues[name]
-      if hasattr(_sq._buffer(), 'copyin'):
-        _sq._buffer().copyin(memoryview(_out_t))
+    # zero-copy feedback: next_state outputs are aliased to state input buffers
     model_output = self.outputs['outputs'].numpy()[0]
     if not np.all(np.isfinite(model_output)):
       raise RuntimeError("model output not finite")
