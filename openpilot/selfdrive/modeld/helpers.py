@@ -210,7 +210,10 @@ def usbgpu_compile_pending() -> bool:
   if model is None:
     return False
   path = modeld_pkl_path(usbgpu=True, model_sha256=model.sha256)
-  return not Path(get_manifest_path(path)).is_file()
+  if Path(get_manifest_path(path)).is_file():
+    return False
+  # stateful/generic artifacts are plain pickles without a chunkmanifest
+  return not Path(path).is_file()
 
 
 def usbgpu_compiled_path() -> Path | None:

@@ -279,7 +279,13 @@ def patch_model_delivery(helpers) -> bool:
     try:
       from openpilot.common.file_chunker import get_manifest_path
       path = helpers.modeld_pkl_path(usbgpu=True, model_sha256=model.sha256)
-      return path if pathlib.Path(get_manifest_path(path)).is_file() else None
+      p = pathlib.Path(path)
+      if pathlib.Path(get_manifest_path(path)).is_file():
+        return path
+      # stateful/generic artifact: plain pickle without chunkmanifest
+      if p.is_file() and p.stat().st_size > 0:
+        return path
+      return None
     except Exception:
       return None
 

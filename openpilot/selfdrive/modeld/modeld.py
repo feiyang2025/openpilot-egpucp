@@ -37,6 +37,15 @@ _calib_read_cache: dict = {}  # CamCalib 参数读取缓存(60s 刷新)
 SEND_RAW_PRED = os.getenv('SEND_RAW_PRED')
 SIMULATION = os.getenv('SIMULATION') == '1'
 
+def _input_view(buffer, shape, dtype, offset=0):
+  from tinygrad import Tensor
+  from tinygrad.uop.ops import UOp
+  buf = buffer.view(int(np.prod(shape)), dtype, offset).ensure_allocated()
+  return Tensor(UOp.from_buffer(buf)).reshape(shape)
+
+def _round_up(n, m):
+  return (n + m - 1) // m * m
+
 LAT_SMOOTH_SECONDS = 0.0
 LONG_SMOOTH_SECONDS = 0.3
 MIN_LAT_CONTROL_SPEED = 0.3
@@ -138,20 +147,51 @@ class ModelState:
   def __init__(self, cam_w: int, cam_h: int, usbgpu: bool, pkl_path=None):
     input_devices = get_tg_input_devices(PROCESS_NAME, usbgpu)
     self.WARP_DEV, self.QUEUE_DEV = input_devices['WARP_DEV'], input_devices['QUEUE_DEV']
-    jits = load_oob(open_file_chunked(pkl_path or modeld_pkl_path(usbgpu)))
+    _pkl_path = pkl_path or modeld_pkl_path(usbgpu)
+    try:
+      jits = load_oob(open_file_chunked(_pkl_path))
+    except Exception:
+      # stateful/generic artifacts are plain pickles, not chunked OOB
+      import pickle as _pickle
+      with open(_pkl_path, 'rb') as _f:
+        jits = _pickle.load(_f)
+    self.usbgpu = usbgpu
+    self.parser = Parser()
+
+    if 'input_specs' in jits and 'run' in jits:
+      # ---- generic / stateful (cinque-v3) model ----
+      self.generic = True
+      from tinygrad import Tensor as _Tensor
+      from tinygrad.dtype import dtypes as _dtypes
+      self.model_device = jits['input_specs']['new_img'][2]
+      def _np_dtype(d):
+        try:
+          return np.dtype(str(d))
+        except Exception:
+          return np.dtype(d) if isinstance(d, np.dtype) else np.dtype('float32')
+      self.input_shapes = {name: (shape, _np_dtype(dtype)) for name, (shape, dtype, _) in jits['input_specs'].items()}
+      self.state_pairs = {name: f'next_{name}' for name in self.input_shapes if f'next_{name}' in jits['metadata']['output_shapes']}
+      self.vision_input_names = ('img', 'big_img')
+      import base64, pickle as _p
+      self.output_slices = _p.loads(base64.b64decode(jits['metadata']['metadata']['output_slices']))
+      self.prev_desire = np.zeros(ModelConstants.DESIRE_LEN, dtype=np.float32)
+      stride, y_height, uv_height, _ = get_nv12_info(cam_w, cam_h)
+      self.frame_copy_size = stride * (y_height + uv_height)
+      self._init_generic(jits, cam_w, cam_h)
+      return
+
+    self.generic = False
     metadata = jits['metadata']
     self.input_shapes = metadata['input_shapes']
     self.vision_input_names = [k for k in self.input_shapes if 'img' in k]
     self.output_slices = metadata['output_slices']
 
     self.prev_desire = np.zeros(ModelConstants.DESIRE_LEN, dtype=np.float32)
-    self.usbgpu = usbgpu
 
     self.frame_skip = ModelConstants.MODEL_RUN_FREQ // ModelConstants.MODEL_CONTEXT_FREQ
     self.input_queues, self.npy = make_input_queues(self.input_shapes, self.frame_skip, device=self.QUEUE_DEV)
     self.full_frames: dict[str, Tensor] = {}
     self._blob_cache: dict[int, Tensor] = {}
-    self.parser = Parser()
     self.frame_buf_params = {k: get_nv12_info(cam_w, cam_h) for k in ('img', 'big_img')}
     self.run_policy = jits['run_policy']
     self.trt_policy = None
@@ -165,12 +205,115 @@ class ModelState:
       cloudlog.warning(f"TensorRT big-model backend enabled: {_trt_engine}")
     self.warp = jits[(cam_w,cam_h)]
 
+  def _init_generic(self, jits, cam_w, cam_h):
+    import numpy as np
+    from tinygrad import Tensor
+    from tinygrad.dtype import dtypes
+    self.run_model = jits['run']
+    self.input_queues = {}
+    for name, (shape, dtype) in self.input_shapes.items():
+      if name not in self.state_pairs:
+        continue
+      if 'img' in name or name == 'state_img_q':
+        self.input_queues[name] = Tensor(np.zeros(shape, dtype=np.uint8), device=self.model_device).realize()
+      else:
+        self.input_queues[name] = Tensor(np.zeros(shape, dtype=dtype), device=self.model_device).realize()
+    shapes = {'tfm': (2, 3, 3)} | {name: shape for name, (shape, _) in self.input_shapes.items()
+                                   if name not in self.state_pairs and name not in ('new_img', 'state_img_q', 'state_desire_q', 'state_feat_q')}
+    npy_size = sum(_round_up(int(np.prod(shape)) * 4, 128) for shape in shapes.values())
+    self.packed_input = np.zeros(npy_size + 2 * self.frame_copy_size, dtype=np.uint8)
+    self.input_host = Tensor(self.packed_input, device='NPY')._buffer()
+    self.input_device = Tensor(self.packed_input, device=self.model_device).realize()._buffer()
+    self.npy = {}
+    offset = 0
+    for name, shape in shapes.items():
+      self.npy[name] = np.ndarray(shape, dtype=np.float32, buffer=self.packed_input, offset=offset)
+      self.input_queues[name] = Tensor(np.zeros(shape, dtype=np.float32), device=self.model_device).realize()
+      offset += _round_up(self.npy[name].nbytes, 128)
+    self.frames = self.packed_input[npy_size:].reshape(2, self.frame_copy_size)
+    self.warp_inputs = {'input_frame': _input_view(self.input_device, self.frames.shape, dtypes.uint8, npy_size)}
+    def _np_dtype2(d):
+      try:
+        return np.dtype(str(d))
+      except Exception:
+        return np.dtype(d) if isinstance(d, np.dtype) else np.dtype('float32')
+    self.outputs = {name: Tensor(np.zeros(shape, dtype=_np_dtype2(dtype)), device=device).realize()
+                    for name, (shape, dtype, device) in jits['output_specs'].items()}
+    # next_state feedback: copy outputs into state inputs after each run
+    # (buffer aliasing unsupported on NPY-backed state queues)
+    for name, next_name in self.state_pairs.items():
+      pass
+    # warp: use classic warp if present, else need a stateful warp from the artifact
+    if (cam_w, cam_h) in jits:
+      self.run_warp = jits[(cam_w, cam_h)]
+      self.warp_cached = False
+    else:
+      # generic artifacts carry run_warp keyed by resolution in newer format
+      self.run_warp = None
+      self.warp_cached = True
+
+  def _run_generic(self, bufs, transforms, inputs):
+    import numpy as np
+    for i, key in enumerate(self.vision_input_names):
+      frame = np.frombuffer(bufs[key].data, dtype=np.uint8, count=self.frame_copy_size)
+      np.copyto(self.frames[i], frame)
+      self.npy['tfm'][i] = transforms[key]
+    # desire rising-edge pulse
+    inputs['desire_pulse'][0] = 0
+    self.npy['desire'][:] = np.where(inputs['desire_pulse'] - self.prev_desire > .99, inputs['desire_pulse'], 0)
+    self.prev_desire[:] = inputs['desire_pulse']
+    self.npy['traffic_convention'][:] = inputs['traffic_convention']
+    self.npy['action_t'][:] = inputs['action_t']
+    self.input_device.copyin(memoryview(self.input_host._buf)) if hasattr(self.input_device, 'copyin') else self.input_device.copy_from(self.input_host)
+    for _name in ('desire', 'traffic_convention', 'action_t'):
+      if _name in self.input_queues and _name in self.npy:
+        _sq = self.input_queues[_name]
+        if hasattr(_sq._buffer(), 'copyin'):
+          _sq._buffer().copyin(memoryview(np.ascontiguousarray(self.npy[_name])))
+    if self.run_warp is not None:
+      # classic warp: (tfm, big_tfm, frame, big_frame) -> (2,6,H,W), matches new_img
+      import tinygrad as _tg
+      from tinygrad import Tensor as _T
+      # frames are views into the packed buffer; warp wants Tensors on WARP_DEV
+      tfm = _T(self.npy['tfm'][0].copy(), device=self.WARP_DEV).realize()
+      big_tfm = _T(self.npy['tfm'][1].copy(), device=self.WARP_DEV).realize()
+      frame_t = _T(np.ascontiguousarray(self.frames[0]), device=self.WARP_DEV).realize()
+      big_frame_t = _T(np.ascontiguousarray(self.frames[1]), device=self.WARP_DEV).realize()
+      warped = self.run_warp(tfm=tfm, big_tfm=big_tfm, frame=frame_t, big_frame=big_frame_t)
+      _warp_np = np.ascontiguousarray(warped.numpy())
+      _new_img = Tensor(np.zeros((2, 6, 128, 256), dtype=np.uint8), device=self.model_device).realize()
+      if hasattr(_new_img._buffer(), 'copyin'):
+        _new_img._buffer().copyin(memoryview(_warp_np))
+      self.input_queues['new_img'] = _new_img
+    else:
+      raise RuntimeError("generic model requires a warp in the artifact")
+    _model_keys = {n for n, (_, _) in self.input_shapes.items() if n not in self.state_pairs} | set(self.state_pairs)
+    _model_keys = {n for n, _ in self.input_shapes.items()}
+    self.run_model(output_buffers=self.outputs, **{k: v for k, v in self.input_queues.items() if k in _model_keys})
+    for name, next_name in self.state_pairs.items():
+      _out_t = np.ascontiguousarray(self.outputs[next_name].numpy())
+      if 'img' in name or name == 'state_img_q':
+        _out_t = _out_t.astype(np.uint8)
+      _sq = self.input_queues[name]
+      if hasattr(_sq._buffer(), 'copyin'):
+        _sq._buffer().copyin(memoryview(_out_t))
+    model_output = self.outputs['outputs'].numpy()[0]
+    if not np.all(np.isfinite(model_output)):
+      raise RuntimeError("model output not finite")
+    outputs_dict = self.parser.parse_outputs(self.slice_outputs(model_output, self.output_slices))
+    if SEND_RAW_PRED:
+      outputs_dict['raw_pred'] = model_output.copy()
+    return outputs_dict
+
   def slice_outputs(self, model_outputs: np.ndarray, output_slices: dict[str, slice]) -> dict[str, np.ndarray]:
     parsed_model_outputs = {k: model_outputs[np.newaxis, v] for k,v in output_slices.items()}
     return parsed_model_outputs
 
   def run(self, bufs: dict[str, VisionBuf], transforms: dict[str, np.ndarray],
           inputs: dict[str, np.ndarray], prepare_only: bool) -> dict[str, np.ndarray] | None:
+    if getattr(self, 'generic', False):
+      return self._run_generic(bufs, transforms, inputs)
+
     for key in bufs.keys():
       stride, y_height, uv_height, yuv_size = self.frame_buf_params[key]
       frame_data = np.frombuffer(bufs[key].data, dtype=np.uint8)
