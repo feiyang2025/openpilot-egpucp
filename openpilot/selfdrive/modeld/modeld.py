@@ -252,9 +252,26 @@ class ModelState:
       # generic artifacts carry run_warp keyed by resolution in newer format
       self.run_warp = None
       self.warp_cached = True
+    # TRT fast path for stateful model: a <model>.plan next to the pkl wins.
+    self.trt_policy = None
+    _plan = Path(str(_pkl_path).replace('_tinygrad.pkl', '.plan').replace('.pkl', '.plan'))
+    if _plan.is_file() and os.getenv('MODEL_TRT_DISABLE') != '1':
+      try:
+        from openpilot.selfdrive.modeld.stateful_trt_runner import StatefulTensorRTPolicyRunner
+        self.trt_policy = StatefulTensorRTPolicyRunner(_plan, self.input_shapes)
+        cloudlog.warning(f"TensorRT stateful backend enabled: {_plan}")
+        # TRT needs float inputs; init state buffers as float
+        self._trt_state_img = np.zeros(self.input_shapes['state_img_q'], dtype=np.float32)
+        self._trt_state_desire = np.zeros(self.input_shapes['state_desire_q'], dtype=np.float32)
+        self._trt_state_feat = np.zeros(self.input_shapes['state_feat_q'], dtype=np.float32)
+      except Exception as exc:
+        cloudlog.warning(f"TensorRT stateful backend unavailable, using tinygrad: {exc!r}")
+        self.trt_policy = None
 
   def _run_generic(self, bufs, transforms, inputs):
     import numpy as np
+    if getattr(self, 'trt_policy', None) is not None:
+      return self._run_generic_trt(bufs, transforms, inputs)
     for i, key in enumerate(self.vision_input_names):
       fdata = np.frombuffer(bufs[key].data, dtype=np.uint8)
       if len(fdata) != self.frame_copy_size:
@@ -300,6 +317,42 @@ class ModelState:
     outputs_dict = self.parser.parse_outputs(self.slice_outputs(model_output, self.output_slices))
     if SEND_RAW_PRED:
       outputs_dict['raw_pred'] = model_output.copy()
+    return outputs_dict
+
+  def _run_generic_trt(self, bufs, transforms, inputs):
+    import numpy as np
+    for i, key in enumerate(self.vision_input_names):
+      fdata = np.frombuffer(bufs[key].data, dtype=np.uint8, count=self.frame_copy_size)
+      if len(fdata) < self.frame_copy_size:
+        fdata = np.pad(fdata, (0, self.frame_copy_size - len(fdata)))
+      np.copyto(self.frames[i], fdata)
+      self.npy['tfm'][i] = transforms[key]
+    inputs['desire_pulse'][0] = 0
+    self.npy['desire'][:] = np.where(inputs['desire_pulse'] - self.prev_desire > .99, inputs['desire_pulse'], 0)
+    self.prev_desire[:] = inputs['desire_pulse']
+    self.npy['traffic_convention'][:] = inputs['traffic_convention']
+    self.npy['action_t'][:] = inputs['action_t']
+    # warp -> new_img (float for TRT)
+    tfm_t = Tensor(self.npy['tfm'][0].copy(), device=self.WARP_DEV).realize()
+    big_tfm_t = Tensor(self.npy['tfm'][1].copy(), device=self.WARP_DEV).realize()
+    frame_t = Tensor(np.ascontiguousarray(self.frames[0]), device=self.WARP_DEV).realize()
+    big_frame_t = Tensor(np.ascontiguousarray(self.frames[1]), device=self.WARP_DEV).realize()
+    warped = self.run_warp(tfm=tfm_t, big_tfm=big_tfm_t, frame=frame_t, big_frame=big_frame_t)
+    new_img = np.ascontiguousarray(warped.numpy(), dtype=np.float32)
+    out = self.trt_policy.run(
+      new_img,
+      self.npy['desire'].copy(),
+      self.npy['traffic_convention'].copy(),
+      self.npy['action_t'].copy(),
+      self._trt_state_img, self._trt_state_desire, self._trt_state_feat,
+    )
+    # feedback state from runner
+    self._trt_state_img = self.trt_policy.state_img
+    self._trt_state_desire = self.trt_policy.state_desire
+    self._trt_state_feat = self.trt_policy.state_feat
+    outputs_dict = self.parser.parse_outputs(self.slice_outputs(out, self.output_slices))
+    if SEND_RAW_PRED:
+      outputs_dict['raw_pred'] = out.copy()
     return outputs_dict
 
   def slice_outputs(self, model_outputs: np.ndarray, output_slices: dict[str, slice]) -> dict[str, np.ndarray]:
