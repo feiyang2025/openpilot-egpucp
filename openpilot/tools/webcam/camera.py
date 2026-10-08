@@ -15,6 +15,12 @@ Device type is detected from the v4l2 driver name (uvcvideo vs tegra-capture-vi)
 import os
 import numpy as np
 import cv2 as cv
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+  from tools.webcam.v4l2_reader import V4L2Reader
+except ImportError:
+  from openpilot.tools.webcam.v4l2_reader import V4L2Reader
 
 CAM_WIDTH = int(os.getenv("CAM_WIDTH", "1920"))
 CAM_HEIGHT = int(os.getenv("CAM_HEIGHT", "1080"))
@@ -53,15 +59,24 @@ class Camera:
 
     print(f"Opening {cam_type_state} at {camera_id} (driver: {_v4l_driver(camera_id) or 'n/a'}, uvc={self.is_uvc})", flush=True)
 
-    self.cap = cv.VideoCapture(camera_id)
-    # Request the sensor's native mode; tegra VI exposes discrete sizes.
-    self.cap.set(cv.CAP_PROP_FRAME_WIDTH, 1920.0)
-    self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, 1080.0)
-    # Raw capture: no OpenCV YUV->BGR conversion (it mis-decodes GMSL driver).
-    self.cap.set(cv.CAP_PROP_CONVERT_RGB, 0)
+    # Direct v4l2 mmap (tegra GMSL): OpenCV caps at 10fps, v4l2 hits 27fps.
+    try:
+      _dev = camera_id if isinstance(camera_id, str) and camera_id.startswith('/dev/') else f"/dev/video{camera_id}"
+      self.cap = V4L2Reader(_dev, 1920, 1080)
+      self._v4l2 = True
+    except Exception:
+      self.cap = cv.VideoCapture(camera_id)
+      self.cap.set(cv.CAP_PROP_FRAME_WIDTH, 1920.0)
+      self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, 1080.0)
+      self.cap.set(cv.CAP_PROP_CONVERT_RGB, 0)
+      self._v4l2 = False
 
-    self.src_w = int(self.cap.get(cv.CAP_PROP_FRAME_WIDTH))
-    self.src_h = int(self.cap.get(cv.CAP_PROP_FRAME_HEIGHT))
+    if self._v4l2:
+      self.src_w = self.cap.width
+      self.src_h = self.cap.height
+    else:
+      self.src_w = int(self.cap.get(cv.CAP_PROP_FRAME_WIDTH))
+      self.src_h = int(self.cap.get(cv.CAP_PROP_FRAME_HEIGHT))
 
     self.W = CAM_WIDTH
     self.H = CAM_HEIGHT
@@ -76,6 +91,10 @@ class Camera:
     self.cap.set(cv.CAP_PROP_FRAME_WIDTH, 1920.0)
     self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, 1080.0)
     self.cap.set(cv.CAP_PROP_CONVERT_RGB, 0)
+    try:
+      self.cap.set(cv.CAP_PROP_BUFFERSIZE, 4)
+    except Exception:
+      pass
 
   @staticmethod
   def _assemble_nv12(y, u, v, dst_w, dst_h):
@@ -112,9 +131,15 @@ class Camera:
 
   def read_frames(self):
     while True:
-      ret, frame = self.cap.read()
-      if not ret:
-        break
+      if self._v4l2:
+        fid, data, seq = self.cap.read()
+        # tegra driver buffers are 4x the nominal frame; take the first frame slice
+        n = self.W * self.H * 2
+        frame = np.frombuffer(data[:n], dtype=np.uint8).reshape(self.H, self.W, 2)
+      else:
+        ret, frame = self.cap.read()
+        if not ret:
+          break
       if self.is_uvc:
         if CAM_USB_FLIP:
           frame = cv.flip(frame, -1)
@@ -123,5 +148,6 @@ class Camera:
         if CAM_FLIP:
           frame = cv.flip(frame, -1)
         nv12 = self.uyvy_to_nv12(frame, self.W, self.H)
+
       yield nv12
     self.cap.release()
