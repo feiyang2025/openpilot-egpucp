@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import os
+import pickle
+from pathlib import Path
 os.environ['GMMU'] = '0' # for usbgpu fast loading, noop for qcom
 from tinygrad.tensor import Tensor
 import time
@@ -147,7 +149,7 @@ class ModelState:
   def __init__(self, cam_w: int, cam_h: int, usbgpu: bool, pkl_path=None):
     input_devices = get_tg_input_devices(PROCESS_NAME, usbgpu)
     self.WARP_DEV, self.QUEUE_DEV = input_devices['WARP_DEV'], input_devices['QUEUE_DEV']
-    _pkl_path = pkl_path or modeld_pkl_path(usbgpu)
+    _pkl_path = self._pkl_path = pkl_path or modeld_pkl_path(usbgpu)
     try:
       jits = load_oob(open_file_chunked(_pkl_path))
     except Exception:
@@ -254,16 +256,21 @@ class ModelState:
       self.warp_cached = True
     # TRT fast path for stateful model: a <model>.plan next to the pkl wins.
     self.trt_policy = None
-    _plan = Path(str(_pkl_path).replace('_tinygrad.pkl', '.plan').replace('.pkl', '.plan'))
+    _plan = Path(str(self._pkl_path).replace('_tinygrad.pkl', '.plan').replace('.pkl', '.plan'))
     if _plan.is_file() and os.getenv('MODEL_TRT_DISABLE') != '1':
       try:
         from openpilot.selfdrive.modeld.stateful_trt_runner import StatefulTensorRTPolicyRunner
-        self.trt_policy = StatefulTensorRTPolicyRunner(_plan, self.input_shapes)
+        _pure_shapes = {k: v[0] if isinstance(v, tuple) and v and isinstance(v[0], tuple) else tuple(v)
+                        for k, v in self.input_shapes.items()}
+        self.trt_policy = StatefulTensorRTPolicyRunner(_plan, _pure_shapes)
         cloudlog.warning(f"TensorRT stateful backend enabled: {_plan}")
         # TRT needs float inputs; init state buffers as float
-        self._trt_state_img = np.zeros(self.input_shapes['state_img_q'], dtype=np.float32)
-        self._trt_state_desire = np.zeros(self.input_shapes['state_desire_q'], dtype=np.float32)
-        self._trt_state_feat = np.zeros(self.input_shapes['state_feat_q'], dtype=np.float32)
+        def _pure(name):
+          v = self.input_shapes[name]
+          return v[0] if isinstance(v, tuple) and v and isinstance(v[0], tuple) else tuple(v)
+        self._trt_state_img = np.zeros(_pure('state_img_q'), dtype=np.float32)
+        self._trt_state_desire = np.zeros(_pure('state_desire_q'), dtype=np.float32)
+        self._trt_state_feat = np.zeros(_pure('state_feat_q'), dtype=np.float32)
       except Exception as exc:
         cloudlog.warning(f"TensorRT stateful backend unavailable, using tinygrad: {exc!r}")
         self.trt_policy = None
