@@ -109,6 +109,17 @@ if USBGPU:
 
 for usbgpu, pkl_path, driving_onnx_deps, driving_onnx, cmd_flags in model_builds:
   target_pkl_path = File(pkl_path).abspath
+  # stateful/generic artifacts are plain pickles without a chunkmanifest; if one
+  # is already on disk, treat it as up to date and skip the (old-protocol) build.
+  if os.path.isfile(pkl_path) and os.path.getsize(pkl_path) > 0:
+    try:
+      with open(pkl_path, 'rb') as _f:
+        _hdr = _f.read(2)
+      if _hdr.startswith(b'\x80'):
+        # plain pickle (protocol marker): stateful/generic artifact, no chunking
+        continue
+    except Exception:
+      pass
   camera_res_args = ' '.join(f'{cw}x{ch}' for cw, ch in CAMERA_CONFIGS)
   # CPU 7 is isolated with isolcpus on AGNOS, so explicitly pin the model
   # compiler there instead of competing with the normal build workload.
