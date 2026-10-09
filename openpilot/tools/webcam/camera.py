@@ -65,6 +65,8 @@ class Camera:
 
     self.W = CAM_WIDTH
     self.H = CAM_HEIGHT
+    # uint8 LUT avoids a full-frame float32 multiply on every camera frame.
+    self._bright_lut = np.clip(np.arange(256, dtype=np.float32) * BRIGHTNESS_GAIN, 0, 255).astype(np.uint8)
 
   def reopen(self):
     """Reopen the device after a stream loss (keep config)."""
@@ -97,7 +99,7 @@ class Camera:
     u = a[2::4].reshape(h, w // 2)
     v = a[0::4].reshape(h, w // 2)
     # Brightness gain (dark GMSL scene compensation)
-    y = np.clip(y.astype(np.float32) * BRIGHTNESS_GAIN, 0, 255).astype(np.uint8)
+    y = self._bright_lut[y]
     return Camera._assemble_nv12(y, u, v, dst_w, dst_h)
 
   def yuyv_to_nv12(self, frame, dst_w, dst_h):

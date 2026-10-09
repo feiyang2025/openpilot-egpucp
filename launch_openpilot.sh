@@ -32,6 +32,8 @@ if [ "$(uname -m)" = "aarch64" ] && [ ! -e /TICI ]; then
   if [ "${ENABLE_FAKE_PANDA:-0}" = "1" ] && ! lsusb 2>/dev/null | grep -qiE "3801|bbaa|0483"; then
     if ! pgrep -f "[f]ake_panda_state" > /dev/null 2>&1; then
       echo "[sim] explicitly starting fake panda (ignition + CAN)"
+      # Remove stale publisher files left by a killed previous fake panda.
+      rm -f /dev/shm/msgq_pandaStates /dev/shm/msgq_can 2>/dev/null || true
       nohup "$DIR/.venv/bin/python" "$DIR/tools/sim/fake_panda_state.py" > /tmp/fake_panda.log 2>&1 &
       sleep 2
     fi
