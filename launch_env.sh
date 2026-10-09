@@ -32,8 +32,18 @@ export BIG="1"
 export SCALE="0.889"
 export UI_WIDTH="2160"
 export UI_HEIGHT="1080"
-# UI 显示到 Xvfb :99(seeed 无屏桌面,开机自启;sunshine 也抓这个屏)
-export DISPLAY=":0"
+# gdm 用 -displayfd 启动 Xorg,重启后 display 号会漂移(:0/:1/:2...)。
+# 动态检测真实 Xorg socket(排除 X99=Xvfb 虚拟屏),避免 UI 连不上 X。
+_OP_DISPLAY=""
+for _sock in /tmp/.X11-unix/X*; do
+  [ -S "$_sock" ] || continue
+  _n="${_sock##*/X}"
+  [ "$_n" = "99" ] && continue
+  _OP_DISPLAY=":$_n"
+  break
+done
+export DISPLAY="${_OP_DISPLAY:-:0}"
+unset _OP_DISPLAY _sock _n
 #!/usr/bin/env bash
 # Jetson dev/sim mode: the Qualcomm-only camerad (spectra.cc) asserts on this
 # platform, so block it and use the Python webcamerad instead; fake panda
