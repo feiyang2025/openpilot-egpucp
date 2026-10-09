@@ -30,6 +30,8 @@ fi
 # UI: 1920x1200 monitor -> big-UI canvas (2160x1080) scaled to fit (0.889)
 export BIG="1"
 export SCALE="0.889"
+export UI_WIDTH="2160"
+export UI_HEIGHT="1080"
 # UI 显示到 Xvfb :99(seeed 无屏桌面,开机自启;sunshine 也抓这个屏)
 export DISPLAY=":0"
 #!/usr/bin/env bash

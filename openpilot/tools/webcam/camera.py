@@ -133,9 +133,12 @@ class Camera:
     while True:
       if self._v4l2:
         fid, data, seq = self.cap.read()
-        # tegra driver buffers are 4x the nominal frame; take the first frame slice
-        n = self.W * self.H * 2
-        frame = np.frombuffer(data[:n], dtype=np.uint8).reshape(self.H, self.W, 2)
+        # tegra driver buffers are 4x the nominal frame; take the first frame slice.
+        # Reshape to the SOURCE dimensions (src_w x src_h), then the yuyv->nv12
+        # path resizes down to the target CAM_WIDTH x CAM_HEIGHT. Reshaping to
+        # target dims directly scrambles pixels (green stripes).
+        n = self.src_w * self.src_h * 2
+        frame = np.frombuffer(data[:n], dtype=np.uint8).reshape(self.src_h, self.src_w, 2)
       else:
         ret, frame = self.cap.read()
         if not ret:

@@ -34,9 +34,10 @@ def test_detect():
   assert est.active, est
   assert est.speed_kph < 40.0, f"限速应按距离缩: {est.speed_kph}"
 
-  # 3b) 中距离静止障碍(dRel=20) -> 交给 MPC,不重复干预
+  # 3b) 中距离静止障碍(dRel=20) -> 40m 内线性限速(消除旧 12~40m 盲区)
   est = av._detect_obstacle(FakeLead(dRel=20, vRel=-20.0, vLead=0.0), FakeCar())
-  assert not est.active and est.reason == "matching-lead", est
+  assert est.active and est.reason == "stopped-obstacle", est
+  assert abs(est.speed_kph - 72.0 * 20.0 / 40.0) < 0.5, f"20m 限速应为 36: {est.speed_kph}"
 
   # 4) 相邻车道(偏离路径)即使很近也不触发
   est = av._detect_obstacle(FakeLead(dRel=10, vRel=-20.0, dPath=5.0, vLead=0.0), FakeCar())
@@ -87,16 +88,16 @@ def test_state_machine():
 def test_linear_speed():
   av = ObstacleAvoidance()
   car = FakeCar(vEgo=20.0)  # 72 kph
-  # 12m 内距离越近限速越低(只测 active 的距离;12m 整数是边界=不限速)
+  # 40m 内距离越近限速越低(40m 整数是边界=不限速)
   speeds = []
-  for d in (11.9, 6, 3, 1):
+  for d in (39.9, 6, 3, 1):
     est = av._detect_obstacle(FakeLead(dRel=d, vRel=-20.0, vLead=0.0), car)
     assert est.active, f"{d}m 应触发"
     speeds.append((d, est.speed_kph))
   # 验证单调递减(距离越近速度越低)
   sp = [s for _, s in speeds]
   assert all(sp[i] >= sp[i+1] for i in range(len(sp)-1)), f"应单调递减: {speeds}"
-  assert abs(sp[0] - 72.0) < 1.0, f"接近12m应≈巡航72: {sp[0]}"
+  assert abs(sp[0] - 72.0 * 39.9 / 40.0) < 1.0, f"接近40m应≈72*39.9/40: {sp[0]}"
   # 很近时接近 0
   assert speeds[-1][1] < 10.0, f"最近距离限速应<10: {speeds}"
   print(f"线性限速: {speeds} 单调递减 PASS")

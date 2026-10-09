@@ -3,7 +3,8 @@
 
 阶段1:检测本车道静止/极慢障碍,输出限速(纵向减速避险)。
 阶段2:检测障碍 + 相邻车道空隙,输出车道内横向偏移(贴边绕过)。
-安全:仅 12m 内触发限速、偏移 ≤0.4m 不跨线、两侧都有车不横移。
+安全:40m 内对静止/极慢障碍线性限速(消除 12~40m 盲区)、
+偏移 ≤0.4m 不跨线、两侧都有车不横移、横向偏移/自动换道仅 15m 内触发。
 """
 from __future__ import annotations
 
@@ -17,7 +18,9 @@ MAX_TRIGGER_DPATH_M = 3.5
 STOPPED_VREL_KPH = -3.0
 CONFIRM_FRAMES = 3
 RELEASE_FRAMES = 5
-TARGET_GAP_M = 12.0
+TARGET_GAP_M = 40.0
+# 横向偏移/自动换道仅在近距离触发(远距离只做限速,避免 40m 外就贴边/变道)
+NEAR_AVOID_M = 15.0
 MAX_AVOID_SPEED_KPH = 80.0
 MIN_AVOID_SPEED_KPH = 0.0
 SAFE_DECEL_MPS2 = 1.5
@@ -77,7 +80,7 @@ class ObstacleAvoidance:
     if not is_stopped:
       return AvoidanceEstimate(False, 0.0, d_rel, d_path, v_rel, "moving-lead")
 
-    # 计算建议限速:12m(TARGET_GAP)内线性递减
+    # 计算建议限速:40m(TARGET_GAP)内线性递减,越近越慢
     if d_rel >= TARGET_GAP_M:
       return AvoidanceEstimate(False, 0.0, d_rel, d_path, v_rel, "matching-lead")
     speed_kph = v_ego * max(0.0, d_rel / TARGET_GAP_M)
@@ -129,6 +132,9 @@ class ObstacleAvoidance:
     """
     if not self._active:
       return 0.0
+    # 仅在近距离障碍时横向避让;40m 外远障碍只限速,不贴边
+    if self._last_estimate is None or self._last_estimate.d_rel_m > NEAR_AVOID_M:
+      return 0.0
     # 相邻车道判定:该侧最近障碍距离远(>40m 视为空旷)或不存在
     def side_clear(lead) -> bool:
       if lead is None:
@@ -163,6 +169,9 @@ class ObstacleAvoidance:
     if lane_change_active:
       return None
     if not self._active:
+      return None
+    # 仅在近距离障碍时自动换道;远障碍只限速(40m 外变道太激进)
+    if self._last_estimate is None or self._last_estimate.d_rel_m > NEAR_AVOID_M:
       return None
     if v_ego_kph < 40.0:  # MIN_LC_SPEED_KPH
       return None
