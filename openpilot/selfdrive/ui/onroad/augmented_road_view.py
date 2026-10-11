@@ -15,6 +15,7 @@ from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.text_draw import draw_text_ui_style
 from openpilot.common.transformations.camera import DEVICE_CAMERAS, DeviceCameraConfig, view_frame_from_device_frame
 from openpilot.common.transformations.orientation import rot_from_euler
+from openpilot.selfdrive.modeld.camera_calibration import CalibrationCache
 
 OpState = log.SelfdriveState.OpenpilotState
 CALIBRATED = log.LiveCalibrationData.Status.calibrated
@@ -32,13 +33,6 @@ WIDE_CAM_MAX_SPEED = 10.0  # m/s (22 mph)
 ROAD_CAM_MIN_SPEED = 15.0  # m/s (34 mph)
 INF_POINT = np.array([1000.0, 0.0, 0.0])
 
-# First-pass optical-axis alignment for the J501 dual IMX390 installation.
-# These are UI overlay corrections only; replace them with measured per-camera
-# extrinsics when the checkerboard/road calibration is available.
-ROAD_MODEL_X_OFFSET_PX = 25.0
-WIDE_MODEL_X_OFFSET_PX = 35.0
-
-
 class AugmentedRoadView(CameraView):
   def __init__(self, stream_type: VisionStreamType = VisionStreamType.VISION_STREAM_ROAD):
     super().__init__("camerad", stream_type)
@@ -47,6 +41,7 @@ class AugmentedRoadView(CameraView):
     self.device_camera: DeviceCameraConfig | None = None
     self.view_from_calib = view_frame_from_device_frame.copy()
     self.view_from_wide_calib = view_frame_from_device_frame.copy()
+    self._camera_calibration_cache = CalibrationCache()
 
     self._matrix_cache_key = (0, 0.0, 0.0, stream_type)
     self._cached_matrix: np.ndarray | None = None
@@ -236,7 +231,10 @@ class AugmentedRoadView(CameraView):
     # Get camera configuration
     device_camera = self.device_camera or DEFAULT_DEVICE_CAMERA
     is_wide_camera = self.stream_type == WIDE_CAM
-    intrinsic = device_camera.ecam.intrinsics if is_wide_camera else device_camera.fcam.intrinsics
+    camera_calibration = self._camera_calibration_cache.resolve(ui_state.params, device_camera, time.monotonic())
+    calibration_values = camera_calibration.wide if is_wide_camera else camera_calibration.road
+    intrinsic = (device_camera.ecam.intrinsics if is_wide_camera else device_camera.fcam.intrinsics).copy()
+    intrinsic[0, 0] = intrinsic[1, 1] = calibration_values.focal_length
     calibration = self.view_from_wide_calib if is_wide_camera else self.view_from_calib
 
     # Calculate center points and dimensions
@@ -285,11 +283,7 @@ class AugmentedRoadView(CameraView):
       [0.0, zoom, (h / 2 + y - y_offset) - (cy * zoom)],
       [0.0, 0.0, 1.0]
     ])
-    # Keep independent coarse horizontal alignment for the two physical
-    # cameras. Both observed overlays were slightly left of the vehicle axis,
-    # with the 190-degree camera needing the larger correction.
     model_transform = video_transform @ calib_transform
-    model_transform[0, 2] += WIDE_MODEL_X_OFFSET_PX if is_wide_camera else ROAD_MODEL_X_OFFSET_PX
     self.model_renderer.set_transform(model_transform)
 
     return self._cached_matrix

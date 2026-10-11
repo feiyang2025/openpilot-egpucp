@@ -53,6 +53,8 @@ def main() -> None:
   while True:
     try:
       line = ser.readline().decode("ascii", "ignore").strip()
+      receive_mono_ns = time.monotonic_ns()
+      receive_realtime_ns = time.time_ns()
     except Exception as e:
       print(f"GPS: read err {e}", flush=True)
       time.sleep(1)
@@ -82,12 +84,12 @@ def main() -> None:
       except ValueError:
         bearing = 0.0
 
-    now = time.time()
+    now = receive_mono_ns * 1e-9
     if fix and lat is not None and lon is not None and (now - last_pub) >= 1.0:
       last_pub = now
-      dat = new_message("gpsLocationExternal", valid=True)
+      dat = new_message("gpsLocationExternal", valid=True, logMonoTime=receive_mono_ns)
       dat.gpsLocationExternal = {
-        "unixTimestampMillis": int(now * 1000),
+        "unixTimestampMillis": receive_realtime_ns // 1_000_000,
         "flags": 1,
         "horizontalAccuracy": 5.0,
         "verticalAccuracy": 10.0,

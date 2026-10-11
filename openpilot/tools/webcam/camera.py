@@ -13,6 +13,8 @@ in OpenCV when CONVERT_RGB=0; we convert that standard YUYV layout to NV12.
 Device type is detected from the v4l2 driver name (uvcvideo vs tegra-capture-vi).
 """
 import os
+import time
+import threading
 import numpy as np
 import cv2 as cv
 
@@ -24,6 +26,31 @@ BRIGHTNESS_GAIN = float(os.getenv("CAM_BRIGHTNESS", "2.0"))
 # unless CAM_USB_FLIP=1.
 CAM_FLIP = os.getenv("CAM_FLIP", "1") == "1"
 CAM_USB_FLIP = os.getenv("CAM_USB_FLIP", "0") == "1"
+
+
+class CaptureClockMapper:
+  """Map the V4L2 EOF clock into cereal's CLOCK_MONOTONIC domain.
+
+  Tegra exposes the real per-frame EOF timestamp through CAP_PROP_POS_MSEC,
+  but its VI clock has a common boot-time offset from CLOCK_MONOTONIC.  One
+  shared offset keeps both cameras in the same domain without erasing their
+  physical phase difference.
+  """
+  def __init__(self):
+    self._offset_ns = None
+    self._lock = threading.Lock()
+
+  def __call__(self, kernel_ns: int, receive_ns: int) -> int:
+    if kernel_ns <= 0:
+      return receive_ns
+    with self._lock:
+      candidate = receive_ns - kernel_ns
+      if self._offset_ns is None or candidate < self._offset_ns:
+        self._offset_ns = candidate
+      return kernel_ns + self._offset_ns
+
+
+CAPTURE_CLOCK = CaptureClockMapper()
 
 
 def _v4l_driver(camera_id) -> str:
@@ -40,7 +67,7 @@ def _v4l_driver(camera_id) -> str:
 
 
 class Camera:
-  def __init__(self, cam_type_state, stream_type, camera_id):
+  def __init__(self, cam_type_state, stream_type, camera_id, capture_clock=CAPTURE_CLOCK):
     try:
       camera_id = int(camera_id)
     except ValueError:  # allow strings, ex: /dev/video0
@@ -49,6 +76,7 @@ class Camera:
     self.stream_type = stream_type
     self.cur_frame_id = 0
     self.camera_id = camera_id
+    self.capture_clock = capture_clock
     self.is_uvc = _v4l_driver(camera_id) == "uvcvideo"
 
     print(f"Opening {cam_type_state} at {camera_id} (driver: {_v4l_driver(camera_id) or 'n/a'}, uvc={self.is_uvc})", flush=True)
@@ -117,6 +145,9 @@ class Camera:
       ret, frame = self.cap.read()
       if not ret:
         break
+      receive_time = time.monotonic_ns()
+      kernel_time = round(self.cap.get(cv.CAP_PROP_POS_MSEC) * 1_000_000)
+      capture_time = self.capture_clock(kernel_time, receive_time)
       if self.is_uvc:
         if CAM_USB_FLIP:
           frame = cv.flip(frame, -1)
@@ -125,5 +156,5 @@ class Camera:
         if CAM_FLIP:
           frame = cv.flip(frame, -1)
         nv12 = self.uyvy_to_nv12(frame, self.W, self.H)
-      yield nv12
+      yield nv12, capture_time
     self.cap.release()

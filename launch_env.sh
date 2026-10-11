@@ -44,6 +44,19 @@ for _sock in /tmp/.X11-unix/X*; do
 done
 export DISPLAY="${_OP_DISPLAY:-:0}"
 unset _OP_DISPLAY _sock _n
+
+# SSH/tmux sessions do not inherit the graphical login's X cookie. Without
+# this, GLFW sees the X socket but cannot initialize a monitor on the panel.
+if [ -r /run/user/1000/gdm/Xauthority ]; then
+  export XAUTHORITY=/run/user/1000/gdm/Xauthority
+fi
+
+# Jetson Xorg uses NVIDIA GLX. Pin GLVND/raylib to that hardware backend so a
+# UI started while the monitor is reconnecting cannot retain Mesa llvmpipe.
+if [ "$(uname -m)" = "aarch64" ] && [ ! -e /TICI ]; then
+  export RAYLIB_BACKEND="desktop"
+  export __GLX_VENDOR_LIBRARY_NAME="nvidia"
+fi
 #!/usr/bin/env bash
 # Jetson dev/sim mode: the Qualcomm-only camerad (spectra.cc) asserts on this
 # platform, so block it and use the Python webcamerad instead; fake panda

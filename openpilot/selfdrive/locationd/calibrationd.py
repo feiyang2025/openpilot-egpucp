@@ -7,6 +7,7 @@ and the image input into the neural network is not corrected for roll.
 '''
 
 import os
+import time
 import capnp
 import numpy as np
 from typing import NoReturn
@@ -36,6 +37,7 @@ MAX_ALLOWED_PITCH_SPREAD = np.radians(4)
 RPY_INIT = np.array([0.0,0.0,0.0])
 WIDE_FROM_DEVICE_EULER_INIT = np.array([0.0, 0.0, 0.0])
 HEIGHT_INIT = np.array([1.22])
+PARAM_WRITE_INTERVAL = 60.0
 
 # These values are needed to accommodate the model frame in the narrow cam
 if HARDWARE.get_device_type() == 'mici':
@@ -63,6 +65,7 @@ def moving_avg_with_linear_decay(prev_mean: np.ndarray, new_val: np.ndarray, idx
 class Calibrator:
   def __init__(self, param_put: bool = False):
     self.param_put = param_put
+    self.last_param_put = 0.0
 
     self.not_car = False
 
@@ -165,9 +168,12 @@ class Calibrator:
       self.reset(self.rpys[self.block_idx - 1], valid_blocks=1, smooth_from=self.rpy)
       self.cal_status = log.LiveCalibrationData.Status.recalibrating
 
-    write_this_cycle = (self.idx == 0) and (self.block_idx % (INPUTS_WANTED//5) == 5)
+    now = time.monotonic()
+    write_this_cycle = (self.cal_status == log.LiveCalibrationData.Status.calibrated and
+                        now - self.last_param_put >= PARAM_WRITE_INTERVAL)
     if self.param_put and write_this_cycle:
       self.params.put_nonblocking("CalibrationParams", self.get_msg(True).to_bytes())
+      self.last_param_put = now
 
   def handle_v_ego(self, v_ego: float) -> None:
     self.v_ego = v_ego

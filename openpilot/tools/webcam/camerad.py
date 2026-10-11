@@ -22,13 +22,13 @@ import os
 import platform
 import time
 import json
+import math
 import multiprocessing as mp
 
 from msgq.visionipc import VisionIpcServer, VisionStreamType
 from openpilot.cereal import messaging
 
 from openpilot.tools.webcam.camera import Camera, CAM_WIDTH, CAM_HEIGHT
-from openpilot.common.realtime import Ratekeeper
 
 ROAD_CAM = os.getenv("ROAD_CAM", "0")
 WIDE_CAM = os.getenv("WIDE_CAM")
@@ -37,6 +37,7 @@ DRIVER_CAM = os.getenv("DRIVER_CAM")
 RECONNECT_DELAY = 2.0
 OPEN_TIMEOUT = 6.0
 FRAME_HZ = 20
+PHYSICAL_CAPTURE_PERIOD_NS = 1_000_000_000 // 30
 STICKY_SECONDS = 5.0  # 角色切源防抖:高优先级源恢复后至少等这么久才切回
 ROLE_STATUS_FILE = "/tmp/role_sources.json"  # 当前源状态(供 intrinsic_calibd 防标定污染)
 # 坏源隔离(quarantine):连续失败阈值与退避间隔
@@ -44,6 +45,14 @@ CONSEC_FAIL_LIMIT = 3      # 连续失败次数达到后进入 quarantine
 QUARANTINE_RETRY = 30.0    # quarantine 期间重试探测间隔(秒),不占 VI 资源
 
 ROLE_STATUS_LOCK = threading.Lock()  # 状态文件写锁(多角色线程)
+
+
+def camera_sof_from_eof(eof_ns: int) -> int:
+  return eof_ns - PHYSICAL_CAPTURE_PERIOD_NS
+
+
+def next_capture_deadline(now: float, interval: float) -> float:
+  return (math.floor(now / interval + 1e-9) + 1) * interval
 
 
 class Source:
@@ -150,16 +159,11 @@ class Source:
         self.cam = cam
       try:
         frames_ok = 0
-        src_rk = Ratekeeper(FRAME_HZ, None)
-        import time as _t
-        for yuv in cam.read_frames():
-          # 源层限速:GMSL 相机 30fps,压到 20fps 且帧号连续,
-          # 否则 Role 每 50ms 取最新帧会跳号,modeld 计为丢帧。
-          src_rk.keep_time()
+        for yuv, capture_time in cam.read_frames():
           self._set_alive(True)
           self.consec_fail = 0
           frames_ok += 1
-          eof = time.monotonic_ns()
+          eof = capture_time
           with self.lock:
             self.latest = (cam.cur_frame_id, yuv, eof)
           cam.cur_frame_id += 1
@@ -187,16 +191,22 @@ class Source:
 class Role:
   """一个发布角色(road/wide)。按优先级挑活着的源,发布其最新帧。"""
 
-  def __init__(self, cam_type_state, stream_type, candidates, pm, vipc_server):
+  def __init__(self, cam_type_state, stream_type, candidates, pm, vipc_server, publish_hz=FRAME_HZ):
     self.cam_type_state = cam_type_state
     self.stream_type = stream_type
     self.candidates = [c for c in candidates if c is not None]
     self.pm = pm
     self.vipc_server = vipc_server
     self._last_frame_id = -1
+    self._published_frame_id = -1
     self._cur = None
     self._switch_time = 0.0
     self.preferred = self.candidates[0] if self.candidates else None
+    self.publish_interval = 1.0 / publish_hz
+
+  def next_published_frame_id(self):
+    self._published_frame_id += 1
+    return self._published_frame_id
 
   def pick(self):
     # 每次按候选优先级重扫:高优先级源恢复存活后自动切回(带防抖,避免抖动源来回切)
@@ -256,12 +266,11 @@ class Role:
         continue
       latest = src.get_latest()
       if latest is not None and latest[0] != self._last_frame_id:
-        frame_id, nv12, eof = latest
-        self._last_frame_id = frame_id
-        sof = eof - 50_000_000  # 估计 20Hz 帧起始
-        import time as _t
+        source_frame_id, nv12, eof = latest
+        self._last_frame_id = source_frame_id
+        frame_id = self.next_published_frame_id()
+        sof = camera_sof_from_eof(eof)
         self.vipc_server.send(self.stream_type, nv12, frame_id, sof, eof)
-        self.pm.send(self.cam_type_state, dat) if False else None
         dat = messaging.new_message(self.cam_type_state, valid=True, logMonoTime=eof)
         msg = {
           "frameId": frame_id,
@@ -272,7 +281,10 @@ class Role:
                         0.0, 0.0, 1.0],
         }
         setattr(dat, self.cam_type_state, msg)
+        getattr(dat, self.cam_type_state).sensor = "imx390" if not src.cam.is_uvc else "unknown"
         self.pm.send(self.cam_type_state, dat)
+        deadline = next_capture_deadline(time.monotonic(), self.publish_interval)
+        time.sleep(max(0.0, deadline - time.monotonic()))
       else:
         # 无新帧时小睡,避免忙循环
         time.sleep(0.002)
@@ -310,13 +322,13 @@ class Camerad:
     #   driver= 90°(中)专属,喂 lane 车道线推理(小鸽)
     self.roles = []
     self.roles.append(Role("roadCameraState", VisionStreamType.VISION_STREAM_ROAD,
-                           [road_src, drv_src, wide_src], self.pm, self.vipc_server))
+                           [road_src, drv_src, wide_src], self.pm, self.vipc_server, FRAME_HZ))
     if WIDE_CAM:
       self.roles.append(Role("wideRoadCameraState", VisionStreamType.VISION_STREAM_WIDE_ROAD,
-                             [wide_src, drv_src, road_src], self.pm, self.vipc_server))
+                             [wide_src, drv_src, road_src], self.pm, self.vipc_server, 30))
     if DRIVER_CAM:
       self.roles.append(Role("driverCameraState", VisionStreamType.VISION_STREAM_DRIVER,
-                             [drv_src], self.pm, self.vipc_server))
+                             [drv_src], self.pm, self.vipc_server, FRAME_HZ))
 
     # 每个角色的 stream buffer(所有源都缩放到 CAM_WIDTH x CAM_HEIGHT)
     for role in self.roles:

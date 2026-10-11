@@ -123,11 +123,12 @@ def compute_vanishing_point(img_gray):
 class StreamCalib:
   """单镜头:积累 (v0, pitch_device) 样本,联合估计 f 与 pitch_offset。"""
 
-  def __init__(self, stream_type, param_name, label, msg_name):
+  def __init__(self, stream_type, param_name, label, msg_name, focal_prior):
     self.stream_type = stream_type
     self.param_name = param_name
     self.label = label
     self.msg_name = msg_name
+    self.focal_prior = float(focal_prior)
     self.samples = deque(maxlen=HIST_LEN)   # (pitch_device, v0)
     self.total_seen = 0
     self.last_emit = 0.0
@@ -162,17 +163,19 @@ class StreamCalib:
     y = arr[:, 1] - self.cy
     span = float(np.ptp(p))
     if span < PITCH_SPAN_MIN:
-      # 不可辨识 offset:退化单参数(用当前样本的 v0/pitch 反解 f)。
-      # p 跨越 0 时 y/p 会爆炸,要求同号才可用。
-      if np.all(p > 0) or np.all(p < 0):
-        f = float(np.median(y / p))
-      else:
-        f = float(np.median(y) / np.median(p)) if abs(np.median(p)) > 1e-6 else 0.0
-      offset = 0.0
+      f = self.focal_prior
+      angular_offsets = y / f - p
+      observed_offset = float(np.median(angular_offsets))
+      residual = angular_offsets - observed_offset
+      mad = float(np.median(np.abs(residual)))
+      keep = np.abs(residual) < max(3.0 * mad, 0.003)
+      if keep.sum() >= MIN_SAMPLES // 2:
+        observed_offset = float(np.median(angular_offsets[keep]))
+        residual = angular_offsets[keep] - observed_offset
       fitted = None
-      # 退化分支(span 不足):offset 不可辨识时 f 也受污染(y/p 误差≈off/pitch),
-      # 必须不写入。等 pitch 跨度积累后走联合 LSQ 才能真正收敛。
-      conv_ok = False
+      std = float(np.std(residual) * f)
+      conv_ok = std < CONVERGE_STD
+      mode = "focal_prior"
     else:
       # 离群过滤:先粗拟合(MAD 阈值剔除大残差样本),再用内点精拟合。
       # 真实 v0 检测噪声 10-30px,个别错检(护栏/阴影线)会严重污染 LSQ。
@@ -187,24 +190,41 @@ class StreamCalib:
         sol, *_ = np.linalg.lstsq(A, y, rcond=None)
       a, b = sol
       f = float(a)
-      offset = float(b / a) if abs(a) > 1e-9 else 0.0
+      observed_offset = float(b / a) if abs(a) > 1e-9 else 0.0
       fitted = A @ sol
       conv_ok = True
-    # 病态拒绝:offset 超出物理合理范围(车规外参偏置一般 < 0.05 rad)
-    if abs(offset) > MAX_OFFSET:
-      return None
+      mode = "joint_lsq"
     if not (300.0 <= f <= 4000.0):
       return None
-    std = float(np.std(y - (f * p + f * offset))) if fitted is None else float(np.std(y - fitted))
+    if fitted is not None:
+      std = float(np.std(y - fitted))
     return {
       "f": round(f, 1),
-      "pitch_offset": round(offset, 5),
+      # Mounting pitch belongs exclusively to calibrationd.rpyCalib and
+      # wideFromDeviceEuler. Publishing it here would apply it twice in modeld.
+      "pitch_offset": 0.0,
       "samples": self.total_seen,
       "span": round(span, 4),
       "std": round(std, 1),
       "converged": conv_ok and std < CONVERGE_STD,
+      "mode": mode,
       "t": int(time.time()),
     }
+
+  def seed_prior(self):
+    info = {
+      "f": self.focal_prior,
+      "pitch_offset": 0.0,
+      "samples": 0,
+      "span": 0.0,
+      "std": 0.0,
+      "converged": True,
+      "mode": "fov_prior",
+      "t": int(time.time()),
+    }
+    if not Params().get(self.param_name):
+      Params().put(self.param_name, json.dumps(info).encode())
+    self.best = info
 
   def emit(self):
     info = self.estimate()
@@ -219,7 +239,7 @@ class StreamCalib:
             f"samples={info['samples']})", flush=True)
       return
     # 冻结 best:收敛后滑窗移动可能让 std 波动变大,仅当 std 更小才更新(只进不退)
-    if self.best is not None and info["std"] >= self.best["std"]:
+    if self.best is not None and self.best.get("mode") != "fov_prior" and info["std"] >= self.best["std"]:
       return
     self.best = info
     Params().put(self.param_name, json.dumps(info).encode())
@@ -233,9 +253,11 @@ class IntrinsicCalib:
   def __init__(self):
     self.sm = messaging.SubMaster(["liveCalibration"])
     self.streams = [
-      StreamCalib(VisionStreamType.VISION_STREAM_ROAD, "CamCalibRoad", "road30", "roadCameraState"),
-      StreamCalib(VisionStreamType.VISION_STREAM_WIDE_ROAD, "CamCalibWide", "wide196", "wideRoadCameraState"),
+      StreamCalib(VisionStreamType.VISION_STREAM_ROAD, "CamCalibRoad", "road30", "roadCameraState", 2508.0),
+      StreamCalib(VisionStreamType.VISION_STREAM_WIDE_ROAD, "CamCalibWide", "wide196", "wideRoadCameraState", 405.2),
     ]
+    for stream in self.streams:
+      stream.seed_prior()
 
   def get_pitch(self):
     if not self.sm.updated["liveCalibration"]:

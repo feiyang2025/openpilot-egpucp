@@ -85,6 +85,7 @@ DEVICE_CAMERAS = {
 
   # J501/webcam: video0 road (30 deg), video1 wide fisheye (190 deg)
   ("pc", "unknown"): _j501_imx390_config,
+  ("pc", "imx390"): _j501_imx390_config,
 }
 prods = itertools.product(('tici', 'tizi', 'mici'), (('ar0231', _ar_ox_config), ('ox03c10', _ar_ox_config), ('os04c10', _os_config)))
 DEVICE_CAMERAS.update({(d, c[0]): c[1] for d, c in prods})

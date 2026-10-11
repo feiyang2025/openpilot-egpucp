@@ -19,8 +19,6 @@ from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.realtime import config_realtime_process, DT_MDL
 from openpilot.common.transformations.camera import DEVICE_CAMERAS
 from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
-from dataclasses import replace
-from openpilot.common.transformations.camera import CameraConfig
 from openpilot.common.transformations.model import get_warp_matrix
 from openpilot.selfdrive.controls.lib.desire_helper import DesireHelper
 from openpilot.selfdrive.controls.lib.drive_helpers import get_accel_from_plan, smooth_value, get_curvature_from_plan
@@ -33,9 +31,11 @@ from openpilot.selfdrive.modeld.constants import ModelConstants, Plan
 from openpilot.selfdrive.modeld.helpers import (get_tg_input_devices, load_oob, modeld_pkl_path,
                                                 refresh_usbgpu_device_cache, select_vision_streams, usbgpu_compiled_path,
                                                 usbgpu_pcie_not_ready, usbgpu_present, wait_for_usbgpu_present)
+from openpilot.selfdrive.modeld.camera_calibration import CalibrationCache, compose_camera_euler
+from openpilot.selfdrive.modeld.frame_pairing import CameraPhaseEstimator, nearest_frame, should_receive_main
 
 PROCESS_NAME = "openpilot.selfdrive.modeld.modeld"
-_calib_read_cache: dict = {}  # CamCalib 参数读取缓存(60s 刷新)
+_camera_calibration_cache = CalibrationCache()
 SEND_RAW_PRED = os.getenv('SEND_RAW_PRED')
 SIMULATION = os.getenv('SIMULATION') == '1'
 
@@ -595,6 +595,9 @@ def main(demo=False):
   camera_yaw_trim_deg = params.get_float("CameraYawTrimDeg") * 0.01
   lat_delay_dynamic = lat_smooth_seconds
   diagnostics = RuntimeDiagnostics('modeld', cloudlog.event)
+  previous_extra = None
+  current_extra = None
+  camera_phase = CameraPhaseEstimator()
   while True:
     loop_start, cpu_start = time.monotonic(), time.thread_time()
     frame += 1
@@ -613,9 +616,11 @@ def main(demo=False):
       params.put_bool_nonblocking("UsbGpuCompiled", usbgpu_compiled_path() is not None)
 
     # Keep receiving frames until we are at least 1 frame ahead of previous extra frame
-    while meta_main.timestamp_sof < meta_extra.timestamp_sof + 25000000:
+    received_main = False
+    while should_receive_main(received_main, meta_main.timestamp_sof, meta_extra.timestamp_sof):
       buf_main = vipc_client_main.recv()
       meta_main = FrameMeta(vipc_client_main)
+      received_main = True
       if buf_main is None:
         break
 
@@ -624,18 +629,27 @@ def main(demo=False):
       continue
 
     if use_extra_client:
-      # Keep receiving extra frames until frame id matches main camera
-      while True:
-        buf_extra = vipc_client_extra.recv()
-        meta_extra = FrameMeta(vipc_client_extra)
-        if buf_extra is None or meta_main.timestamp_sof < meta_extra.timestamp_sof + 25000000:
+      # Retain the two wide frames bracketing the road timestamp and use the
+      # actual nearest one. The first future frame is not always the closest.
+      extra_target = camera_phase.corrected_extra_target(meta_main.timestamp_sof)
+      while current_extra is None or current_extra[1] < extra_target:
+        next_buf = vipc_client_extra.recv()
+        next_meta = FrameMeta(vipc_client_extra)
+        if next_buf is None:
           break
+        previous_extra = current_extra
+        current_extra = (next_buf, next_meta.timestamp_sof, next_meta)
 
-      if buf_extra is None:
+      if current_extra is None:
         cloudlog.debug("vipc_client_extra no frame")
         continue
 
-      if abs(meta_main.timestamp_sof - meta_extra.timestamp_sof) > 10000000:
+      selected_extra = nearest_frame(extra_target, previous_extra, current_extra)
+      buf_extra, _, meta_extra = selected_extra
+      phase_ns = camera_phase.observe(meta_main.timestamp_sof - meta_extra.timestamp_sof)
+      sync_error_ns = meta_main.timestamp_sof - meta_extra.timestamp_sof - phase_ns
+
+      if abs(sync_error_ns) > 10000000:
         cloudlog.error(f"frames out of sync! main: {meta_main.frame_id} ({meta_main.timestamp_sof / 1e9:.5f}),\
                          extra: {meta_extra.frame_id} ({meta_extra.timestamp_sof / 1e9:.5f})")
 
@@ -661,61 +675,30 @@ def main(demo=False):
         device_from_calib_euler[2] -= np.radians(applied_yaw_trim_deg)
 
       dc = DEVICE_CAMERAS[(str(sm['deviceState'].deviceType), str(sm['roadCameraState'].sensor))]
-      # 每镜头独立内参+外参自适应(intrinsic_calibd v4 行驶中联合自标定):
-      #   f            -> 覆盖 fcam/ecam 焦距
-      #   pitch_offset -> 该流 euler 加独立俯仰偏置(外参独立)
-      fcam_off = 0.0
-      ecam_off = 0.0
-      import json as _json
-      # 参数读取 60s 缓存:intrinsic_calibd 每 10s 写参数,模型分钟级跟进(渐进进化)。
-      _now = time.monotonic()
-      if _now - _calib_read_cache.get("t", -1e9) > 60.0:
-        _calib_read_cache.clear()
-        # 新参数优先;旧 RoadFocalAuto/WideFocalAuto 兼容(无 pitch_offset 视为 0)
-        # 每镜头独立 try:一个镜头参数损坏不连累另一个。
-        for pname, attr, off_var in (("CamCalibRoad", "fcam", "fcam_off"), ("CamCalibWide", "ecam", "ecam_off")):
-          try:
-            raw = params.get(pname)
-            if not raw:
-              raw = params.get("RoadFocalAuto" if attr == "fcam" else "WideFocalAuto")
-            if not raw:
-              continue
-            info = _json.loads(raw.decode(errors="ignore"))
-            # 只采用已收敛的标定(未收敛值可能是早期噪声)
-            if not info.get("converged", False):
-              continue
-            f_learned = float(info.get("f", 0.0))
-            off = float(info.get("pitch_offset", 0.0))
-            # 病态拒绝:offset 物理上限 0.15 rad
-            if abs(off) > 0.15:
-              continue
-            cam = getattr(dc, attr)
-            if 300.0 < f_learned < 4000.0:
-              dc = replace(dc, **{attr: CameraConfig(cam.width, cam.height, f_learned)})
-            if off_var == "fcam_off":
-              fcam_off = off
-            else:
-              ecam_off = off
-            cloudlog.warning(f"per-cam adaptive: {attr} f={f_learned:.1f} "
-                             f"pitch_off={info.get('pitch_offset', 0.0)} (samples={info.get('samples')})")
-          except Exception as e:
-            cloudlog.warning(f"per-cam adaptive: {attr} no override ({e})")
-        _calib_read_cache["t"] = _now
-      # 主路:用 wide 流当 main 时按 wide(ecam)外参,否则按 road(fcam)
+      camera_calibration = _camera_calibration_cache.resolve(params, dc, time.monotonic())
+      wide_from_device_euler = np.array(sm["liveCalibration"].wideFromDeviceEuler, dtype=np.float32)
+      road_euler = compose_camera_euler(device_from_calib_euler, None, camera_calibration.road.pitch_offset)
+      wide_euler = compose_camera_euler(device_from_calib_euler, wide_from_device_euler,
+                                        camera_calibration.wide.pitch_offset)
+      road_intrinsics = dc.fcam.intrinsics.copy()
+      road_intrinsics[0, 0] = road_intrinsics[1, 1] = camera_calibration.road.focal_length
+      wide_intrinsics = dc.ecam.intrinsics.copy()
+      wide_intrinsics[0, 0] = wide_intrinsics[1, 1] = camera_calibration.wide.focal_length
+
       if main_wide_camera:
-        main_euler = device_from_calib_euler + np.array([0.0, ecam_off, 0.0])
-        main_intrinsics = dc.ecam.intrinsics
+        main_euler = wide_euler
+        main_intrinsics = wide_intrinsics
       else:
-        main_euler = device_from_calib_euler + np.array([0.0, fcam_off, 0.0])
-        main_intrinsics = dc.fcam.intrinsics
+        main_euler = road_euler
+        main_intrinsics = road_intrinsics
       model_transform_main = get_warp_matrix(main_euler, main_intrinsics, False).astype(np.float32)
       has_wide_camera = use_extra_client or main_wide_camera
       if has_wide_camera:
-        extra_euler = device_from_calib_euler + np.array([0.0, ecam_off, 0.0])
-        extra_intrinsics = dc.ecam.intrinsics
+        extra_euler = wide_euler
+        extra_intrinsics = wide_intrinsics
       else:
-        extra_euler = device_from_calib_euler
-        extra_intrinsics = dc.fcam.intrinsics
+        extra_euler = road_euler
+        extra_intrinsics = road_intrinsics
       model_transform_extra = get_warp_matrix(extra_euler, extra_intrinsics, True).astype(np.float32)
       live_calib_seen = True
 

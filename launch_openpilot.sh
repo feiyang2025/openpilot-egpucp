@@ -20,12 +20,18 @@ if [ "$(uname -m)" = "aarch64" ] && [ ! -e /TICI ]; then
   for n in 30 31 32 33; do
     [ -e /dev/i2c-$n ] || sudo ln -sf /dev/i2c-$((n-21)) /dev/i2c-$n 2>/dev/null
   done
-  if ! pgrep -x tw_camera_cfg > /dev/null 2>&1; then
-    echo "[sim] starting tw_camera_cfg (GMSL init)"
-    sudo bash -c "cd / && nohup tw_camera_cfg > /dev/null 2>&1 &"
-    sleep 8
+  # SerDes initialization is owned by tw-camera-bring.service. Starting an
+  # additional unmanaged process here races for the reset GPIO and I2C buses.
+  for _ in $(seq 1 20); do
+    systemctl is-active --quiet tw-camera-bring.service && break
+    sleep 1
+  done
+  if systemctl is-active --quiet tw-camera-bring.service; then
+    echo "[camera] tw-camera-bring.service active"
+  else
+    echo "[camera] ERROR: tw-camera-bring.service did not become active"
+    exit 1
   fi
-  pgrep -x tw_camera_cfg > /dev/null && echo "[sim] tw_camera_cfg running" || echo "[sim] WARNING: tw_camera_cfg NOT running"
 
   # Road-test default: never synthesize ignition or CAN. The fake panda can
   # only be enabled deliberately for bench testing with ENABLE_FAKE_PANDA=1.

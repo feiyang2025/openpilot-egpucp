@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-# DISPLAY 兜底必须在 import 之前:pyray/EGL 在 import 时就初始化,
-# 若此处未设而环境缺失,GLFW 连默认 :0(NVIDIA X)会失败 → UI 卡死无窗口。
-# 串流/无物理屏场景统一连 :99(Xvfb,raylib 已验证可初始化)。
+# DISPLAY fallback must run before importing pyray/EGL. Keep an explicitly
+# selected physical X display; use Xvfb only when no display was provided.
 import os
 import re
 
 if not os.environ.get("DISPLAY"):
-  os.environ["DISPLAY"] = ":0"
+  os.environ["DISPLAY"] = ":99"
 
 # UI 尺寸兜底:manager fork 丢 UI_WIDTH/UI_HEIGHT/SCALE 时,从 launch_env.sh 恢复
 def _env_fallback(name: str, default: str) -> str:
