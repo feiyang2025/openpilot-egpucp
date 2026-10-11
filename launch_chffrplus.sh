@@ -341,23 +341,20 @@ function prepare_big_model_if_needed {
   BIG_MODEL_SHA=""
   unset CARROT_BIG_MODEL_STARTUP_FAILED
 
-  # With an attached eGPU, install this checkout's selection before building or
-  # starting modeld. Offline delivery retries here instead of running an old model.
-  if ! python3 -c 'from openpilot.selfdrive.modeld.helpers import usbgpu_present; raise SystemExit(0 if usbgpu_present() else 1)' 2>/dev/null; then
-    return
-  fi
-
-  if ! flock /tmp/big_model_update.lock python3 -m openpilot.selfdrive.modeld.big_model --prepare-for-startup --retry-network; then
-    echo "Selected eGPU model preparation failed; using the internal model this boot."
-    export CARROT_BIG_MODEL_STARTUP_FAILED=1
-    return
-  fi
-  BIG_MODEL_SHA="$(python3 -m openpilot.selfdrive.modeld.big_model --active-sha 2>/dev/null || true)"
-
-  # Do not reject compilation from a one-shot 12V check here. During ignition
-  # startup the USB bridge can enumerate before switched GPU power and PCIe are
-  # ready. Mark the missing target stale and let build_usbgpu_model perform its
-  # retrying readiness check while the build screen remains visible.
+  # Delivery is background-only, on purpose. start_big_model_update() below runs
+  # `big_model --ensure-if-egpu` in a detached subshell (4 attempts, 180 s apart), so a
+  # boot never waits on the network: with an eGPU attached this boot drives on the
+  # internal model, and the next (manual) reboot picks up whatever landed meanwhile.
+  #
+  # This used to run `big_model --prepare-for-startup --retry-network` synchronously
+  # whenever an eGPU was present. That call was the only thing that could name the
+  # artifact for BIG_MODEL_SHA, and the only writer of CARROT_BIG_MODEL_STARTUP_FAILED,
+  # but it also meant a cold boot on a slow or offline uplink sat on the splash screen,
+  # and a failed delivery only fell back to the internal model after the whole wait.
+  # Nothing needs it: build.py's chunked boot_hook already stays out of the way while a
+  # download is in flight ("skipping the boot build"), build_usbgpu_model keeps the local
+  # compile as the last resort, and the stamp it refreshed is written by
+  # chunked_model.write_big_model_stamp on the delivery path.
 }
 
 function run_big_model_update {

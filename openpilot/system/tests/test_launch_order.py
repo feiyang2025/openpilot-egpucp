@@ -9,46 +9,35 @@ import pytest
 from openpilot.common.basedir import BASEDIR
 
 
-@pytest.mark.parametrize('present,success', [(False, True), (True, True), (True, False)])
-def test_selected_egpu_delivery_precedes_build_and_manager(tmp_path, present, success):
+def test_big_model_delivery_is_background_only(tmp_path):
   bash = shutil.which('bash')
   if bash is None:
     pytest.skip('bash is unavailable')
   source = (Path(BASEDIR) / 'launch_chffrplus.sh').read_text(encoding='utf-8')
   prepare = source[source.index('function prepare_big_model_if_needed {'):source.index('function start_big_model_update {')]
   launch = source[source.index('function launch {'):]
+  # The step keeps its place: before the modeld build check and before build.py.
   prepare_call = launch.index('  prepare_big_model_if_needed\n')
   assert prepare_call < launch.index('  invalidate_modeld_build_if_needed\n') < launch.index('run_startup_command ./build.py')
-  assert launch.index('run_startup_command ./build.py') < launch.index('run_startup_command start_manager')
-  # Execute the real shell function. A background delivery would return before
-  # the marker is written, so an old-model startup race fails this test.
+  # The detached downloader is what delivers, and it starts right before the manager.
+  assert launch.index('run_startup_command ./build.py') < launch.index('  start_big_model_update\n') < launch.index('run_startup_command start_manager')
+  # A boot must never deliver synchronously: the harness below fails outright if this
+  # step calls python3 or flock. That call was also the only writer of the active sha
+  # and of the fallback latch, so both have to disappear together with it.
+
   harness = '''
 set -eu
 export CARROT_BIG_MODEL_STARTUP_FAILED=1
-python3() {
-  if [ "$1" = '-c' ]; then return "$PRESENT_RC"; fi
-  if [ "$*" = '-m openpilot.selfdrive.modeld.big_model --active-sha' ]; then
-    test -f delivery-finished
-    echo selected-sha
-  else
-    test "$*" = '-m openpilot.selfdrive.modeld.big_model --prepare-for-startup --retry-network'
-    sleep 0.1
-    touch delivery-finished
-    return "$DELIVERY_RC"
-  fi
-}
-flock() { test "$1" = /tmp/big_model_update.lock; shift; "$@"; }
+python3() { echo "boot called python3: $*" >&2; return 7; }
+flock() { echo "boot called flock: $*" >&2; return 7; }
 ''' + prepare + '''
 prepare_big_model_if_needed
-echo "sha=$BIG_MODEL_SHA"
+echo "sha=${BIG_MODEL_SHA-unset}"
 echo "failed=${CARROT_BIG_MODEL_STARTUP_FAILED-unset}"
 '''
-  env = {**os.environ, 'PRESENT_RC': str(int(not present)), 'DELIVERY_RC': str(int(not success))}
-  result = subprocess.run([bash, '-c', harness], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=5)
+  result = subprocess.run([bash, '-c', harness], cwd=tmp_path, capture_output=True, text=True, timeout=5)
   assert result.returncode == 0, result.stderr
-  assert result.stdout.splitlines()[-2:] == [f'sha={"selected-sha" if present and success else ""}',
-                                            f'failed={"1" if present and not success else "unset"}']
-  assert (tmp_path / 'delivery-finished').exists() is present
+  assert result.stdout.splitlines() == ['sha=', 'failed=unset']
 
 
 def test_git_maintenance_policy_reaches_nested_services(tmp_path: Path) -> None:
