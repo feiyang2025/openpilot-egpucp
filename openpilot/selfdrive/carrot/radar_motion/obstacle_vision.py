@@ -130,7 +130,10 @@ class TrtYolo:
 class VisionObstacleDetector:
   """YOLOv8n 小目标检测 → 虚拟障碍。推理优先 TRT GPU,回退 cv2.dnn CPU。"""
 
-  def __init__(self, model_path: str = "/home/nvidia/yolov8n.onnx"):
+  def __init__(self, model_path: str = ""):
+    if not model_path:
+      # 默认用仓库内 models 目录(与 .plan 同目录),避免硬编码 /home/nvidia
+      model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "yolov8n-oiv7.onnx")
     self.model_path = model_path
     self.net = None
     self._trt = None

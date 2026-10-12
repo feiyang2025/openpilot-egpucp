@@ -91,7 +91,7 @@ class CarrotServ:
     self.params_memory = Params("/dev/shm/params")
     self.obstacle_avoidance = ObstacleAvoidance()
     # 视觉小目标检测(行人/自行车/动物)——YOLOv8n,低频采样
-    self.vision_detector = VisionObstacleDetector("/home/nvidia/yolov8n-oiv7.onnx")
+    self.vision_detector = VisionObstacleDetector()  # 默认仓库内 models/,与 .plan 同目录
     self._vision_vipc = None
     self._vision_vipc_tried = 0.0
 
