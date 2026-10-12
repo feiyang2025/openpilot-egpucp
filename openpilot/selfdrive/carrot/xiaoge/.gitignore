@@ -1,0 +1,3 @@
+v_asm_config.json
+# TensorRT engines are built/cached on device by tools/build_xiaoge_engines.py
+assets/*.plan
