@@ -126,6 +126,7 @@ class FontWeight(StrEnum):
   ROMAN = "Inter-Regular.fnt"
   #DISPLAY = "Inter-Bold.fnt"
   DISPLAY = "KaiGenGothicKR-Bold.fnt"
+  CJK = "OpenpilotCJK-Regular.fnt"
 
 
 class TextAlignment(IntEnum):
@@ -140,20 +141,30 @@ class TextAlignmentVertical(IntEnum):
   BOTTOM = 2
 
 
-_KOREAN_TEXT_RE = re.compile(r"[\u1100-\u11ff\u3130-\u318f\uac00-\ud7a3]")
+# 只有含中日韩/泰文的文本才需要换字体; 纯拉丁/符号串(带 ✓ ° … 等)继续用 Inter 图集画。
+def _needs_cjk_font(text: str) -> bool:
+  return any(0x2E80 <= ord(c) <= 0x9FFF or 0xAC00 <= ord(c) <= 0xD7AF or 0x0E00 <= ord(c) <= 0x0E7F
+             for c in text)
 
 
-def font_fallback(font: rl.Font, text: str | bytes | None = None) -> rl.Font:
-  """Keep locale fallback and also render Korean text in other locales."""
-  if not gui_app.has_font(FontWeight.DISPLAY):
-    return font
+_CJK_FONT_BY_LANGUAGE = {
+  "zh-CHS": FontWeight.CJK,
+  "zh-CHT": FontWeight.CJK,
+}
+
+
+def font_fallback(font: rl.Font, text: str = "") -> rl.Font:
+  """CJK 语言回退到中文字形图集(OpenpilotCJK), 再退 unifont, 最后才是 DISPLAY。"""
   if multilang.requires_unifont():
-    return gui_app.font(FontWeight.DISPLAY)
-  if isinstance(text, bytes):
-    text = text.decode("utf-8", errors="replace")
-  # Non-ASCII punctuation, Latin accents and emoji do not require a font change.
-  if isinstance(text, str) and _KOREAN_TEXT_RE.search(text):
-    return gui_app.font(FontWeight.DISPLAY)
+    if text and not _needs_cjk_font(text):
+      return font
+    fw = _CJK_FONT_BY_LANGUAGE.get(multilang.language)
+    if fw is not None and gui_app.has_font(fw):
+      return gui_app.font(fw)
+    if gui_app.has_font(FontWeight.UNIFONT):
+      return gui_app.font(FontWeight.UNIFONT)
+    if gui_app.has_font(FontWeight.DISPLAY):
+      return gui_app.font(FontWeight.DISPLAY)
   return font
 
 
@@ -1167,7 +1178,7 @@ class GuiApplication:
     codepoints = set(range(32, 127))
     # Match the common symbols in the generated atlases (fonts/process.py).
     codepoints.update(map(ord, "–‑✓×°§•X⚙✕◀▶✔⌫⇧␣○●↳çêüñ–‑✓×°§•€£¥"))
-    if font_weight in (FontWeight.DISPLAY, FontWeight.UNIFONT):
+    if font_weight in (FontWeight.DISPLAY, FontWeight.UNIFONT, FontWeight.CJK):
       codepoints.update(range(0xAC00, 0xD7A4))
       codepoints.update(range(0x1100, 0x1200))
       codepoints.update(range(0x3130, 0x3190))

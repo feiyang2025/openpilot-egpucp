@@ -1,5 +1,6 @@
 import threading
 
+from openpilot.selfdrive.ui.layouts.settings.usbgpu_text import tr_usbgpu_check, tr_usbgpu_status
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.hardware.usbgpu import check_usbgpu, get_usbgpu_device, usbgpu_status
 from openpilot.system.ui.lib.multilang import tr
@@ -14,9 +15,9 @@ class UsbGpuLayout(Widget):
     self._checking = False
     self._check_result = "not checked"
     self._scroller = Scroller([
-      text_item(lambda: tr("eGPU Status"), self._status),
-      text_item(lambda: tr("USB Link"), self._link),
-      text_item(lambda: tr("Connection Check"), lambda: self._check_result),
+      text_item(lambda: tr("eGPU Status"), lambda: tr_usbgpu_status(self._status())),
+      text_item(lambda: tr("USB Link"), lambda: tr_usbgpu_status(self._link())),
+      text_item(lambda: tr("Connection Check"), lambda: tr_usbgpu_check(self._check_result)),
       button_item(lambda: tr("Check eGPU"), lambda: tr("CHECK"),
                   lambda: tr("Checks USB 5 Gbps, firmware, 12V/PCIe, and GPU execution."),
                   callback=self._start_check, enabled=ui_state.is_offroad),
