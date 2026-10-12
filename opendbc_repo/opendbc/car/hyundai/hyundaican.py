@@ -1,8 +1,8 @@
 import copy
-from opendbc.car.crc import CRC8J1850, mk_crc8_fun
+import crcmod
 from opendbc.car.hyundai.values import CAR, HyundaiFlags
 
-hyundai_checksum = mk_crc8_fun(CRC8J1850, init_crc=0xFD, xor_out=0xDF)
+hyundai_checksum = crcmod.mkCrcFun(0x11D, initCrc=0xFD, rev=False, xorOut=0xdf)
 
 def suppress_casper_ev_fca11_fault(values):
   # CASPER EV can report transient FCA faults during camera-SCC handoff.
@@ -26,7 +26,7 @@ def suppress_casper_ev_fca11_fault(values):
 def create_lkas11(packer, frame, CP, apply_torque, steer_req,
                   torque_fault, lkas11, sys_warning, sys_state, enabled,
                   left_lane, right_lane,
-                  left_lane_depart, right_lane_depart, is_ldws_car, dm_alert=0):
+                  left_lane_depart, right_lane_depart, is_ldws_car):
 
   values = {s: lkas11[s] for s in [
     "CF_Lkas_LdwsActivemode",
@@ -56,7 +56,7 @@ def create_lkas11(packer, frame, CP, apply_torque, steer_req,
 
 
   if CP.flags & HyundaiFlags.SEND_LFA.value or CP.carFingerprint in (CAR.HYUNDAI_SANTA_FE):
-    values["CF_Lkas_LdwsActivemode"] = int(left_lane) + (int(right_lane) << 1)
+    values["CF_Lkas_LdwsActivemode"] = int(left_lane) + (int(right_lane) << 1)    
     values["CF_Lkas_LdwsOpt_USM"] = 0 if CP.carFingerprint in (CAR.KIA_RAY_EV) else 2
 
     # FcwOpt_USM 5 = Orange blinking car + lanes
@@ -96,21 +96,6 @@ def create_lkas11(packer, frame, CP, apply_torque, steer_req,
 
   if is_ldws_car:
     values["CF_Lkas_LdwsOpt_USM"] = 3
-
-  # SEND_LFA cars use the DBC-defined LFAHDA_MFC warning below. Older cars
-  # use their existing LKAS11 hands-on encoding, without changing actuation.
-  if dm_alert in (1, 2, 3) and not CP.flags & HyundaiFlags.SEND_LFA:
-    if CP.carFingerprint == CAR.HYUNDAI_SANTA_FE:
-      values["CF_Lkas_SysWarning"] = 5 if dm_alert == 3 else 4
-    elif CP.carFingerprint in (CAR.KIA_OPTIMA_G4, CAR.KIA_OPTIMA_G4_FL):
-      # Its known warning encoding includes a beep: keep stage 1 visual-only
-      # on the openpilot display, preserving an independent existing warning.
-      if dm_alert >= 2:
-        values["CF_Lkas_SysWarning"] = 4
-    else:
-      values["CF_Lkas_SysWarning"] = 3
-    if values["CF_Lkas_SysWarning"]:
-      values["CF_Lkas_LdwsSysState"] = 3  # permit the warning even for AlwaysOnDM while disengaged
 
   values["CF_Lkas_Chksum"] = 0
 
@@ -156,17 +141,15 @@ def create_clu11(packer, frame, clu11, button, CP):
 
 def create_lfahda_mfc(packer, CC, blinking_signal):
   activeCarrot = CC.hudControl.activeCarrot
-  dm_alert = getattr(CC.hudControl, "driverMonitoringAlert", 0)
   values = {
     "LFA_Icon_State": 2 if CC.latActive else 1 if CC.enabled else 0,
-    "LFA_SysWarning": (6 if dm_alert == 3 else 5) if dm_alert in (1, 2, 3) else 0,
     #"HDA_Active": 1 if activeCarrot >= 2 else 0,
     #"HDA_Icon_State": 2 if activeCarrot == 3 and blinking_signal else 2 if activeCarrot >= 2 else 0,
     "HDA_Icon_State": 0 if activeCarrot == 3 and blinking_signal else 2 if activeCarrot >= 1 else 0,
     "HDA_VSetReq": 0, #set_speed_in_units if activeCarrot >= 2 else 0,
     "HDA_USM" : 2,
     "HDA_Icon_Wheel" : 1 if CC.latActive else 0,
-    #"HDA_Chime" : 1 if CC.latActive else 0, # comment for K9 chime,
+    #"HDA_Chime" : 1 if CC.latActive else 0, # comment for K9 chime, 
   }
   return packer.make_can_msg("LFAHDA_MFC", 0, values)
 
@@ -181,7 +164,7 @@ def create_acc_commands_scc(packer, enabled, accel, jerk, idx, hud_control, set_
   long_enabled = enabled or (soft_hold_active > 0 and soft_hold_mode == 2)
   stop_req = 1 if stopping or (soft_hold_active > 0 and soft_hold_mode == 2) else 0
   d = hud_control.leadDistance
-  objGap = 0 if d == 0 else 2 if d < 25 else 3 if d < 40 else 4 if d < 70 else 5
+  objGap = 0 if d == 0 else 2 if d < 25 else 3 if d < 40 else 4 if d < 70 else 5 
   objGap2 = 0 if objGap == 0 else 2 if hud_control.leadRelSpeed < -0.2 else 1
 
   if long_enabled:
@@ -221,7 +204,7 @@ def create_acc_commands_scc(packer, enabled, accel, jerk, idx, hud_control, set_
     values["ACC_ObjDist"] = int(hud_control.leadDistance)
     values["DriverAlertDisplay"] = 0
     commands.append(packer.make_can_msg("SCC11", 0, values))
-
+    
   if CS.scc12 is not None:
     values = copy.copy(CS.scc12)
     values["ACCMode"] = scc12_acc_mode #2 if enabled and long_override else 1 if long_enabled else 0
@@ -287,7 +270,7 @@ def create_acc_commands(packer, enabled, accel, jerk, idx, hud_control, set_spee
   long_enabled = enabled or (soft_hold_active > 0 and soft_hold_mode == 2)
   stop_req = 1 if stopping or (soft_hold_active > 0 and soft_hold_mode == 2) else 0
   d = hud_control.leadDistance
-  objGap = 0 if d == 0 else 2 if d < 25 else 3 if d < 40 else 4 if d < 70 else 5
+  objGap = 0 if d == 0 else 2 if d < 25 else 3 if d < 40 else 4 if d < 70 else 5 
   objGap2 = 0 if objGap == 0 else 2 if hud_control.leadRelSpeed < -0.2 else 1
 
   if long_enabled:
@@ -312,7 +295,7 @@ def create_acc_commands(packer, enabled, accel, jerk, idx, hud_control, set_spee
     "TauGapSet": hud_control.leadDistanceBars,
     "VSetDis": set_speed if enabled else 0,
     "AliveCounterACC": idx % 0x10,
-    "SCCInfoDisplay": 3 if warning_front else 4 if soft_hold_info else 0 if enabled else 0,
+    "SCCInfoDisplay": 3 if warning_front else 4 if soft_hold_info else 0 if enabled else 0,   
     "ObjValid": 1 if hud_control.leadVisible else 0, # close lead makes controls tighter
     "ACC_ObjStatus": 1 if hud_control.leadVisible else 0, # close lead makes controls tighter
     "ACC_ObjLatPos": 0,

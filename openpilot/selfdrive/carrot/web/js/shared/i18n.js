@@ -250,7 +250,6 @@ function renderUIText() {
   setText("userSystemTitle", getUIText("user_system", "User / System"));
   setText("toolsQuickLinkTitle", getUIText("quick_link", "Link"));
   setText("userSettingsTitle", getUIText("section_settings_backup", "Settings"));
-  setText("btnToolsModelsPage", getUIText("models_page", "eGPU Models"));
   setText("btnToolsCarSelect", getUIText("car_select", "Car Select"));
   setText("btnToolsLanguage", getUIText("language", "Language"));
   setText("btnToolsWebSettings", getUIText("web_settings", "Web Settings"));
@@ -318,10 +317,8 @@ function renderUIText() {
     btnSettingSearchSubmit.setAttribute("aria-label", s.setting_search || "Search Settings");
     btnSettingSearchSubmit.title = s.setting_search || "Search Settings";
   }
-  // The overlay panel view is created by pages/setting.js; re-render its
-  // results so a language change re-labels the visible list.
-  if (typeof settingSearchPanelView !== "undefined" && settingSearchPanelView.isOpen()) {
-    settingSearchPanelView.render();
+  if (typeof renderSettingSearchResults === "function" && settingSearchPanel && !settingSearchPanel.hidden) {
+    renderSettingSearchResults(settingSearchInput?.value || "");
   }
   setText("appBranchPickerTitle", s.branch_select);
   setText("appBranchPickerClose", s.close);

@@ -150,8 +150,6 @@ enum class EventName_baa8c5d505f727de: uint16_t {
 };
 CAPNP_DECLARE_ENUM(EventName, baa8c5d505f727de);
 CAPNP_DECLARE_SCHEMA(9da4fa09e052903c);
-CAPNP_DECLARE_SCHEMA(8bf8ef767dc857e8);
-CAPNP_DECLARE_SCHEMA(cda0685787c29565);
 CAPNP_DECLARE_SCHEMA(af52ab9948a04c83);
 CAPNP_DECLARE_SCHEMA(991a37a6155935a3);
 CAPNP_DECLARE_SCHEMA(e64e81478e6e60af);
@@ -271,7 +269,6 @@ enum class AudibleAlert_f5a5e26c954e339e: uint16_t {
   NNFF,
   RADAR_CUTIN,
   RADAR_STATIONARY_LEAD,
-  SYSTEM_READY,
 };
 CAPNP_DECLARE_ENUM(AudibleAlert, f5a5e26c954e339e);
 CAPNP_DECLARE_SCHEMA(d817d6655115ca85);
@@ -411,8 +408,6 @@ struct CarState {
   class Reader;
   class Builder;
   class Pipeline;
-  struct SteeringTouch;
-  struct RadarInput;
   struct Tpms;
   struct WheelSpeeds;
   struct CruiseState;
@@ -421,37 +416,7 @@ struct CarState {
   struct ButtonEvent;
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(9da4fa09e052903c, 21, 10)
-    #if !CAPNP_LITE
-    static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
-    #endif  // !CAPNP_LITE
-  };
-};
-
-struct CarState::SteeringTouch {
-  SteeringTouch() = delete;
-
-  class Reader;
-  class Builder;
-  class Pipeline;
-
-  struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(8bf8ef767dc857e8, 2, 0)
-    #if !CAPNP_LITE
-    static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
-    #endif  // !CAPNP_LITE
-  };
-};
-
-struct CarState::RadarInput {
-  RadarInput() = delete;
-
-  class Reader;
-  class Builder;
-  class Pipeline;
-
-  struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(cda0685787c29565, 4, 0)
+    CAPNP_DECLARE_STRUCT_HEADER(9da4fa09e052903c, 21, 8)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -532,7 +497,7 @@ struct RadarData {
 
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(888ad6581cf0aacb, 1, 4)
+    CAPNP_DECLARE_STRUCT_HEADER(888ad6581cf0aacb, 0, 4)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -1171,22 +1136,6 @@ public:
 
   inline bool getVehicleNaviAvailable() const;
 
-  inline bool hasRadarInput() const;
-  inline  ::cereal::CarState::RadarInput::Reader getRadarInput() const;
-
-  inline bool hasSteeringTouch() const;
-  inline  ::cereal::CarState::SteeringTouch::Reader getSteeringTouch() const;
-
-  inline bool getLeftBlindspotOem() const;
-
-  inline bool getRightBlindspotOem() const;
-
-  inline bool getLeftBlindspotOnnx() const;
-
-  inline bool getRightBlindspotOnnx() const;
-
-  inline bool getBlindspotSplitSourcesValid() const;
-
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -1528,35 +1477,6 @@ public:
   inline bool getVehicleNaviAvailable();
   inline void setVehicleNaviAvailable(bool value);
 
-  inline bool hasRadarInput();
-  inline  ::cereal::CarState::RadarInput::Builder getRadarInput();
-  inline void setRadarInput( ::cereal::CarState::RadarInput::Reader value);
-  inline  ::cereal::CarState::RadarInput::Builder initRadarInput();
-  inline void adoptRadarInput(::capnp::Orphan< ::cereal::CarState::RadarInput>&& value);
-  inline ::capnp::Orphan< ::cereal::CarState::RadarInput> disownRadarInput();
-
-  inline bool hasSteeringTouch();
-  inline  ::cereal::CarState::SteeringTouch::Builder getSteeringTouch();
-  inline void setSteeringTouch( ::cereal::CarState::SteeringTouch::Reader value);
-  inline  ::cereal::CarState::SteeringTouch::Builder initSteeringTouch();
-  inline void adoptSteeringTouch(::capnp::Orphan< ::cereal::CarState::SteeringTouch>&& value);
-  inline ::capnp::Orphan< ::cereal::CarState::SteeringTouch> disownSteeringTouch();
-
-  inline bool getLeftBlindspotOem();
-  inline void setLeftBlindspotOem(bool value);
-
-  inline bool getRightBlindspotOem();
-  inline void setRightBlindspotOem(bool value);
-
-  inline bool getLeftBlindspotOnnx();
-  inline void setLeftBlindspotOnnx(bool value);
-
-  inline bool getRightBlindspotOnnx();
-  inline void setRightBlindspotOnnx(bool value);
-
-  inline bool getBlindspotSplitSourcesValid();
-  inline void setBlindspotSplitSourcesValid(bool value);
-
 private:
   ::capnp::_::StructBuilder _builder;
   template <typename, ::capnp::Kind>
@@ -1578,205 +1498,6 @@ public:
   inline  ::cereal::CarState::WheelSpeeds::Pipeline getWheelSpeeds();
   inline  ::cereal::CarState::CruiseState::Pipeline getCruiseState();
   inline  ::cereal::CarState::Tpms::Pipeline getTpms();
-  inline  ::cereal::CarState::RadarInput::Pipeline getRadarInput();
-  inline  ::cereal::CarState::SteeringTouch::Pipeline getSteeringTouch();
-private:
-  ::capnp::AnyPointer::Pipeline _typeless;
-  friend class ::capnp::PipelineHook;
-  template <typename, ::capnp::Kind>
-  friend struct ::capnp::ToDynamic_;
-};
-#endif  // !CAPNP_LITE
-
-class CarState::SteeringTouch::Reader {
-public:
-  typedef SteeringTouch Reads;
-
-  Reader() = default;
-  inline explicit Reader(::capnp::_::StructReader base): _reader(base) {}
-
-  inline ::capnp::MessageSize totalSize() const {
-    return _reader.totalSize().asPublic();
-  }
-
-#if !CAPNP_LITE
-  inline ::kj::StringTree toString() const {
-    return ::capnp::_::structString(_reader, *_capnpPrivate::brand());
-  }
-#endif  // !CAPNP_LITE
-
-  inline bool getAvailable() const;
-
-  inline bool getValid() const;
-
-  inline bool getTouched() const;
-
-  inline  ::uint64_t getSampleMonoTime() const;
-
-  inline  ::uint8_t getRawStatus() const;
-
-  inline  ::uint8_t getRawTouch1() const;
-
-  inline  ::uint8_t getRawTouch2() const;
-
-private:
-  ::capnp::_::StructReader _reader;
-  template <typename, ::capnp::Kind>
-  friend struct ::capnp::ToDynamic_;
-  template <typename, ::capnp::Kind>
-  friend struct ::capnp::_::PointerHelpers;
-  template <typename, ::capnp::Kind>
-  friend struct ::capnp::List;
-  friend class ::capnp::MessageBuilder;
-  friend class ::capnp::Orphanage;
-};
-
-class CarState::SteeringTouch::Builder {
-public:
-  typedef SteeringTouch Builds;
-
-  Builder() = delete;  // Deleted to discourage incorrect usage.
-                       // You can explicitly initialize to nullptr instead.
-  inline Builder(decltype(nullptr)) {}
-  inline explicit Builder(::capnp::_::StructBuilder base): _builder(base) {}
-  inline operator Reader() const { return Reader(_builder.asReader()); }
-  inline Reader asReader() const { return *this; }
-
-  inline ::capnp::MessageSize totalSize() const { return asReader().totalSize(); }
-#if !CAPNP_LITE
-  inline ::kj::StringTree toString() const { return asReader().toString(); }
-#endif  // !CAPNP_LITE
-
-  inline bool getAvailable();
-  inline void setAvailable(bool value);
-
-  inline bool getValid();
-  inline void setValid(bool value);
-
-  inline bool getTouched();
-  inline void setTouched(bool value);
-
-  inline  ::uint64_t getSampleMonoTime();
-  inline void setSampleMonoTime( ::uint64_t value);
-
-  inline  ::uint8_t getRawStatus();
-  inline void setRawStatus( ::uint8_t value);
-
-  inline  ::uint8_t getRawTouch1();
-  inline void setRawTouch1( ::uint8_t value);
-
-  inline  ::uint8_t getRawTouch2();
-  inline void setRawTouch2( ::uint8_t value);
-
-private:
-  ::capnp::_::StructBuilder _builder;
-  template <typename, ::capnp::Kind>
-  friend struct ::capnp::ToDynamic_;
-  friend class ::capnp::Orphanage;
-  template <typename, ::capnp::Kind>
-  friend struct ::capnp::_::PointerHelpers;
-};
-
-#if !CAPNP_LITE
-class CarState::SteeringTouch::Pipeline {
-public:
-  typedef SteeringTouch Pipelines;
-
-  inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
-  inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
-      : _typeless(kj::mv(typeless)) {}
-
-private:
-  ::capnp::AnyPointer::Pipeline _typeless;
-  friend class ::capnp::PipelineHook;
-  template <typename, ::capnp::Kind>
-  friend struct ::capnp::ToDynamic_;
-};
-#endif  // !CAPNP_LITE
-
-class CarState::RadarInput::Reader {
-public:
-  typedef RadarInput Reads;
-
-  Reader() = default;
-  inline explicit Reader(::capnp::_::StructReader base): _reader(base) {}
-
-  inline ::capnp::MessageSize totalSize() const {
-    return _reader.totalSize().asPublic();
-  }
-
-#if !CAPNP_LITE
-  inline ::kj::StringTree toString() const {
-    return ::capnp::_::structString(_reader, *_capnpPrivate::brand());
-  }
-#endif  // !CAPNP_LITE
-
-  inline  ::uint64_t getFirstCanMonoTime() const;
-
-  inline  ::uint64_t getLastCanMonoTime() const;
-
-  inline  ::uint32_t getCanPacketCount() const;
-
-  inline  ::uint64_t getReceiveMonoTime() const;
-
-private:
-  ::capnp::_::StructReader _reader;
-  template <typename, ::capnp::Kind>
-  friend struct ::capnp::ToDynamic_;
-  template <typename, ::capnp::Kind>
-  friend struct ::capnp::_::PointerHelpers;
-  template <typename, ::capnp::Kind>
-  friend struct ::capnp::List;
-  friend class ::capnp::MessageBuilder;
-  friend class ::capnp::Orphanage;
-};
-
-class CarState::RadarInput::Builder {
-public:
-  typedef RadarInput Builds;
-
-  Builder() = delete;  // Deleted to discourage incorrect usage.
-                       // You can explicitly initialize to nullptr instead.
-  inline Builder(decltype(nullptr)) {}
-  inline explicit Builder(::capnp::_::StructBuilder base): _builder(base) {}
-  inline operator Reader() const { return Reader(_builder.asReader()); }
-  inline Reader asReader() const { return *this; }
-
-  inline ::capnp::MessageSize totalSize() const { return asReader().totalSize(); }
-#if !CAPNP_LITE
-  inline ::kj::StringTree toString() const { return asReader().toString(); }
-#endif  // !CAPNP_LITE
-
-  inline  ::uint64_t getFirstCanMonoTime();
-  inline void setFirstCanMonoTime( ::uint64_t value);
-
-  inline  ::uint64_t getLastCanMonoTime();
-  inline void setLastCanMonoTime( ::uint64_t value);
-
-  inline  ::uint32_t getCanPacketCount();
-  inline void setCanPacketCount( ::uint32_t value);
-
-  inline  ::uint64_t getReceiveMonoTime();
-  inline void setReceiveMonoTime( ::uint64_t value);
-
-private:
-  ::capnp::_::StructBuilder _builder;
-  template <typename, ::capnp::Kind>
-  friend struct ::capnp::ToDynamic_;
-  friend class ::capnp::Orphanage;
-  template <typename, ::capnp::Kind>
-  friend struct ::capnp::_::PointerHelpers;
-};
-
-#if !CAPNP_LITE
-class CarState::RadarInput::Pipeline {
-public:
-  typedef RadarInput Pipelines;
-
-  inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
-  inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
-      : _typeless(kj::mv(typeless)) {}
-
 private:
   ::capnp::AnyPointer::Pipeline _typeless;
   friend class ::capnp::PipelineHook;
@@ -2183,8 +1904,6 @@ public:
   inline bool hasErrors() const;
   inline  ::cereal::RadarData::Error::Reader getErrors() const;
 
-  inline bool getRadarTrackFlipped() const;
-
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -2242,9 +1961,6 @@ public:
   inline  ::cereal::RadarData::Error::Builder initErrors();
   inline void adoptErrors(::capnp::Orphan< ::cereal::RadarData::Error>&& value);
   inline ::capnp::Orphan< ::cereal::RadarData::Error> disownErrors();
-
-  inline bool getRadarTrackFlipped();
-  inline void setRadarTrackFlipped(bool value);
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -2975,8 +2691,6 @@ public:
 
   inline bool getLeadLimiting() const;
 
-  inline  ::uint8_t getDriverMonitoringAlert() const;
-
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -3070,9 +2784,6 @@ public:
 
   inline bool getLeadLimiting();
   inline void setLeadLimiting(bool value);
-
-  inline  ::uint8_t getDriverMonitoringAlert();
-  inline void setDriverMonitoringAlert( ::uint8_t value);
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -6488,308 +6199,6 @@ inline void CarState::Builder::setVehicleNaviAvailable(bool value) {
       ::capnp::bounded<377>() * ::capnp::ELEMENTS, value);
 }
 
-inline bool CarState::Reader::hasRadarInput() const {
-  return !_reader.getPointerField(
-      ::capnp::bounded<8>() * ::capnp::POINTERS).isNull();
-}
-inline bool CarState::Builder::hasRadarInput() {
-  return !_builder.getPointerField(
-      ::capnp::bounded<8>() * ::capnp::POINTERS).isNull();
-}
-inline  ::cereal::CarState::RadarInput::Reader CarState::Reader::getRadarInput() const {
-  return ::capnp::_::PointerHelpers< ::cereal::CarState::RadarInput>::get(_reader.getPointerField(
-      ::capnp::bounded<8>() * ::capnp::POINTERS));
-}
-inline  ::cereal::CarState::RadarInput::Builder CarState::Builder::getRadarInput() {
-  return ::capnp::_::PointerHelpers< ::cereal::CarState::RadarInput>::get(_builder.getPointerField(
-      ::capnp::bounded<8>() * ::capnp::POINTERS));
-}
-#if !CAPNP_LITE
-inline  ::cereal::CarState::RadarInput::Pipeline CarState::Pipeline::getRadarInput() {
-  return  ::cereal::CarState::RadarInput::Pipeline(_typeless.getPointerField(8));
-}
-#endif  // !CAPNP_LITE
-inline void CarState::Builder::setRadarInput( ::cereal::CarState::RadarInput::Reader value) {
-  ::capnp::_::PointerHelpers< ::cereal::CarState::RadarInput>::set(_builder.getPointerField(
-      ::capnp::bounded<8>() * ::capnp::POINTERS), value);
-}
-inline  ::cereal::CarState::RadarInput::Builder CarState::Builder::initRadarInput() {
-  return ::capnp::_::PointerHelpers< ::cereal::CarState::RadarInput>::init(_builder.getPointerField(
-      ::capnp::bounded<8>() * ::capnp::POINTERS));
-}
-inline void CarState::Builder::adoptRadarInput(
-    ::capnp::Orphan< ::cereal::CarState::RadarInput>&& value) {
-  ::capnp::_::PointerHelpers< ::cereal::CarState::RadarInput>::adopt(_builder.getPointerField(
-      ::capnp::bounded<8>() * ::capnp::POINTERS), kj::mv(value));
-}
-inline ::capnp::Orphan< ::cereal::CarState::RadarInput> CarState::Builder::disownRadarInput() {
-  return ::capnp::_::PointerHelpers< ::cereal::CarState::RadarInput>::disown(_builder.getPointerField(
-      ::capnp::bounded<8>() * ::capnp::POINTERS));
-}
-
-inline bool CarState::Reader::hasSteeringTouch() const {
-  return !_reader.getPointerField(
-      ::capnp::bounded<9>() * ::capnp::POINTERS).isNull();
-}
-inline bool CarState::Builder::hasSteeringTouch() {
-  return !_builder.getPointerField(
-      ::capnp::bounded<9>() * ::capnp::POINTERS).isNull();
-}
-inline  ::cereal::CarState::SteeringTouch::Reader CarState::Reader::getSteeringTouch() const {
-  return ::capnp::_::PointerHelpers< ::cereal::CarState::SteeringTouch>::get(_reader.getPointerField(
-      ::capnp::bounded<9>() * ::capnp::POINTERS));
-}
-inline  ::cereal::CarState::SteeringTouch::Builder CarState::Builder::getSteeringTouch() {
-  return ::capnp::_::PointerHelpers< ::cereal::CarState::SteeringTouch>::get(_builder.getPointerField(
-      ::capnp::bounded<9>() * ::capnp::POINTERS));
-}
-#if !CAPNP_LITE
-inline  ::cereal::CarState::SteeringTouch::Pipeline CarState::Pipeline::getSteeringTouch() {
-  return  ::cereal::CarState::SteeringTouch::Pipeline(_typeless.getPointerField(9));
-}
-#endif  // !CAPNP_LITE
-inline void CarState::Builder::setSteeringTouch( ::cereal::CarState::SteeringTouch::Reader value) {
-  ::capnp::_::PointerHelpers< ::cereal::CarState::SteeringTouch>::set(_builder.getPointerField(
-      ::capnp::bounded<9>() * ::capnp::POINTERS), value);
-}
-inline  ::cereal::CarState::SteeringTouch::Builder CarState::Builder::initSteeringTouch() {
-  return ::capnp::_::PointerHelpers< ::cereal::CarState::SteeringTouch>::init(_builder.getPointerField(
-      ::capnp::bounded<9>() * ::capnp::POINTERS));
-}
-inline void CarState::Builder::adoptSteeringTouch(
-    ::capnp::Orphan< ::cereal::CarState::SteeringTouch>&& value) {
-  ::capnp::_::PointerHelpers< ::cereal::CarState::SteeringTouch>::adopt(_builder.getPointerField(
-      ::capnp::bounded<9>() * ::capnp::POINTERS), kj::mv(value));
-}
-inline ::capnp::Orphan< ::cereal::CarState::SteeringTouch> CarState::Builder::disownSteeringTouch() {
-  return ::capnp::_::PointerHelpers< ::cereal::CarState::SteeringTouch>::disown(_builder.getPointerField(
-      ::capnp::bounded<9>() * ::capnp::POINTERS));
-}
-
-inline bool CarState::Reader::getLeftBlindspotOem() const {
-  return _reader.getDataField<bool>(
-      ::capnp::bounded<378>() * ::capnp::ELEMENTS);
-}
-
-inline bool CarState::Builder::getLeftBlindspotOem() {
-  return _builder.getDataField<bool>(
-      ::capnp::bounded<378>() * ::capnp::ELEMENTS);
-}
-inline void CarState::Builder::setLeftBlindspotOem(bool value) {
-  _builder.setDataField<bool>(
-      ::capnp::bounded<378>() * ::capnp::ELEMENTS, value);
-}
-
-inline bool CarState::Reader::getRightBlindspotOem() const {
-  return _reader.getDataField<bool>(
-      ::capnp::bounded<379>() * ::capnp::ELEMENTS);
-}
-
-inline bool CarState::Builder::getRightBlindspotOem() {
-  return _builder.getDataField<bool>(
-      ::capnp::bounded<379>() * ::capnp::ELEMENTS);
-}
-inline void CarState::Builder::setRightBlindspotOem(bool value) {
-  _builder.setDataField<bool>(
-      ::capnp::bounded<379>() * ::capnp::ELEMENTS, value);
-}
-
-inline bool CarState::Reader::getLeftBlindspotOnnx() const {
-  return _reader.getDataField<bool>(
-      ::capnp::bounded<380>() * ::capnp::ELEMENTS);
-}
-
-inline bool CarState::Builder::getLeftBlindspotOnnx() {
-  return _builder.getDataField<bool>(
-      ::capnp::bounded<380>() * ::capnp::ELEMENTS);
-}
-inline void CarState::Builder::setLeftBlindspotOnnx(bool value) {
-  _builder.setDataField<bool>(
-      ::capnp::bounded<380>() * ::capnp::ELEMENTS, value);
-}
-
-inline bool CarState::Reader::getRightBlindspotOnnx() const {
-  return _reader.getDataField<bool>(
-      ::capnp::bounded<381>() * ::capnp::ELEMENTS);
-}
-
-inline bool CarState::Builder::getRightBlindspotOnnx() {
-  return _builder.getDataField<bool>(
-      ::capnp::bounded<381>() * ::capnp::ELEMENTS);
-}
-inline void CarState::Builder::setRightBlindspotOnnx(bool value) {
-  _builder.setDataField<bool>(
-      ::capnp::bounded<381>() * ::capnp::ELEMENTS, value);
-}
-
-inline bool CarState::Reader::getBlindspotSplitSourcesValid() const {
-  return _reader.getDataField<bool>(
-      ::capnp::bounded<382>() * ::capnp::ELEMENTS);
-}
-
-inline bool CarState::Builder::getBlindspotSplitSourcesValid() {
-  return _builder.getDataField<bool>(
-      ::capnp::bounded<382>() * ::capnp::ELEMENTS);
-}
-inline void CarState::Builder::setBlindspotSplitSourcesValid(bool value) {
-  _builder.setDataField<bool>(
-      ::capnp::bounded<382>() * ::capnp::ELEMENTS, value);
-}
-
-inline bool CarState::SteeringTouch::Reader::getAvailable() const {
-  return _reader.getDataField<bool>(
-      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
-}
-
-inline bool CarState::SteeringTouch::Builder::getAvailable() {
-  return _builder.getDataField<bool>(
-      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
-}
-inline void CarState::SteeringTouch::Builder::setAvailable(bool value) {
-  _builder.setDataField<bool>(
-      ::capnp::bounded<0>() * ::capnp::ELEMENTS, value);
-}
-
-inline bool CarState::SteeringTouch::Reader::getValid() const {
-  return _reader.getDataField<bool>(
-      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
-}
-
-inline bool CarState::SteeringTouch::Builder::getValid() {
-  return _builder.getDataField<bool>(
-      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
-}
-inline void CarState::SteeringTouch::Builder::setValid(bool value) {
-  _builder.setDataField<bool>(
-      ::capnp::bounded<1>() * ::capnp::ELEMENTS, value);
-}
-
-inline bool CarState::SteeringTouch::Reader::getTouched() const {
-  return _reader.getDataField<bool>(
-      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
-}
-
-inline bool CarState::SteeringTouch::Builder::getTouched() {
-  return _builder.getDataField<bool>(
-      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
-}
-inline void CarState::SteeringTouch::Builder::setTouched(bool value) {
-  _builder.setDataField<bool>(
-      ::capnp::bounded<2>() * ::capnp::ELEMENTS, value);
-}
-
-inline  ::uint64_t CarState::SteeringTouch::Reader::getSampleMonoTime() const {
-  return _reader.getDataField< ::uint64_t>(
-      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
-}
-
-inline  ::uint64_t CarState::SteeringTouch::Builder::getSampleMonoTime() {
-  return _builder.getDataField< ::uint64_t>(
-      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
-}
-inline void CarState::SteeringTouch::Builder::setSampleMonoTime( ::uint64_t value) {
-  _builder.setDataField< ::uint64_t>(
-      ::capnp::bounded<1>() * ::capnp::ELEMENTS, value);
-}
-
-inline  ::uint8_t CarState::SteeringTouch::Reader::getRawStatus() const {
-  return _reader.getDataField< ::uint8_t>(
-      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
-}
-
-inline  ::uint8_t CarState::SteeringTouch::Builder::getRawStatus() {
-  return _builder.getDataField< ::uint8_t>(
-      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
-}
-inline void CarState::SteeringTouch::Builder::setRawStatus( ::uint8_t value) {
-  _builder.setDataField< ::uint8_t>(
-      ::capnp::bounded<1>() * ::capnp::ELEMENTS, value);
-}
-
-inline  ::uint8_t CarState::SteeringTouch::Reader::getRawTouch1() const {
-  return _reader.getDataField< ::uint8_t>(
-      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
-}
-
-inline  ::uint8_t CarState::SteeringTouch::Builder::getRawTouch1() {
-  return _builder.getDataField< ::uint8_t>(
-      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
-}
-inline void CarState::SteeringTouch::Builder::setRawTouch1( ::uint8_t value) {
-  _builder.setDataField< ::uint8_t>(
-      ::capnp::bounded<2>() * ::capnp::ELEMENTS, value);
-}
-
-inline  ::uint8_t CarState::SteeringTouch::Reader::getRawTouch2() const {
-  return _reader.getDataField< ::uint8_t>(
-      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
-}
-
-inline  ::uint8_t CarState::SteeringTouch::Builder::getRawTouch2() {
-  return _builder.getDataField< ::uint8_t>(
-      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
-}
-inline void CarState::SteeringTouch::Builder::setRawTouch2( ::uint8_t value) {
-  _builder.setDataField< ::uint8_t>(
-      ::capnp::bounded<3>() * ::capnp::ELEMENTS, value);
-}
-
-inline  ::uint64_t CarState::RadarInput::Reader::getFirstCanMonoTime() const {
-  return _reader.getDataField< ::uint64_t>(
-      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
-}
-
-inline  ::uint64_t CarState::RadarInput::Builder::getFirstCanMonoTime() {
-  return _builder.getDataField< ::uint64_t>(
-      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
-}
-inline void CarState::RadarInput::Builder::setFirstCanMonoTime( ::uint64_t value) {
-  _builder.setDataField< ::uint64_t>(
-      ::capnp::bounded<0>() * ::capnp::ELEMENTS, value);
-}
-
-inline  ::uint64_t CarState::RadarInput::Reader::getLastCanMonoTime() const {
-  return _reader.getDataField< ::uint64_t>(
-      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
-}
-
-inline  ::uint64_t CarState::RadarInput::Builder::getLastCanMonoTime() {
-  return _builder.getDataField< ::uint64_t>(
-      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
-}
-inline void CarState::RadarInput::Builder::setLastCanMonoTime( ::uint64_t value) {
-  _builder.setDataField< ::uint64_t>(
-      ::capnp::bounded<1>() * ::capnp::ELEMENTS, value);
-}
-
-inline  ::uint32_t CarState::RadarInput::Reader::getCanPacketCount() const {
-  return _reader.getDataField< ::uint32_t>(
-      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
-}
-
-inline  ::uint32_t CarState::RadarInput::Builder::getCanPacketCount() {
-  return _builder.getDataField< ::uint32_t>(
-      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
-}
-inline void CarState::RadarInput::Builder::setCanPacketCount( ::uint32_t value) {
-  _builder.setDataField< ::uint32_t>(
-      ::capnp::bounded<4>() * ::capnp::ELEMENTS, value);
-}
-
-inline  ::uint64_t CarState::RadarInput::Reader::getReceiveMonoTime() const {
-  return _reader.getDataField< ::uint64_t>(
-      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
-}
-
-inline  ::uint64_t CarState::RadarInput::Builder::getReceiveMonoTime() {
-  return _builder.getDataField< ::uint64_t>(
-      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
-}
-inline void CarState::RadarInput::Builder::setReceiveMonoTime( ::uint64_t value) {
-  _builder.setDataField< ::uint64_t>(
-      ::capnp::bounded<3>() * ::capnp::ELEMENTS, value);
-}
-
 inline float CarState::Tpms::Reader::getFl() const {
   return _reader.getDataField<float>(
       ::capnp::bounded<0>() * ::capnp::ELEMENTS);
@@ -7175,20 +6584,6 @@ inline void RadarData::Builder::adoptErrors(
 inline ::capnp::Orphan< ::cereal::RadarData::Error> RadarData::Builder::disownErrors() {
   return ::capnp::_::PointerHelpers< ::cereal::RadarData::Error>::disown(_builder.getPointerField(
       ::capnp::bounded<3>() * ::capnp::POINTERS));
-}
-
-inline bool RadarData::Reader::getRadarTrackFlipped() const {
-  return _reader.getDataField<bool>(
-      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
-}
-
-inline bool RadarData::Builder::getRadarTrackFlipped() {
-  return _builder.getDataField<bool>(
-      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
-}
-inline void RadarData::Builder::setRadarTrackFlipped(bool value) {
-  _builder.setDataField<bool>(
-      ::capnp::bounded<0>() * ::capnp::ELEMENTS, value);
 }
 
 inline bool RadarData::Error::Reader::getCanError() const {
@@ -8345,20 +7740,6 @@ inline bool CarControl::HUDControl::Builder::getLeadLimiting() {
 inline void CarControl::HUDControl::Builder::setLeadLimiting(bool value) {
   _builder.setDataField<bool>(
       ::capnp::bounded<7>() * ::capnp::ELEMENTS, value);
-}
-
-inline  ::uint8_t CarControl::HUDControl::Reader::getDriverMonitoringAlert() const {
-  return _reader.getDataField< ::uint8_t>(
-      ::capnp::bounded<38>() * ::capnp::ELEMENTS);
-}
-
-inline  ::uint8_t CarControl::HUDControl::Builder::getDriverMonitoringAlert() {
-  return _builder.getDataField< ::uint8_t>(
-      ::capnp::bounded<38>() * ::capnp::ELEMENTS);
-}
-inline void CarControl::HUDControl::Builder::setDriverMonitoringAlert( ::uint8_t value) {
-  _builder.setDataField< ::uint8_t>(
-      ::capnp::bounded<38>() * ::capnp::ELEMENTS, value);
 }
 
 inline bool CarOutput::Reader::hasActuatorsOutput() const {

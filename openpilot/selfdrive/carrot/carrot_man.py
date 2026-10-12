@@ -831,8 +831,6 @@ class CarrotMan:
     try:
       subprocess.run("rm -f /data/media/tmux.log; tmux capture-pane -pq -S-1000 > /data/media/tmux.log", shell=True, capture_output=True, text=False, check=True)
       subprocess.run("/data/openpilot/openpilot/selfdrive/apilot.py", shell=True, capture_output=True, text=False)
-      from openpilot.common.egpu_diagnostics import append_report
-      append_report('/data/media/tmux.log')
       return True
     except Exception as e:
       print(f"TMUX creation error: {e}")
@@ -1439,7 +1437,7 @@ class CarrotMan:
     result = curve_speed(sm['modelV2'], CS.vEgo, self.autoCurveSpeedFactor,
                          self.carrot_serv.autoCurveSpeedLowerLimit,
                          speed_ratio=CS.vCluRatio, a_ego=CS.aEgo)
-    return self.vision_curve_speed.update(result, time.monotonic(), model_time=sm.logMonoTime['modelV2'])
+    return self.vision_curve_speed.update(result, time.monotonic())
 
   def carrot_navi_thread(self):
     self.carrot_navi_tcp_server(7712)

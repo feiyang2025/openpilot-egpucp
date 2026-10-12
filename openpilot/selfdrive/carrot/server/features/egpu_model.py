@@ -3,11 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from aiohttp import web
-from openpilot.common.jetlink_status import diagnostics as jetlink_diagnostics
 
 from openpilot.selfdrive.modeld.big_model import active_manifest, active_model_compiled, active_model_path, model_cache_dir
 from openpilot.selfdrive.modeld.big_model_status import read_big_model_status, write_big_model_status
-from openpilot.selfdrive.modeld.egpu_worker_progress import current_failure
 
 from ..services.params import HAS_PARAMS, Params
 
@@ -31,7 +29,7 @@ def build_status_payload(params: Any | None = None) -> dict[str, Any]:
   # to the previous model until the new download passes verification.
   same_model = manifest is not None and (not status or status.get("sha256") == manifest.sha256)
   phase = status.get("state")
-  updating = phase in {"checking", "downloading", "verifying", "compiling", "error", "waiting_for_network", "installing"}
+  updating = phase in {"checking", "downloading", "verifying", "compiling", "error"}
   try:
     compiled = active_model_compiled() if same_model and not updating else False
   except Exception:
@@ -39,7 +37,7 @@ def build_status_payload(params: Any | None = None) -> dict[str, Any]:
   if updating:
     state = phase
   elif compiled:
-    state = "installed" if phase == "installed" else "compiled"
+    state = "compiled"
   elif same_model:
     state = "waiting_for_ignition" if phase == "waiting_for_ignition" else "ready"
   else:
@@ -49,14 +47,6 @@ def build_status_payload(params: Any | None = None) -> dict[str, Any]:
   total = int(status.get("total_bytes", fallback_size))
   progress = round(min(100.0, max(0.0, downloaded * 100.0 / total)), 1) if total > 0 else None
   engaged = _params_bool(params, "IsEngaged") if params is not None else False
-  active = (_params_bool(params, "UsbGpuActive") and not _params_bool(params, "UsbGpuLoading")) if params is not None else False
-  error_code, detail = status.get('error_code'), status.get('detail')
-  if params is not None and _params_bool(params, 'UsbGpuStartupFailed') and not active:
-    failure = current_failure(model_cache_dir(), manifest.sha256) if manifest else {}
-    state, error_code = 'error', failure.get('error_code', 'runtime')
-    worker = failure.get('worker') or {}
-    stage = worker.get('stage')
-    detail = f'Last worker stage: {stage}' if isinstance(stage, str) else None
 
   return {
     "ok": True,
@@ -67,23 +57,19 @@ def build_status_payload(params: Any | None = None) -> dict[str, Any]:
     "downloaded_bytes": downloaded,
     "total_bytes": total,
     "progress": progress,
-    "detail": detail,
-    "error_code": error_code,
-    "retry_count": status.get("retry_count", 0),
-    "retry_in_seconds": status.get("retry_in_seconds", 0),
-    "active": active,
+    "detail": status.get("detail"),
     "started_at": status.get("started_at"),
     "updated_at": status.get("updated_at"),
     "compiled": compiled,
     "engaged": engaged,
     "can_restart": same_model and not compiled and not engaged and state not in {
-      "checking", "downloading", "verifying", "compiling", "waiting_for_network", "installing",
+      "checking", "downloading", "verifying", "compiling",
     },
   }
 
 
 async def api_status(_request: web.Request) -> web.Response:
-  return web.json_response({**build_status_payload(), 'jetlink': jetlink_diagnostics()})
+  return web.json_response(build_status_payload())
 
 
 async def api_compile_restart(_request: web.Request) -> web.Response:

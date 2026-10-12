@@ -237,59 +237,6 @@ class TestHyundaiLongitudinalSafety(HyundaiLongitudinalBase, TestHyundaiSafety):
     self.assertFalse(self._tx(self._accel_msg(0, aeb_decel=1.0)))
 
 
-class TestHyundaiLongitudinalSafetyESCC(HyundaiLongitudinalBase, TestHyundaiSafety):
-  """
-    carrot ESCC car: the radar interceptor reads openpilot's SCC12 and re-emits it on the
-    car bus in its own format - that is how openpilot's longitudinal request reaches the
-    car - so a SCC12 on bus 0 is expected there and must not be treated as a failed ECU
-    knockout (see test_stock_scc12_is_expected).
-  """
-
-  TX_MSGS = [[0x340, 0], [0x4F1, 0], [0x485, 0], [0x420, 0], [0x421, 0], [0x50A, 0], [0x389, 0], [0x4A2, 0], [0x38D, 0], [0x483, 0], [0x7D0, 0]]
-
-  # Only the harness isolation (LKAS11 on bus 0) is a relay malfunction; the SCC12 one does
-  # not apply to ESCC cars.
-  RELAY_MALFUNCTION_ADDRS = {0: (0x340,)}
-
-  DISABLED_ECU_UDS_MSG = (0x7D0, 0)
-  DISABLED_ECU_ACTUATION_MSG = (0x421, 0)
-
-  def setUp(self):
-    self.packer = CANPackerPanda("hyundai_kia_generic")
-    self.safety = libsafety_py.libsafety
-    self.safety.set_safety_hooks(CarParams.SafetyModel.hyundai, HyundaiSafetyFlags.LONG | HyundaiSafetyFlags.ESCC)
-    self.safety.init_tests()
-
-  def _accel_msg(self, accel, aeb_req=False, aeb_decel=0):
-    values = {
-      "aReqRaw": accel,
-      "aReqValue": accel,
-      "AEB_CmdAct": int(aeb_req),
-      "CR_VSM_DecCmd": aeb_decel,
-    }
-    return self.packer.make_can_msg_panda("SCC12", self.SCC_BUS, values)
-
-  def test_stock_scc12_is_expected(self):
-    """
-      The interceptor's SCC12 on the car bus must not latch a relay malfunction - neither
-      before nor while openpilot is sending its own SCC12.  Latching it blocked every
-      openpilot TX (LKAS11 and SCC12 included) for the rest of the drive.
-    """
-    self.assertFalse(self.safety.get_relay_malfunction())
-    self._rx(common.make_msg(0, 0x421, 8))
-    self.assertFalse(self.safety.get_relay_malfunction())
-
-    self.safety.set_controls_allowed(True)
-    self.assertTrue(self._tx(self._accel_msg(0)))
-    self._rx(common.make_msg(0, 0x421, 8))
-    self.assertFalse(self.safety.get_relay_malfunction())
-
-  def test_disabled_ecu_alive(self):
-    """ESCC: the SCC12 knockout check does not apply (see the class docstring)."""
-    self._rx(common.make_msg(0, 0x421, 8))
-    self.assertFalse(self.safety.get_relay_malfunction())
-
-
 class TestHyundaiLongitudinalSafetyCameraSCC(HyundaiLongitudinalBase, TestHyundaiSafety):
   TX_MSGS = [[0x340, 0], [0x4F1, 2], [0x485, 0], [0x420, 0], [0x421, 0], [0x50A, 0], [0x389, 0], [0x4A2, 0]]
 

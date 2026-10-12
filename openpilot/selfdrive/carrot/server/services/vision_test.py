@@ -136,12 +136,12 @@ def get_status() -> dict[str, Any]:
   try:
     params = _params()
     device = {
-      "carrot_vision_enabled": int(params.get_int("CarrotVisionEnabled")),
+      "disable_dm": int(params.get_int("DisableDM")),
       "is_offroad": bool(params.get_bool("IsOffroad")),
       "is_onroad": bool(params.get_bool("IsOnroad")),
     }
   except Exception:
-    device = {"carrot_vision_enabled": None, "is_offroad": None, "is_onroad": None}
+    device = {"disable_dm": None, "is_offroad": None, "is_onroad": None}
   return {
     **state,
     "status": status if runner_alive or status == "error" else "stopped",

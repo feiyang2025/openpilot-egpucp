@@ -1,16 +1,15 @@
-"""Pinned upstream server with an optional, read-only Carrot HUD extension."""
+"""Pinned upstream server with an optional, read-only Carrot HUD extension.
+
+LEGACY, not updated for protocol 3: jetlink 0.7.2 deleted the Python
+`jetlink.server` package (the server is Swift's JetlinkKit now), so this file
+and the Jetson pipeline that imports it no longer run. Kept until the Jetson
+host side is migrated; the comma speaks protocol 3 to the apps.
+"""
 import os
 import json
 from pathlib import Path
 import sys
 import time
-
-if __name__ == '__main__':
-  if Path('/etc/nv_tegra_release').is_file():
-    from install_updates import migrate_running_release
-    migrate_running_release()
-  from boot_update import wait_for_runtime
-  wait_for_runtime()
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'third_party/jetlink'))
@@ -70,9 +69,6 @@ class CarrotSession(Session):
         'jetson' if Path('/etc/nv_tegra_release').is_file() else 'unknown')
       obj = {**obj, HUD_CAPABILITY: sys.platform == 'linux', NAVI_CAPABILITY: sys.platform == 'linux',
              PUMP_CAPABILITY: sys.platform == 'linux', WIFI_CAPABILITY: host == 'jetson', 'carrot_host': host}
-      if host == 'jetson':
-        obj['carrot_source_commit'] = (ROOT / 'SOURCE_COMMIT').read_text().strip()
-        obj['carrot_boot_update_installed'] = Path('/opt/carrot-jetlink/boot-update-required').is_file()
     return super()._send_json(msg_type, seq, obj, flags)
 
   def handle(self, msg):

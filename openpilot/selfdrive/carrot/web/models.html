@@ -29,11 +29,7 @@
   header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
   h1 { font-size: 20px; margin: 0; font-weight: 600; }
   .sub { color: var(--dim); font-size: 13px; }
-  .toolbar { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: flex-end; }
-  /* A squeezed flex item shrinks below its own text and wraps one character per
-     line, which is what the toolbar used to do on a phone. Keep each control at
-     its natural width and let the row wrap instead. */
-  .toolbar > * { flex: 0 0 auto; white-space: nowrap; }
+  .toolbar { margin-left: auto; display: flex; gap: 8px; }
   button {
     font: inherit;
     border: 1px solid var(--line);
@@ -106,28 +102,6 @@
     padding: 7px 10px;
   }
   .toolbar label { color: var(--dim); font-size: 13px; align-self: center; }
-  a.back {
-    align-self: center;
-    padding: 6px 10px;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: var(--card-hi);
-    color: var(--fg);
-    font-size: 13px;
-    text-decoration: none;
-    white-space: nowrap;
-  }
-  a.back:hover { background: #273040; border-color: #384555; }
-
-  /* Phones: the toolbar drops onto its own full-width rows instead of competing
-     with the title for one line. The model-source label gets a row of its own so
-     its select can use the full width. */
-  @media (max-width: 640px) {
-    header { align-items: flex-start; }
-    .toolbar { margin-left: 0; width: 100%; justify-content: flex-start; }
-    .toolbar label { flex: 1 1 100%; }
-    .toolbar select { flex: 1 1 auto; min-width: 0; }
-  }
 </style>
 </head>
 <body>
@@ -136,24 +110,18 @@
   <h1>eGPU 大模型管理</h1>
   <span class="sub" id="summary"></span>
   <span class="sub" id="delivery"></span>
-  <span class="sub" id="sourceState"></span>
   <div class="toolbar">
     <label for="sourceSelect">模型来源</label>
     <select id="sourceSelect" hidden></select>
-    <button id="btnRetryPrecompiled" class="mini" hidden>清除拒绝并重试</button>
     <button id="btnRefresh" class="mini">刷新</button>
-    <!-- 同源页面（carrot web 7000）直接用相对地址即可。 -->
-    <a class="back" href="/" title="返回设置主页">← 返回主页</a>
   </div>
 </header>
 
 <div id="banners"></div>
-<div id="readyHint"></div>
 <div class="grid" id="list"></div>
 
 <footer>
-  切换模型需要重启设备才生效：选择后会<b>立即在设备上开始下载</b>（不用等到重启），
-  下载完成后这里会出现「立即重启」按钮。<br>
+  切换模型需要重启设备才生效：模型已下载时立即切换，未下载时会在重启后自动下载。<br>
   <b>模型来源</b>（重启后生效）：<code>自动</code> = 优先分片包，没有分片时用预编译包；
   <code>分片包</code> = 只用分片（缺失时回退本地编译）；
   <code>预编译包</code> = 只用预编译。<br>
@@ -169,30 +137,7 @@
   "use strict";
   const $ = (id) => document.getElementById(id);
 
-  const state = { models: [], selected: null, active: null, busy: false, remote: false, source: null, sources: [], delivery: null, sourceState: null, transferBusy: false };
-
-  // Which artifact the pinned delivery still has to produce for a model. Choosing a model
-  // starts that transfer on the device right away, so the page has to know - per card -
-  // whether a reboot could work yet or a download is still missing.
-  function deliveryReady(model) {
-    const ds = model.delivery_state || {};
-    const pre = !!(ds.precompiled && ds.precompiled.installed);
-    if (model.precompiled_only) return !!model.downloaded;  // the PKL *is* the delivery
-    const src = state.source || "auto";
-    if (src === "precompiled") return pre;
-    if (src === "chunked") return !!ds.chunked_ready;
-    return !!ds.chunked_ready || pre;
-  }
-
-  function deliveryLabel(model) {
-    if (model.precompiled_only || (state.source || "auto") === "precompiled") return "预编译包";
-    if ((state.source || "auto") === "chunked") return "分片包";
-    return "模型文件";
-  }
-
-  function selectedModel() {
-    return state.models.find((m) => m.sha256 === state.selected) || null;
-  }
+  const state = { models: [], selected: null, active: null, busy: false, remote: false, source: null, sources: [], delivery: null };
 
   function fmtBytes(v) {
     const n = Number(v) || 0;
@@ -252,23 +197,12 @@
     const actions = document.createElement("div");
     actions.className = "actions";
 
-    const ready = deliveryReady(model);
     if (!model.active) {
-      if (model.selected && !ready) {
-        // Activating now would only abort the transfer, so offer the recovery action
-        // instead: the same call re-starts a downloader that died or never started.
-        const again = document.createElement("button");
-        again.textContent = "重新下载";
-        again.className = "mini";
-        again.addEventListener("click", () => retryDownload(model, again));
-        actions.appendChild(again);
-      } else {
-        const use = document.createElement("button");
-        use.textContent = model.selected ? "重启以启用" : "使用此模型";
-        use.className = "primary mini";
-        use.addEventListener("click", () => selectModel(model, use));
-        actions.appendChild(use);
-      }
+      const use = document.createElement("button");
+      use.textContent = model.selected ? "重启以启用" : "使用此模型";
+      use.className = "primary mini";
+      use.addEventListener("click", () => selectModel(model, use));
+      actions.appendChild(use);
     }
     if (model.downloaded && !model.active && !model.selected) {
       const del = document.createElement("button");
@@ -289,29 +223,10 @@
       badges.appendChild(b);
     };
     if (model.active) add("当前使用中", "on");
-    if (model.selected && !model.active) {
-      add(ready ? "已选择 · 待重启" : "已选择 · 等待" + deliveryLabel(model), ready ? "sel" : "miss");
-    }
+    if (model.selected && !model.active) add("已选择 · 待重启", "sel");
     add(model.downloaded ? "已下载" : "未下载", model.downloaded ? "ok" : "miss");
-    // The model file can be on disk while the pinned artifact is not (ONNX present but the
-    // precompiled package still missing): say so, or the card claims 已下载 and the reboot
-    // then sits through a transfer the page never mentioned.
-    if (model.downloaded && !ready) add("还缺" + deliveryLabel(model), "miss");
-    if (model.precompiled_only) add("预编译 PKL", "sel");
     add(model.sha256.slice(0, 12) + "…");
     el.appendChild(badges);
-
-    // A precompiled-only model (Cinque v3) ships as an already-compiled PKL: there is no
-    // ONNX to compile on the device and no chunked set to split, so the delivery setting
-    // cannot apply to it. Say so instead of letting the picker look like it was ignored.
-    if (model.precompiled_only) {
-      const note = document.createElement("div");
-      note.className = state.source === "chunked" ? "banner warn" : "banner";
-      note.textContent = state.source === "chunked"
-        ? "该模型只能以预编译方式交付（没有 ONNX 可供本机编译/分片），「分片包」设置对它无效，仍会下载预编译包。"
-        : "该模型为预编译 PKL：下载后直接生效，不需要本机编译。";
-      el.appendChild(note);
-    }
 
     // Render the bar for the active model and for the selected one as well: while a
     // switch is downloading, that model is neither "downloaded" nor "active" yet, so
@@ -328,145 +243,33 @@
       amount.style.cssText = "margin-top:6px;font-size:12px;opacity:.75";
       el.appendChild(amount);
       el.dataset.progressFor = model.sha256;
-      // Drive the bar from the *delivery*, not from the raw file: an ONNX on disk with the
-      // precompiled package still missing is not a state a reboot can start from.
-      el.dataset.downloaded = (model.downloaded && ready) ? "1" : "0";
+      el.dataset.downloaded = model.downloaded ? "1" : "0";
     }
     return el;
   }
 
-  // Picking a model is also the "fetch it now" action: the request drives the device's
-  // downloader straight away, which matters because the boot-time attempt can run before
-  // DNS is up and then defers the whole transfer to the next ignition.
   async function selectModel(model, button) {
     if (state.busy) return;
-    const ready = deliveryReady(model);
-    const msg = ready
-      ? `切换到“${model.label}”？\n需要重启设备才能生效。\n\n现在切换并重启吗？`
-      : (!model.downloaded
-          ? `“${model.label}”尚未下载（${fmtBytes(model.size)}）。\n选择后会立即在设备上开始下载${deliveryLabel(model)}，完成后需要重启才能启用。\n\n现在选择并开始下载吗？`
-          : `“${model.label}”的模型文件已在设备上，但${deliveryLabel(model)}还没有装好。\n选择后会立即在设备上开始下载，完成后需要重启才能启用。\n\n现在选择并开始下载吗？`);
+    const needDownload = !model.downloaded;
+    const msg = needDownload
+      ? `“${model.label}”尚未下载（${fmtBytes(model.size)}）。\n选择后需要重启，设备会在重启后自动下载该模型。\n\n现在选择并重启吗？`
+      : `切换到“${model.label}”？\n需要重启设备才能生效。\n\n现在切换并重启吗？`;
     if (!window.confirm(msg)) return;
 
     state.busy = true;
-    const original = button.textContent;
     button.disabled = true;
     button.textContent = "处理中…";
     try {
       const res = await postJson("/api/egpu/models/select", { sha256: model.sha256, reboot: true });
-      if (res.reboot_requested) {
-        banner("已切换，设备正在重启…", "warn");
-      } else if (res.download_pending) {
-        // The server refuses to reboot while the artifact is missing: rebooting would abort
-        // the transfer, and the page would lose the progress it is about to show.
-        banner(res.download_started
-          ? "已切换，并已在设备上开始下载；完成后这里会出现「立即重启」。"
-          : "已切换，但设备没能启动下载器——可点卡片上的「重新下载」，或重启设备让它自动下载。",
-          res.download_started ? "warn" : "err");
-      } else {
-        banner("已切换（重启设备后生效）", "warn");
-      }
+      banner(res.reboot_requested ? "已切换，设备正在重启…" : "已切换（重启后生效）", "warn");
       await load();
     } catch (err) {
       banner("切换失败：" + err.message, "err");
       button.disabled = false;
-      button.textContent = original;
+      button.textContent = "使用此模型";
     } finally {
       state.busy = false;
     }
-  }
-
-  // Ask the device to (re)start fetching the selected model. Same endpoint as selecting, so
-  // it re-pins the model and starts the background downloader when none is running.
-  async function retryDownload(model, button) {
-    if (state.busy) return;
-    state.busy = true;
-    const original = button ? button.textContent : "";
-    if (button) { button.disabled = true; button.textContent = "启动中…"; }
-    try {
-      const res = await postJson("/api/egpu/models/select", { sha256: model.sha256, reboot: false });
-      const failed = res.download_pending && !res.download_started;
-      banner(res.download_pending
-        ? (failed ? "下载器启动失败，请稍后再试（也可重启设备让它自动下载）。"
-                  : "已通知设备继续下载，进度会显示在卡片上。")
-        : "设备报告该模型已经就绪，可以直接重启启用。",
-        failed ? "err" : "warn");
-      await load();
-    } catch (err) {
-      banner("启动下载失败：" + err.message, "err");
-    } finally {
-      state.busy = false;
-      if (button) { button.disabled = false; button.textContent = original || "重新下载"; }
-    }
-  }
-
-  async function rebootNow(model, button) {
-    if (state.busy) return;
-    if (!window.confirm(`重启设备以启用“${model.label}”？`)) return;
-    state.busy = true;
-    const original = button ? button.textContent : "";
-    if (button) { button.disabled = true; button.textContent = "重启中…"; }
-    try {
-      const res = await postJson("/api/egpu/models/select", { sha256: model.sha256, reboot: true });
-      banner(res.reboot_requested ? "设备正在重启…" : "设备没有接受重启请求（可能仍在传输或未熄火）",
-             res.reboot_requested ? "warn" : "err");
-    } catch (err) {
-      banner("重启请求失败：" + err.message, "err");
-    } finally {
-      state.busy = false;
-      if (button) { button.disabled = false; button.textContent = original || "立即重启"; }
-    }
-  }
-
-  // The one place that says what the selected model still needs. It lives outside #banners
-  // because that container is wiped on every list refresh (20 s), which used to make a
-  // "ready - restart now" message vanish before it could be clicked.
-  function renderSelectedHint(status) {
-    const host = $("readyHint");
-    if (!host) return;
-    const model = selectedModel();
-    if (!model || model.active) {
-      host.innerHTML = "";
-      host.dataset.sig = "";
-      return;
-    }
-
-    const ready = deliveryReady(model);
-    const phase = (status || {}).state || "";
-    const detail = (status || {}).detail || "";
-    const sig = [model.sha256, ready, phase, detail].join("|");
-    if (host.dataset.sig === sig) return;
-    host.dataset.sig = sig;
-    host.innerHTML = "";
-
-    const wrap = document.createElement("div");
-    const action = document.createElement("button");
-    action.className = "mini";
-    action.style.marginLeft = "10px";
-
-    if (ready) {
-      wrap.className = "banner warn";
-      wrap.textContent = `“${model.label}”已准备好，重启设备即可启用。`;
-      action.className = "primary mini";
-      action.textContent = "立即重启";
-      action.addEventListener("click", () => rebootNow(model, action));
-    } else if (phase === "error") {
-      wrap.className = "banner err";
-      wrap.textContent = `“${model.label}”下载失败：${detail || "原因未知"}`;
-      action.textContent = "重新下载";
-      action.addEventListener("click", () => retryDownload(model, action));
-    } else {
-      wrap.className = "banner";
-      wrap.textContent = phase === "downloading"
-        ? `“${model.label}”正在下载，完成后这里会出现「立即重启」。`
-        : (phase === "verifying"
-            ? `“${model.label}”正在校验下载内容…`
-            : `“${model.label}”还需要下载，正在等设备开始传输…`);
-      action.textContent = "重新下载";
-      action.addEventListener("click", () => retryDownload(model, action));
-    }
-    wrap.appendChild(action);
-    host.appendChild(wrap);
   }
 
   async function removeModel(model, button) {
@@ -485,30 +288,15 @@
     }
   }
 
-  // Returns true when a transfer (download/verify) just ended, so the caller can reload the
-  // list and flip the hint to "ready - restart now" instead of waiting for the 20 s tick.
   async function refreshDownloadProgress() {
     let status = null;
-    try { status = await getJson("/api/egpu/model"); } catch (_) { return false; }
-    const wasBusy = state.transferBusy;
-    state.transferBusy = false;
-    if (!status || !status.available) {
-      // The status endpoint is gated on the eGPU having been seen at least once; the hint
-      // still has to track the model list in that case.
-      renderSelectedHint(null);
-      return wasBusy;
-    }
-
-    const downloading = status.state === "downloading";
-    const verifying = status.state === "verifying";
-    state.transferBusy = downloading || verifying;
-    renderSelectedHint(status);
-
-    const justFinished = wasBusy && !state.transferBusy;
+    try { status = await getJson("/api/egpu/model"); } catch (_) { return; }
+    if (!status || !status.available) return;
     const sha = status.sha256;
-    if (!sha) return justFinished;
+    if (!sha) return;
     const card = document.querySelector(`[data-progress-for="${sha}"]`);
-    if (!card) return justFinished;
+    if (!card) return;
+    const downloading = status.state === "downloading";
     const pct = Math.max(0, Math.min(100, Number(status.progress) || 0));
     const fill = card.querySelector(".progress > i");
     if (fill) {
@@ -524,7 +312,7 @@
     }
     // Live badge so the state is readable without opening the settings page.
     let badge = card.querySelector(".badge.dl");
-    if (downloading || verifying) {
+    if (downloading || status.state === "verifying") {
       if (!badge) {
         badge = document.createElement("span");
         badge.className = "badge dl";
@@ -534,52 +322,16 @@
     } else if (badge) {
       badge.remove();
     }
-    return justFinished;
   }
 
-  // Which delivery the active model actually resolved to (chunked vs precompiled), and - when
-  // the server says the pin cannot be honoured (artifact missing, or rejected by an earlier
-  // boot) - why, instead of leaving the picker looking like it was ignored.
+  // Which delivery the active model actually resolved to (chunked vs precompiled).
   function updateDelivery() {
     const el = $("delivery");
+    if (!el) return;
     const names = { chunked: "分片包", precompiled: "预编译包" };
-    if (el) {
-      el.textContent = state.delivery
-        ? "当前实际使用：" + (names[state.delivery] || state.delivery)
-        : "";
-    }
-
-    const info = state.sourceState || {};
-    const note = $("sourceState");
-    if (note) {
-      note.textContent = info.note ? "注意：" + info.note : "";
-    }
-
-    const retry = $("btnRetryPrecompiled");
-    if (retry) {
-      retry.hidden = !info.retry_available;
-      if (!retry.dataset.wired) {
-        retry.dataset.wired = "1";
-        retry.addEventListener("click", retryPrecompiled);
-      }
-    }
-  }
-
-  // Clear the marker that latched a rejected precompiled artifact: the next boot installs it
-  // again instead of silently keeping the chunked set.
-  async function retryPrecompiled() {
-    if (state.busy) return;
-    state.busy = true;
-    try {
-      const data = await postJson("/api/egpu/models/precompiled/retry", {});
-      banner((data && data.cleared ? "已清除拒绝标记" : "本来没有拒绝标记")
-             + "，重启设备后会重新安装预编译包。", "warn");
-      await load();
-    } catch (err) {
-      banner("重试失败：" + err.message, "err");
-    } finally {
-      state.busy = false;
-    }
+    el.textContent = state.delivery
+      ? "当前实际使用：" + (names[state.delivery] || state.delivery)
+      : "";
   }
 
   const SOURCE_LABELS = { auto: "自动（分片优先）", chunked: "分片包", precompiled: "预编译包" };
@@ -634,7 +386,6 @@
     state.source = data.source || null;
     state.sources = data.sources || [];
     state.delivery = data.delivery || null;
-    state.sourceState = data.source_state || null;
     renderSource();
     updateDelivery();
 
@@ -666,9 +417,7 @@
   $("btnRefresh").addEventListener("click", load);
   load();
   setInterval(() => { load(); }, 20000);
-  // 2 s tick: paints the progress bar, and reloads the moment a transfer ends so the
-  // "ready - restart now" prompt shows up without waiting for the slow tick.
-  setInterval(async () => { if (await refreshDownloadProgress()) await load(); }, 2000);
+  setInterval(refreshDownloadProgress, 2000);
 })();
 </script>
 </body>

@@ -32,8 +32,7 @@
   min-width: 0;
 }
 
-.drive-layout-segmented button,
-.drive-layout-reset {
+.drive-layout-segmented button {
   min-height: var(--drive-layout-segment-height);
   border: 1px solid color-mix(in srgb, var(--md-outline-var) 68%, transparent);
   border-radius: var(--control-radius);
@@ -47,18 +46,9 @@
   word-break: keep-all;
 }
 
-.drive-layout-segmented button,
-.drive-layout-reset {
+.drive-layout-segmented button {
   min-width: 0;
   padding: var(--sp-xs) var(--sp-sm);
-}
-
-/* Reset sits on the same row as the orientation tabs. */
-.drive-layout-header-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-sm);
-  min-width: 0;
 }
 
 .drive-layout-segmented--compact button {
@@ -72,7 +62,6 @@
 }
 
 .drive-layout-segmented button:focus-visible,
-.drive-layout-reset:focus-visible,
 .drive-layout-content-selects select:focus-visible {
   outline: 2px solid var(--focus-ring-color);
   outline-offset: 1px;

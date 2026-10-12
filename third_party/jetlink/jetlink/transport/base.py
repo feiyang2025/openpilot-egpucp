@@ -6,26 +6,33 @@ See the LICENSE file in the root directory for more details.
 """
 from __future__ import annotations
 
-import os
-import socket
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 from jetlink import protocol as P
 
-# Stops a corrupt length field making RxBuffer allocate gigabytes. A frame is
-# ~460 KB.
+# Stops a corrupt length field making RxBuffer allocate gigabytes. A big
+# model's request is 393 KB.
 MAX_MESSAGE = 16 << 20
 _PAD = bytes(P.GADGET_TX_ALIGN)
-UDC_SYSFS = '/sys/class/udc'
+
+
+# The USB generation of each speed Linux names, as the server's link event
+# shows it. The comma's hello carries the speed (Transport.link_info), because
+# only its end always knows: a phone's cable is TCP over USB, and a host may
+# not see the bus speed. The server maps it with this (Pinned.usbSpeedMedia).
 USB_MEDIA = {'super-speed-plus': 'usb3', 'super-speed': 'usb3', 'high-speed': 'usb2',
              'full-speed': 'usb1', 'low-speed': 'usb1'}
-CABLE_ADDRESS = '192.168.60.1'
+UDC_SYSFS = '/sys/class/udc'
 
 
-def udc_speed(udc: str | None = None, root: str = UDC_SYSFS) -> str | None:
-  """Read the negotiated USB speed for a bound gadget controller, if available."""
+def udc_speed(udc: str | None = None, root: str | None = None) -> str | None:
+  """The speed a device controller negotiated with its host, as Linux names it
+  (super-speed, high-speed, ...), from `udc` or the first controller; None
+  without one, or before a host has configured it."""
+  import os
+  root = root or UDC_SYSFS
   try:
     name = udc or sorted(os.listdir(root))[0]
     with open(os.path.join(root, name, 'current_speed')) as f:
@@ -63,7 +70,9 @@ class Transport(ABC):
   """
 
   def link_info(self) -> dict:
-    """Optional transport metadata to include in a protocol 3 hello."""
+    """What the comma's hello says about this link: its kind (usb, cable or
+    tcp) and, over USB, the speed the controller negotiated. Empty when there
+    is nothing to say."""
     return {}
 
   @abstractmethod
@@ -156,10 +165,6 @@ class StreamTransport(Transport):
   Subclasses supply only the two primitives that differ.
   """
 
-  # Carrot extension: select a strict wire version per fresh connection.
-  # The default remains the unmodified v2 contract used by deployed Jetsons.
-  wire_protocol = P
-
   # Extra capacity past the current message, for transports whose reads need a
   # minimum buffer size (a bulk OUT endpoint wants a whole packet).
   read_slack = 0
@@ -176,46 +181,10 @@ class StreamTransport(Transport):
   # hundred KB of inference does not. 0 means no cap (TCP).
   write_chunk = 0
 
-  def __init__(self, rx_size: int = 1 << 20, protocol_version: int = P.VERSION):
+  def __init__(self, rx_size: int = 1 << 20):
     self.rx = RxBuffer(rx_size)
     self._desynced = False
     self._send_deadline: float | None = None
-    self._protocol_locked = False
-    self._locked_protocol_version: int | None = None
-    self.protocol_version = protocol_version
-
-  @property
-  def protocol_version(self) -> int:
-    return self._protocol_version
-
-  @protocol_version.setter
-  def protocol_version(self, version: int) -> None:
-    selected = P.validate_version(version)
-    if self._protocol_locked and selected != self._locked_protocol_version:
-      raise ValueError(f"protocol version is locked to {self._locked_protocol_version} on this stream")
-    self._protocol_version = selected
-
-  def _lock_protocol_version(self) -> None:
-    if not self._protocol_locked:
-      self._protocol_locked = True
-      self._locked_protocol_version = self._protocol_version
-
-  def link_info(self) -> dict:
-    udc = getattr(self, 'bound_udc', None)
-    if udc is not None:
-      return usb_link_info('usb', udc_speed(udc))
-    sock = getattr(self, 'sock', None)
-    if sock is not None and getattr(sock, 'family', None) in (socket.AF_INET, socket.AF_INET6):
-      try:
-        endpoints = {sock.getsockname()[0], sock.getpeername()[0]}
-      except OSError:
-        return {'kind': 'tcp'}
-      if CABLE_ADDRESS in endpoints:
-        return usb_link_info('cable', udc_speed())
-      return {'kind': 'tcp'}
-    if getattr(self, 'handle', None) is not None:
-      return {'kind': 'usb'}
-    return {}
 
   def _write_timeout(self, default: float | None = None) -> float | None:
     if self._send_deadline is None:
@@ -242,9 +211,6 @@ class StreamTransport(Transport):
   # -- framing -------------------------------------------------------------
 
   def send(self, msg_type: int, seq: int, parts=(), flags: int = 0, timeout: float | None = None) -> None:
-    P = self.wire_protocol
-    self._lock_protocol_version()
-    multiple = P.packet_multiple(self.protocol_version) if hasattr(P, 'packet_multiple') else P.PACKET_MULTIPLE
     # cast('B'): slicing a float32 view in advance() would step by elements
     bufs = [memoryview(p).cast('B') for p in parts]
     length = sum(b.nbytes for b in bufs)
@@ -253,14 +219,11 @@ class StreamTransport(Transport):
       pad = -(P.HEADER_SIZE + length) % self.tx_align
       if pad:
         bufs.append(memoryview(_PAD)[:pad])
-    elif (P.HEADER_SIZE + length) % multiple == 0:
+    elif (P.HEADER_SIZE + length) % P.PACKET_MULTIPLE == 0:
       # A bulk transfer only ends on a short packet; see protocol.PACKET_MULTIPLE.
       flags |= P.Flag.PADDED
       bufs.append(memoryview(_PAD)[:1])
-    if P.VERSION == 3:
-      header = P.pack_header(msg_type, seq, length, flags)
-    else:
-      header = P.pack_header(msg_type, seq, length, flags, version=self.protocol_version)
+    header = P.pack_header(msg_type, seq, length, flags)
     bufs.insert(0, memoryview(header))
     self._send_deadline = None if timeout is None else time.monotonic() + timeout
     try:
@@ -314,43 +277,20 @@ class StreamTransport(Transport):
       return -(-missing // self.packet_size) * self.packet_size
     return missing
 
-  def drain(self, timeout: float) -> None:
-    """After a desync, swallow what the peer is still sending until the link
-    drops or it goes quiet for `timeout`.
-
-    The peer is blocked mid-message. Reopening instead drains a packet per
-    session, so its frame timeout never fires and it never reconnects.
-    """
-    scratch = memoryview(bytearray(self.read_chunk))
-    last = time.monotonic()
-    while time.monotonic() - last < timeout:
-      try:
-        n = self._read_into(scratch, timeout)
-      except LinkError:
-        return
-      if n:
-        last = time.monotonic()
-
   def recv(self, timeout: float | None = None) -> Message:
-    P = self.wire_protocol
-    self._lock_protocol_version()
     if self._desynced:
       raise LinkError("stream desynced; the link must be reopened")
     end = None if timeout is None else time.monotonic() + timeout
     self._fill(P.HEADER_SIZE, timeout)
     try:
-      if P.VERSION == 3:
-        _, _, msg_type, seq, flags, length, _reserved = P.unpack_header(
-          self.rx.view[self.rx.start:self.rx.start + P.HEADER_SIZE])
-      else:
-        _, _, msg_type, seq, flags, length, _reserved = P.unpack_header(
-          self.rx.view[self.rx.start:self.rx.start + P.HEADER_SIZE], version=self.protocol_version)
+      _, _, msg_type, seq, flags, length, _reserved = P.unpack_header(
+        self.rx.view[self.rx.start:self.rx.start + P.HEADER_SIZE])
       if length > MAX_MESSAGE:
         raise P.ProtocolError(f"message claims {length} bytes, over the {MAX_MESSAGE} cap")
     except P.ProtocolError as e:
       # Nothing resynchronises a byte stream mid-message. Latch it and report a
-      # LinkError, which callers reconnect on; a ProtocolError escaping here
-      # unwinds the server's accept loop and kills the process.
+      # LinkError, which callers reconnect on and modeld answers with the
+      # small model; a ProtocolError is something no caller catches.
       self._desynced = True
       raise LinkError(f"protocol error, link unusable: {e}") from e
     # the remainder of the budget, so one recv cannot block for twice what it

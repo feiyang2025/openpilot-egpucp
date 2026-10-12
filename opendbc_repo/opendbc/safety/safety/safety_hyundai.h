@@ -188,16 +188,7 @@ static void hyundai_rx_hook(const CANPacket_t *to_push) {
 
     // If openpilot is controlling longitudinal we need to ensure the radar is turned off
     // Enforce by checking we don't see SCC12
-    // carrot ESCC: the radar interceptor re-emits SCC12 on the car bus by design - it reads
-    // openpilot's own SCC12 and repeats it in its own format (same accel bytes), which is how
-    // openpilot's longitudinal request actually reaches the car.  Keeping the radar alive is
-    // the point of ESCC (the car interface does not set radarUnavailable for these cars), so
-    // a SCC12 on bus 0 is expected there and must not latch a relay malfunction - that would
-    // block every openpilot TX for the rest of the drive.  The LKAS11 check above still
-    // covers what the relay malfunction is really about: the camera must be isolated from the
-    // car bus.
-    bool scc12_implies_stock_ecu = !hyundai_escc;
-    if (hyundai_longitudinal && (addr == 0x421) && scc12_implies_stock_ecu) {
+    if (hyundai_longitudinal && (addr == 0x421)) {
       stock_ecu_detected = true;
     }
     generic_rx_checks(stock_ecu_detected);

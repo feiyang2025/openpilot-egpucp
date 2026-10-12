@@ -14,8 +14,8 @@ from .test_viewer import DIRECTORY, ROUTE, OTHER_ROUTE, create_share, seed_route
 def test_radar_route_scope_and_revocation(tmp_path, monkeypatch):
   calls = []
 
-  async def response(_self, source, sensor, sensitivity, radar_track_flip="recorded"):
-    calls.append((source, sensor, sensitivity, radar_track_flip))
+  async def response(_self, source, sensor, sensitivity):
+    calls.append((source, sensor, sensitivity))
     return web.json_response({"status": "preparing"}, status=202)
 
   monkeypatch.setattr(RadarJobs, "response", response)
@@ -28,9 +28,7 @@ def test_radar_route_scope_and_revocation(tmp_path, monkeypatch):
       assert (await client.get(base + "/radar/1")).status == 404
       assert not calls
       assert (await client.get(base + "/radar/0?sensor=front&sensitivity=5")).status == 202
-      assert calls[-1] == (tmp_path / "uploads/routes" / DIRECTORY / f"{ROUTE}--0/rlog.zst", "front", 3, "recorded")
-      assert (await client.get(base + "/radar/0?radar_track_flip=flipped")).status == 202
-      assert calls[-1][3] == "flipped"
+      assert calls[-1] == (tmp_path / "uploads/routes" / DIRECTORY / f"{ROUTE}--0/rlog.zst", "front", 3)
       assert (await client.get(base + "/radar/0?sensitivity=bad")).status == 202
       assert calls[-1][2] == 3
       share = await create_share(client)
@@ -60,8 +58,8 @@ def test_job_deduplicates_and_publishes_cache(tmp_path, monkeypatch):
     calls = []
     release = asyncio.Event()
 
-    async def prepare(src, output, sensor, sensitivity, radar_track_flip="recorded"):
-      calls.append((src, radar_track_flip))
+    async def prepare(src, output, sensor, sensitivity):
+      calls.append(src)
       await release.wait()
       output.parent.mkdir(exist_ok=True)
       output.write_bytes(gzip.compress(b'{"frames":[{}]}'))
@@ -75,15 +73,6 @@ def test_job_deduplicates_and_publishes_cache(tmp_path, monkeypatch):
     await asyncio.gather(*manager.jobs.values())
     assert (await manager.response(source, "auto", 3)).status == 200
     assert not manager.jobs
-    assert (await manager.response(source, "auto", 3, "flipped")).status == 202
-    await asyncio.gather(*manager.jobs.values())
-    assert calls[-1] == (source, "flipped")
-    assert (await manager.response(source, "auto", 3, "flipped")).status == 200
-    assert (await manager.response(source, "auto", 3, "normal")).status == 202
-    await asyncio.gather(*manager.jobs.values())
-    assert calls[-1] == (source, "normal")
-    with pytest.raises(web.HTTPBadRequest):
-      await manager.response(source, "auto", 3, "invalid")
     with pytest.raises(web.HTTPBadRequest):
       await manager.response(source, "invalid", 3)
     source.write_bytes(b"replacement log")
@@ -122,20 +111,3 @@ def test_graph_preserves_missing_scc_samples_and_desktop_series():
   assert payload['graphs']['carrotAccel'][0]['samples'] == [[0.0, -.5], [.05, -.5], [.1, -.5]]
   assert payload['frames'][0]['video_time_s'] == 10
   assert set(payload['graphs']) == {'leadOne', 'leadTwo', 'vision', 'leadSpeed', 'sccDistance', 'sccAccel', 'carrotAccel'}
-
-
-@pytest.mark.parametrize("mode", (-2, -1, 0, 1, 2, 3, None))
-def test_export_uses_recorded_source_policy_including_zero(mode):
-  from dataclasses import asdict, replace
-  from openpilot.selfdrive.carrot.radar.tools import radar_web_export as exporter
-  from openpilot.selfdrive.carrot.tests.test_radar_lead_simulator import frame, point
-
-  frames = [replace(frame((replace(point(0, 25.0, 4.0), source="scc"),), time_s=i * .05),
-                    recorded_radar_track_mode=mode) for i in range(20)]
-  effective = 2 if mode is None else mode
-  payload = exporter.export_frames(frames)
-  desktop = exporter.replay.ProductionDPathSelector(frames, enable_radar_tracks=effective)
-  assert payload["enableRadarTracks"] == effective
-  for i, item in enumerate(payload["frames"]):
-    lead = desktop.select(frames[i], i).lead_one
-    assert item["selection"]["lead_one"] == (exporter.finite_json(asdict(lead)) if lead else None)

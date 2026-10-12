@@ -1,39 +1,5 @@
 # 7714 내비 감속 브랜치 비교
 
-## 2026-09-13 순정 거리 연결 및 외부 후면단속 유지
-
-`carrot-wip` 및 유지 중인 `carrot-*`는 현재 순정 카메라 경고를 같은 제한속도의 먼 미래 이벤트와
-연결하지 않는다. 경고 시작 때 계산한 가상 끝점에 40m 여유를 둔 범위 안에서만 연결하며,
-일치 후보가 없으면 현재 경고의 가상거리를 사용하고 경고 종료까지 감속 후보를 유지한다.
-
-외부 TMAP SDI `75/76`은 각각 후면 과속/후면 신호·과속이다.
-[공식 EDC SDI 정의](https://tmapapi.tmapmobility.com/main.html#androidEDCSDK/docs/androidDoc.RGData_SDIType)에 따라
-마지막 50m 접근에서 위치를 기억하고 `AutoNaviRearCameraHoldDistance`만큼 통과 후 상한을 유지한다.
-기본 100m, 0~300m/10m 단위이며 0은 추가 유지 해제다. 7713/7714 모두 공유 `CarrotServ`에서 적용한다.
-안내 소실·다음 항목 전환·정차로 조기 해제하지 않으며 카운트다운 거리는 카메라 위치 그대로다.
-외부 연결 종료·새 세션·경로 이탈·주행거리 초기화·카메라 제어 비활성화는 유지 상태를 초기화한다.
-순정 CAN의 후면 종류 매핑은 확인되지 않아 이 추가 거리는 순정에 적용하지 않는다.
-위 변경은 아래 과거 `navi-stream` 비교 기준에 소급 적용하지 않는다.
-
-검증: `test_speed_camera.py`, `test_external_navigation_priority.py`, `test_carrot_navi_serv.py`,
-`test_vehicle_speed_camera_control.py`. 현재 경고/미래 거리 오연결, 거리 소진 후 유지, 후면 통과 후 유지와
-거리 기반 해제, 다음 감속 조건과의 공존 및 외부 연결 종료 후 순정 복귀를 포함한다.
-
-## 2026-09-13 외부 내비 우선 선택 (`carrot-wip` 및 유지 중인 `carrot-*`)
-
-외부 내비 연결 중에는 순정 내비 카메라·방지턱·구간단속·30km/h 구역 후보와 순정 내비 속도 표시를 제외한다.
-7714는 유효하고 살아 있는 서비스의 `connected` snapshot으로 판단하며 speed/guidance 항목이 없어도 연결로 본다.
-7713/legacy와 KISA는 기존 수신 카운터가 만료될 때까지 연결 상태를 유지한다. `activeCarrot`은 순정 감속에도
-변하므로 연결 판정에 쓰지 않는다. 모든 외부 연결이 끝나면 순정 후보를 기존 설정에 따라 다시 사용한다.
-
-카운트다운 거리도 같은 연결 선택을 따르며 외부·순정 거리의 최솟값을 섞지 않는다. 전환 시 카운트다운과
-가속 오버라이드·구역 억제 상태를 초기화하고 알림에 한 번 idle을 보낸다. 순정 CAN 수신과 이벤트 추적은 계속하여
-복귀 시 현재 거리와 상태를 사용한다. 이 변경은 아래 과거 `navi-stream` 비교 기준에 소급 적용하지 않는다.
-
-검증: `test_external_navigation_priority.py`, `test_vehicle_speed_camera_control.py`, `test_carrot_navi_serv.py`.
-외부 안내 항목 없음, 각 순정 감속 종류 배제, 연결 만료 후 복귀, 7714 idle heartbeat와 disconnect/invalid/dead,
-외부 13m·순정 30.62m 방지턱의 외부 거리 기준 해제를 확인한다.
-
 ## 비교 기준
 
 - `origin/carrot-wip`: `031cb441501ac3cbda4f28cae48767a5cf2d086e`

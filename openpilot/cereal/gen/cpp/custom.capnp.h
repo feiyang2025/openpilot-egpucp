@@ -267,7 +267,7 @@ struct AmapNavi {
   class Pipeline;
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(da96579883444c35, 10, 0)
+    CAPNP_DECLARE_STRUCT_HEADER(da96579883444c35, 9, 0)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -2613,16 +2613,6 @@ public:
 
   inline bool getLaneBlindR() const;
 
-  inline bool getXiaogeBlindL() const;
-
-  inline bool getXiaogeBlindR() const;
-
-  inline bool getXiaogeLineValid() const;
-
-  inline  ::int32_t getXiaogeLeftLine() const;
-
-  inline  ::int32_t getXiaogeRightLine() const;
-
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -2743,21 +2733,6 @@ public:
 
   inline bool getLaneBlindR();
   inline void setLaneBlindR(bool value);
-
-  inline bool getXiaogeBlindL();
-  inline void setXiaogeBlindL(bool value);
-
-  inline bool getXiaogeBlindR();
-  inline void setXiaogeBlindR(bool value);
-
-  inline bool getXiaogeLineValid();
-  inline void setXiaogeLineValid(bool value);
-
-  inline  ::int32_t getXiaogeLeftLine();
-  inline void setXiaogeLeftLine( ::int32_t value);
-
-  inline  ::int32_t getXiaogeRightLine();
-  inline void setXiaogeRightLine( ::int32_t value);
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -7738,76 +7713,6 @@ inline bool AmapNavi::Builder::getLaneBlindR() {
 inline void AmapNavi::Builder::setLaneBlindR(bool value) {
   _builder.setDataField<bool>(
       ::capnp::bounded<78>() * ::capnp::ELEMENTS, value);
-}
-
-inline bool AmapNavi::Reader::getXiaogeBlindL() const {
-  return _reader.getDataField<bool>(
-      ::capnp::bounded<79>() * ::capnp::ELEMENTS);
-}
-
-inline bool AmapNavi::Builder::getXiaogeBlindL() {
-  return _builder.getDataField<bool>(
-      ::capnp::bounded<79>() * ::capnp::ELEMENTS);
-}
-inline void AmapNavi::Builder::setXiaogeBlindL(bool value) {
-  _builder.setDataField<bool>(
-      ::capnp::bounded<79>() * ::capnp::ELEMENTS, value);
-}
-
-inline bool AmapNavi::Reader::getXiaogeBlindR() const {
-  return _reader.getDataField<bool>(
-      ::capnp::bounded<80>() * ::capnp::ELEMENTS);
-}
-
-inline bool AmapNavi::Builder::getXiaogeBlindR() {
-  return _builder.getDataField<bool>(
-      ::capnp::bounded<80>() * ::capnp::ELEMENTS);
-}
-inline void AmapNavi::Builder::setXiaogeBlindR(bool value) {
-  _builder.setDataField<bool>(
-      ::capnp::bounded<80>() * ::capnp::ELEMENTS, value);
-}
-
-inline bool AmapNavi::Reader::getXiaogeLineValid() const {
-  return _reader.getDataField<bool>(
-      ::capnp::bounded<81>() * ::capnp::ELEMENTS);
-}
-
-inline bool AmapNavi::Builder::getXiaogeLineValid() {
-  return _builder.getDataField<bool>(
-      ::capnp::bounded<81>() * ::capnp::ELEMENTS);
-}
-inline void AmapNavi::Builder::setXiaogeLineValid(bool value) {
-  _builder.setDataField<bool>(
-      ::capnp::bounded<81>() * ::capnp::ELEMENTS, value);
-}
-
-inline  ::int32_t AmapNavi::Reader::getXiaogeLeftLine() const {
-  return _reader.getDataField< ::int32_t>(
-      ::capnp::bounded<17>() * ::capnp::ELEMENTS);
-}
-
-inline  ::int32_t AmapNavi::Builder::getXiaogeLeftLine() {
-  return _builder.getDataField< ::int32_t>(
-      ::capnp::bounded<17>() * ::capnp::ELEMENTS);
-}
-inline void AmapNavi::Builder::setXiaogeLeftLine( ::int32_t value) {
-  _builder.setDataField< ::int32_t>(
-      ::capnp::bounded<17>() * ::capnp::ELEMENTS, value);
-}
-
-inline  ::int32_t AmapNavi::Reader::getXiaogeRightLine() const {
-  return _reader.getDataField< ::int32_t>(
-      ::capnp::bounded<18>() * ::capnp::ELEMENTS);
-}
-
-inline  ::int32_t AmapNavi::Builder::getXiaogeRightLine() {
-  return _builder.getDataField< ::int32_t>(
-      ::capnp::bounded<18>() * ::capnp::ELEMENTS);
-}
-inline void AmapNavi::Builder::setXiaogeRightLine( ::int32_t value) {
-  _builder.setDataField< ::int32_t>(
-      ::capnp::bounded<18>() * ::capnp::ELEMENTS, value);
 }
 
 }  // namespace

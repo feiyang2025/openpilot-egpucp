@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import json
 import os
 import time
 import threading
@@ -10,34 +9,28 @@ from openpilot.cereal import car, log
 
 from openpilot.common.params import Params
 from openpilot.common.realtime import config_realtime_process, Priority, Ratekeeper
-from openpilot.common.runtime_diagnostics import RuntimeDiagnostics
-from opendbc.can.native import BACKEND as CAN_BACKEND
 from openpilot.common.swaglog import cloudlog, ForwardingHandler
 
 from opendbc.car import DT_CTRL, structs
 from opendbc.car.can_definitions import CanData, CanRecvCallable, CanSendCallable
 from opendbc.car.carlog import carlog
 from opendbc.car.fw_versions import ObdCallback
-from opendbc.car.car_helpers import get_car
-from opendbc.car.interfaces import CarInterfaceBase
+from opendbc.car.car_helpers import get_car, interfaces
+from opendbc.car.interfaces import CarInterfaceBase, RadarInterfaceBase
 from openpilot.selfdrive.pandad import can_capnp_to_list, can_list_to_can_capnp
 from openpilot.selfdrive.car.alternative_experience import get_alternative_experience
 from openpilot.selfdrive.car.card_diagnostics import should_log_card_diagnostics
 from openpilot.selfdrive.car.cruise import VCruiseCarrot
 from openpilot.selfdrive.car.car_specific import MockCarState
 from openpilot.selfdrive.car.openpilot_toggle import CruiseMainOpenpilotToggle
-from openpilot.selfdrive.controls.lib.lateral_readiness import LateralStartupGate
 from openpilot.selfdrive.carrot.xiaoge.xiaoge_vision import (
   XiaogeVisionResult,
   apply_xiaoge_vision_result,
-  merge_xiaoge_lane_type,
   parse_xiaoge_vision_payload,
-  xiaoge_blindspot_vision,
 )
 
 REPLAY = "REPLAY" in os.environ
 XIAOGE_LANE_ERROR_LOG_INTERVAL_NS = 5_000_000_000
-XIAOGE_SOURCE_HEARTBEAT_NS = 1_000_000_000
 
 EventName = log.OnroadEvent.EventName
 ButtonType = car.CarState.ButtonEvent.Type
@@ -77,22 +70,20 @@ def can_comm_callbacks(logcan: messaging.SubSocket, sendcan: messaging.PubSocket
 
 class Car:
   CI: CarInterfaceBase
+  RI: RadarInterfaceBase
   CP: car.CarParams
 
-  def __init__(self, CI=None) -> None:
+  def __init__(self, CI=None, RI=None) -> None:
     self.can_sock = messaging.sub_sock('can', timeout=20)
     self.sm = messaging.SubMaster(['pandaStates', 'carControl', 'onroadEvents', 'carrotMan', 'longitudinalPlan',
-                                   'radarState', 'modelV2', 'drivingModelData', 'customReservedRawData0', 'amapNavi',
-                                   'liveParameters', 'livePose', 'selfdriveState', 'lateralPlan'])
-    # liveTracks 已由 carrot/radar/radarcan.py 发布（上游把雷达预处理从 card 拆出）
-    self.pm = messaging.PubMaster(['sendcan', 'carState', 'carParams', 'carOutput', 'customReservedRawData1'])
+                                   'radarState', 'modelV2', 'drivingModelData', 'customReservedRawData0'])
+    self.pm = messaging.PubMaster(['sendcan', 'carState', 'carParams', 'carOutput', 'liveTracks'])
 
     self.can_rcv_cum_timeout_counter = 0
 
     self.CC_prev = car.CarControl.new_message()
     self.CS_prev = car.CarState.new_message()
     self.initialized_prev = False
-    self.lateral_startup = LateralStartupGate()
     self.cruise_main_toggle = CruiseMainOpenpilotToggle(ButtonType.mainCruise)
 
     self.last_actuators_output = structs.CarControl.Actuators()
@@ -121,12 +112,14 @@ class Car:
           cached_params = _cached_params
 
       self.CI = get_car(*self.can_callbacks, obd_callback(self.params), alpha_long_allowed, is_release, num_pandas, cached_params)
+      self.RI = interfaces[self.CI.CP.carFingerprint].RadarInterface(self.CI.CP)
       self.CP = self.CI.CP
 
       # continue onto next fingerprinting step in pandad
       self.params.put_bool("FirmwareQueryDone", True)
     else:
       self.CI, self.CP = CI, CI.CP
+      self.RI = RI
 
     self.CP.alternativeExperience = get_alternative_experience(self.params.get_bool("DisengageOnAccelerator"))
     openpilot_enabled_toggle = self.params.get_bool("OpenpilotEnabledToggle")
@@ -189,18 +182,14 @@ class Car:
     self.card_diag_slow_process = 0
     self.card_diag_can_timeouts = 0
     self.xiaoge_vision_result: XiaogeVisionResult | None = None
-    self.xiaoge_blindspot_sources = (False, False, False, False)
-    self.xiaoge_blindspot_sources_published = None
-    self.xiaoge_blindspot_sources_published_ns = 0
     self.xiaoge_vision_error_log_at_ns = 0
-    self.card_diag_stage_names = ('decode', 'ci_update', 'sm_update', 'vision', 'state_tail',
+    self.card_diag_stage_names = ('decode', 'ci_update', 'sm_update', 'radar', 'state_tail',
                                   'state_total', 'publish', 'apply', 'sendcan', 'total')
     self.card_diag_stage_current = dict.fromkeys(self.card_diag_stage_names, 0)
     self.card_diag_stage_sum_us = dict.fromkeys(self.card_diag_stage_names, 0)
     self.card_diag_stage_max_us = dict.fromkeys(self.card_diag_stage_names, 0)
-    self.runtime_diagnostics = RuntimeDiagnostics('card', cloudlog.event)
 
-  def state_update(self) -> car.CarState:
+  def state_update(self) -> tuple[car.CarState, structs.RadarDataT | None]:
     """carState update loop, driven by can"""
 
     can_strs = messaging.drain_sock_raw(self.can_sock, wait_for_one=True)
@@ -214,11 +203,16 @@ class Car:
     can_list = can_capnp_to_list(can_strs)
     decode_done_ns = time.monotonic_ns()
 
+    rcv_time = time.time()
+
     # Update carState from CAN
     CS = self.CI.update(can_list)
     if self.CP.brand == 'mock':
       CS = self.mock_carstate.update(CS)
     ci_done_ns = time.monotonic_ns()
+
+    # Update radar tracks from CAN
+    #RD: structs.RadarDataT | None = self.RI.update_carrot(CS.vEgo, can_list)
 
     self.sm.update(0)
     sm_done_ns = time.monotonic_ns()
@@ -230,28 +224,7 @@ class Car:
         if sm_done_ns - self.xiaoge_vision_error_log_at_ns >= XIAOGE_LANE_ERROR_LOG_INTERVAL_NS:
           cloudlog.warning(f"invalid Xiaoge vision payload: {error}")
           self.xiaoge_vision_error_log_at_ns = sm_done_ns
-    left_oem, right_oem = bool(CS.leftBlindspot), bool(CS.rightBlindspot)
-    left_vision, right_vision = xiaoge_blindspot_vision(self.xiaoge_vision_result, sm_done_ns)
-    self.xiaoge_blindspot_sources = (left_oem, right_oem, left_vision, right_vision)
-    CS.leftBlindspotOem = left_oem
-    CS.rightBlindspotOem = right_oem
-    CS.leftBlindspotOnnx = left_vision
-    CS.rightBlindspotOnnx = right_vision
-    CS.blindspotSplitSourcesValid = True
     apply_xiaoge_vision_result(CS, self.xiaoge_vision_result, sm_done_ns)
-    # amapnavi 外挂盲区/虚实线：直接合并进 carState，不依赖 ShareData（xiaoge 发布进程）。
-    # 归一化与来源筛选已在 amapnavi 侧完成（见 amap_navi.public_amap_navi / XiaogeBlindSources）。
-    if self.sm.alive['amapNavi']:
-      amap = self.sm['amapNavi']
-      # 盲区：与 xiaoge/OEM 同为 OR（只加不清）
-      CS.leftBlindspot = CS.leftBlindspot or bool(amap.xiaogeBlindL)
-      CS.rightBlindspot = CS.rightBlindspot or bool(amap.xiaogeBlindR)
-      # 虚实线：外挂线源在线时覆盖同侧类型位（保留 OEM 颜色编码）
-      if bool(amap.xiaogeLineValid):
-        if int(amap.xiaogeLeftLine) >= 0:
-          CS.leftLaneLine = merge_xiaoge_lane_type(CS.leftLaneLine, int(amap.xiaogeLeftLine))
-        if int(amap.xiaogeRightLine) >= 0:
-          CS.rightLaneLine = merge_xiaoge_lane_type(CS.rightLaneLine, int(amap.xiaogeRightLine))
     #self.t1 = time.monotonic()
 
     can_rcv_valid = len(can_strs) > 0
@@ -264,13 +237,8 @@ class Car:
     if can_rcv_valid and REPLAY:
       self.can_log_mono_time = messaging.log_from_bytes(can_strs[0]).logMonoTime
 
-    # radarcan consumes the CAN stream independently. These bounds preserve the
-    # old update_carrot(CS.vEgo, CS.aEgo, ..., can_list) association exactly.
-    CS.radarInput.firstCanMonoTime = can_list[0][0] if can_list else 0
-    CS.radarInput.lastCanMonoTime = can_list[-1][0] if can_list else 0
-    CS.radarInput.canPacketCount = len(can_list)
-    CS.radarInput.receiveMonoTime = self.can_log_mono_time if REPLAY and can_rcv_valid else recv_ns
-    vision_done_ns = time.monotonic_ns()
+    RD: structs.RadarDataT | None = self.RI.update_carrot(CS.vEgo, CS.aEgo, rcv_time, can_list)
+    radar_done_ns = time.monotonic_ns()
     #self.t2 = time.monotonic()
 
     #self.v_cruise_helper.update_v_cruise(CS, self.sm['carControl'].enabled, self.is_metric)
@@ -302,17 +270,17 @@ class Car:
       'decode': (decode_done_ns - recv_ns) // 1000,
       'ci_update': (ci_done_ns - decode_done_ns) // 1000,
       'sm_update': (sm_done_ns - ci_done_ns) // 1000,
-      'vision': (vision_done_ns - sm_done_ns) // 1000,
-      'state_tail': (state_done_ns - vision_done_ns) // 1000,
+      'radar': (radar_done_ns - sm_done_ns) // 1000,
+      'state_tail': (state_done_ns - radar_done_ns) // 1000,
       'state_total': (state_done_ns - recv_ns) // 1000,
       'publish': 0,
       'apply': 0,
       'sendcan': 0,
       'total': 0,
     }
-    return CS
+    return CS, RD
 
-  def state_publish(self, CS: car.CarState):
+  def state_publish(self, CS: car.CarState, RD: structs.RadarDataT | None):
     """carState and carParams publish loop"""
 
     # carParams - logged every 50 seconds (> 1 per segment)
@@ -328,30 +296,19 @@ class Car:
     co_send.carOutput.actuatorsOutput = self.last_actuators_output
     self.pm.send('carOutput', co_send)
 
-    now_ns = time.monotonic_ns()
-    sources = self.xiaoge_blindspot_sources
-    if sources != self.xiaoge_blindspot_sources_published or \
-       now_ns - self.xiaoge_blindspot_sources_published_ns >= XIAOGE_SOURCE_HEARTBEAT_NS:
-      payload = json.dumps({
-        "type": "xiaogeBlindspotSources",
-        "version": 1,
-        "receivedMonoTimeNanos": now_ns,
-        "left": {"oem": sources[0], "vision": sources[2]},
-        "right": {"oem": sources[1], "vision": sources[3]},
-      }, separators=(",", ":")).encode()
-      source_msg = messaging.new_message("customReservedRawData1", size=len(payload), valid=True)
-      source_msg.customReservedRawData1 = payload
-      self.pm.send("customReservedRawData1", source_msg)
-      self.xiaoge_blindspot_sources_published = sources
-      self.xiaoge_blindspot_sources_published_ns = now_ns
-
-    # Publish source metadata before the merged carState so UI never sees a new warning with old source colors.
+    # kick off controlsd step while we actuate the latest carControl packet
     cs_send = messaging.new_message('carState')
     cs_send.valid = CS.canValid
     cs_send.carState = CS
     cs_send.carState.canErrorCounter = self.can_rcv_cum_timeout_counter
     cs_send.carState.cumLagMs = -self.rk.remaining * 1000.
     self.pm.send('carState', cs_send)
+
+    if RD is not None:
+      tracks_msg = messaging.new_message('liveTracks')
+      tracks_msg.valid = not any(RD.errors.to_dict().values())
+      tracks_msg.liveTracks = RD
+      self.pm.send('liveTracks', tracks_msg)
 
   def controls_update(self, CS: car.CarState, CC: car.CarControl):
     """control update loop, driven by carControl"""
@@ -364,30 +321,11 @@ class Car:
       self.params.put_bool_nonblocking("ControlsReady", True)
 
     if self.sm.all_alive(['carControl']):
-      # Guard the final application boundary, including a queued pre-reboot CC.
-      if self.params.get_bool("ImpactDashcamReboot"):
-        CC = CC.as_builder()
-        CC.enabled = CC.latActive = CC.longActive = False
-        CC.actuators = car.CarControl.Actuators.new_message()
-        CC.cruiseControl.resume = CC.cruiseControl.override = False
-        CC.cruiseControl.cancel = CS.cruiseState.enabled
-        CC = CC.as_reader()
-      # Independently confirm startup once at the final application boundary.
-      # Later input failures do not rearm this process-lifetime latch.
-      lateral_ready = self.lateral_startup.update(self.sm, CS, 'carControl')
-      if CC.latActive and not lateral_ready:
-        CC = CC.as_builder()
-        CC.latActive = False
-        CC.actuators.torque = 0.0
-        CC.actuators.steeringAngleDeg = CS.steeringAngleDeg
-        CC.actuators.curvature = 0.0
-        CC = CC.as_reader()
       # send car controls over can
       apply_start_ns = time.monotonic_ns()
       now_nanos = self.can_log_mono_time if REPLAY else int(time.monotonic() * 1e9)
       model_v2 = self.sm['modelV2'] if self.sm.valid['modelV2'] and self.sm.alive['modelV2'] else None
-      radar_state = self.sm['radarState'] if self.sm.valid['radarState'] and self.sm.alive['radarState'] else None
-      self.last_actuators_output, can_sends = self.CI.apply(CC, now_nanos, model_v2, radar_state)
+      self.last_actuators_output, can_sends = self.CI.apply(CC, now_nanos, model_v2)
       apply_done_ns = time.monotonic_ns()
       self.pm.send('sendcan', can_list_to_can_capnp(can_sends, msgtype='sendcan', valid=CS.canValid))
       sendcan_done_ns = time.monotonic_ns()
@@ -414,8 +352,8 @@ class Car:
                 f"ci_max_us={self.card_diag_stage_max_us['ci_update']}, "
                 f"sm_avg_us={self.card_diag_stage_sum_us['sm_update'] // self.card_diag_frames}, "
                 f"sm_max_us={self.card_diag_stage_max_us['sm_update']}, "
-                f"vision_avg_us={self.card_diag_stage_sum_us['vision'] // self.card_diag_frames}, "
-                f"vision_max_us={self.card_diag_stage_max_us['vision']}, "
+                f"radar_avg_us={self.card_diag_stage_sum_us['radar'] // self.card_diag_frames}, "
+                f"radar_max_us={self.card_diag_stage_max_us['radar']}, "
                 f"tail_avg_us={self.card_diag_stage_sum_us['state_tail'] // self.card_diag_frames}, "
                 f"tail_max_us={self.card_diag_stage_max_us['state_tail']}, "
                 f"state_avg_us={self.card_diag_stage_sum_us['state_total'] // self.card_diag_frames}, "
@@ -440,8 +378,7 @@ class Car:
       self.CC_prev = CC
 
   def step(self):
-    cpu_start = time.thread_time()
-    CS = self.state_update()
+    CS, RD = self.state_update()
 
     if self.cruise_main_toggle.update(CS.buttonEvents, self.sm['carControl'].enabled):
       if self.CI.CC is not None and not self.CP.dashcamOnly:
@@ -453,7 +390,7 @@ class Car:
         cloudlog.warning("Cruise MAIN long press ignored: vehicle has no openpilot controller")
 
     publish_start_ns = time.monotonic_ns()
-    self.state_publish(CS)
+    self.state_publish(CS, RD)
     self.card_diag_stage_current['publish'] = (time.monotonic_ns() - publish_start_ns) // 1000
 
     initialized = (not any(e.name == EventName.selfdriveInitializing for e in self.sm['onroadEvents']) and
@@ -463,12 +400,6 @@ class Car:
 
     self.initialized_prev = initialized
     self.CS_prev = CS
-    self.runtime_diagnostics.record(
-      context={'can_backend': CAN_BACKEND},
-      work_ms=(time.monotonic_ns() - self.card_diag_recv_ns) / 1e6,
-      thread_cpu_ms=(time.thread_time() - cpu_start) * 1000,
-      **{f'{name}_ms': value / 1000 for name, value in self.card_diag_stage_current.items()},
-    )
 
   def params_thread(self, evt):
     while not evt.is_set():
@@ -492,8 +423,8 @@ class Car:
       t.join()
     
 def main():
-  # Share core5 with lower-priority radard, leaving isolated core6 for camera work.
-  config_realtime_process(5, Priority.CTRL_HIGH)
+  #config_realtime_process(4, Priority.CTRL_HIGH)
+  config_realtime_process(6, Priority.CTRL_HIGH)
   car = Car()
   car.card_thread()
 

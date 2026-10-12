@@ -9,37 +9,6 @@ import pytest
 from openpilot.common.basedir import BASEDIR
 
 
-def test_big_model_delivery_is_background_only(tmp_path):
-  bash = shutil.which('bash')
-  if bash is None:
-    pytest.skip('bash is unavailable')
-  source = (Path(BASEDIR) / 'launch_chffrplus.sh').read_text(encoding='utf-8')
-  prepare = source[source.index('function prepare_big_model_if_needed {'):source.index('function start_big_model_update {')]
-  launch = source[source.index('function launch {'):]
-  # The step keeps its place: before the modeld build check and before build.py.
-  prepare_call = launch.index('  prepare_big_model_if_needed\n')
-  assert prepare_call < launch.index('  invalidate_modeld_build_if_needed\n') < launch.index('run_startup_command ./build.py')
-  # The detached downloader is what delivers, and it starts right before the manager.
-  assert launch.index('run_startup_command ./build.py') < launch.index('  start_big_model_update\n') < launch.index('run_startup_command start_manager')
-  # A boot must never deliver synchronously: the harness below fails outright if this
-  # step calls python3 or flock. That call was also the only writer of the active sha
-  # and of the fallback latch, so both have to disappear together with it.
-
-  harness = '''
-set -eu
-export CARROT_BIG_MODEL_STARTUP_FAILED=1
-python3() { echo "boot called python3: $*" >&2; return 7; }
-flock() { echo "boot called flock: $*" >&2; return 7; }
-''' + prepare + '''
-prepare_big_model_if_needed
-echo "sha=${BIG_MODEL_SHA-unset}"
-echo "failed=${CARROT_BIG_MODEL_STARTUP_FAILED-unset}"
-'''
-  result = subprocess.run([bash, '-c', harness], cwd=tmp_path, capture_output=True, text=True, timeout=5)
-  assert result.returncode == 0, result.stderr
-  assert result.stdout.splitlines() == ['sha=', 'failed=unset']
-
-
 def test_git_maintenance_policy_reaches_nested_services(tmp_path: Path) -> None:
   bash = shutil.which("bash")
   if bash is None:
@@ -80,7 +49,6 @@ mkdir -p scripts
 printf 'exit 0\n' > scripts/ensure_params_build.sh
 exec 9>boot.lock
 export CARROT_BOOT_LOCK_FD=9
-run_startup_command() { "$@"; }
 start_carrot_web() {
   command bash -c 'printf "web=%s\n" "${CARROT_WEB_EXTERNAL-unset}"'
   if { true >&9; } 2>/dev/null; then
@@ -108,14 +76,13 @@ def test_recovery_and_agnos_precede_params_build() -> None:
   ssh_access = launch.index("/data/params/d/SshEnabled")
   recovery = launch.index("  start_carrot_recovery", ssh_access)
   agnos_update = launch.index("    if ! agnos_init; then")
-  clock_floor = launch.index('python3 "$DIR/openpilot/common/build_time.py"')
-  dependencies = launch.index("  if ! run_startup_command bootstrap_runtime_dependencies; then")
+  dependencies = launch.index("  if ! bootstrap_runtime_dependencies; then")
   params_build = launch.index('bash "$DIR/scripts/ensure_params_build.sh"')
   web = launch.index("  start_carrot_web")
-  build = launch.index("    if ! run_startup_command ./build.py; then")
-  manager = launch.index("  if ! run_startup_command start_manager; then")
+  build = launch.index("    if ! ./build.py; then")
+  manager = launch.index("  start_manager")
 
-  assert pythonpath < ssh_access < recovery < agnos_update < clock_floor < dependencies < params_build < web < build < manager
+  assert pythonpath < ssh_access < recovery < agnos_update < dependencies < params_build < web < build < manager
 
 
 def test_usbpd_kernel_is_supplied_only_by_the_agnos_manifest() -> None:
@@ -155,8 +122,6 @@ def test_agnos_ui_failure_never_auto_installs_and_shows_recovery_status() -> Non
   assert "show_agnos_update_failure" in source
   assert "/data/agnos-updater-ui.log" in source
   assert "--timeout 15 --retries 2 jeepney" in agnos_init
-  assert "ensure_python_package serial pyserial 1" in agnos_init
-  assert agnos_init.index("ensure_python_package serial pyserial 1") < agnos_init.index("for attempt in 1 2 3")
   assert 'rm -f "$AGNOS_UPDATE_CONFIRMATION_FILE"' in agnos_init
   assert "if ! agnos_init; then" in source
   assert source.index("if ! agnos_init; then") < source.index('bash "$DIR/scripts/ensure_params_build.sh"')

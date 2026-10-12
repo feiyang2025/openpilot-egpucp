@@ -9,7 +9,6 @@ from opendbc.car.interfaces import RadarInterfaceBase
 from opendbc.car.hyundai.values import DBC, HyundaiFlags, HyundaiExtFlags, HyundaiFlagsSP
 from openpilot.common.params import Params
 from opendbc.car.hyundai.hyundaicanfd import CanBus
-from opendbc.car.hyundai.radar_group3 import Group3Object, Group3TrackIds
 
 SCC_TID = 0
 ESCC_TID = 1
@@ -332,11 +331,7 @@ class RadarInterface(RadarInterfaceBase):
     self.track_id = 0
 
     self.corner_objects_available = self.rcp_corner_objects is not None or self.rcp_corner_objects_180 is not None or self.rcp_corner_objects_430 is not None
-    # ESCC 生效时不能用 radarUnavailable 把整个接口短路：radarUnavailable 只是
-    # 启动指纹里"有没有看到 0x500"的一次快照，会误判（雷达实际在发、只是指纹
-    # 窗口没抓到）。一旦短路，ESCC（0x2AB）解析器建了也永远不会被 update()，
-    # 一个点都出不来 -> 只剩视觉 lead（UI 蓝框）。
-    self.radar_off_can = CP.radarUnavailable and not self.corner_objects_available and not self.enhanced_scc
+    self.radar_off_can = CP.radarUnavailable and not self.corner_objects_available
     print(
       "RadarInterface: "
       f"radarUnavailable={CP.radarUnavailable} radarTracks={self.radar_tracks} "
@@ -355,8 +350,6 @@ class RadarInterface(RadarInterfaceBase):
     self.corner_object_430_prev_code = {}
     self.corner_object_430_history = {}
     self.corner_object_430_noncenter_inward_frames = {}
-
-    self.group3_track_ids = Group3TrackIds()
 
     # Initialize pts
     if self.rcp_tracks is not None:
@@ -378,12 +371,9 @@ class RadarInterface(RadarInterfaceBase):
       # capnp 的 RadarSource 枚举只有 frontRadar/scc/corner235/corner180/corner430，
       # 没有 escc。写非法枚举名会让 capnp 抛 AttributeError，card 进程直接崩溃
       # （EnableEscc=1 + 车型识别成功 = 必崩，openpilot 完全不可用）。
-      # ESCC（0x2AB）是原车 SCC 雷达选出的唯一目标，语义上就是原车 SCC 目标，
-      # 所以按 scc 处理：这样它才能进入 EnableRadarTracks<=0 的 scc 选源范围
-      # （select_primary_radar_points 的候选 + allowed_output_sources 白名单）。
-      # 之前借 frontRadar 会让没有原始雷达点的车在默认档位被当成前雷达点排除，
-      # 候选集为空 -> 只剩视觉 lead -> UI 画蓝框。
-      self.pts[ESCC_TID].radarSource = "scc"
+      # ESCC 点来自原车前向雷达 0x2AB，用枚举里的 frontRadar：
+      # 非角雷达来源、非 scc、trackId=1 不落在角雷达 ID 区间内。
+      self.pts[ESCC_TID].radarSource = "frontRadar"
     if self.rcp_corner_objects is not None:
       for slot in range(CORNER_OBJECT_235_MSG_COUNT):
         t_id = CORNER_OBJECT_235_TRACK_ID_OFFSET + slot
@@ -534,26 +524,6 @@ class RadarInterface(RadarInterfaceBase):
         self.pts[ii].yvRel = 0
       return
 
-    if self.radar_group3:
-      objects = {
-        addr: Group3Object.from_signals(self.rcp_tracks.vl[f"RADAR_TRACK_{addr:x}"])
-        for addr in range(self.radar_start_addr, self.radar_start_addr + self.radar_msg_count)
-        if addr in updated_messages
-      }
-      assignments = self.group3_track_ids.update(objects)
-      # Remove old slot entries, including migrated IDs. An unmeasured copy in
-      # the previous slot would otherwise reset the surviving object's filter.
-      for slot in range(32, 32 + self.radar_msg_count):
-        self.pts.pop(slot, None)
-      for addr, track_id in assignments.items():
-        obj = objects[addr]
-        point = structs.RadarData.RadarPoint()
-        point.trackId, point.radarSource, point.measured = track_id, "frontRadar", True
-        point.dRel, point.yRel, point.vRel = obj.d_rel, obj.y, obj.v
-        point.vLead, point.aRel, point.yvRel = self.v_ego + obj.v, float("nan"), 0.0
-        self.pts[32 + addr - self.radar_start_addr] = point
-      return
-
     t_id = 32
     for addr in range(self.radar_start_addr, self.radar_start_addr + self.radar_msg_count):
 
@@ -564,6 +534,9 @@ class RadarInterface(RadarInterfaceBase):
 
       if self.radar_group1:
         valid = msg['VALID_CNT1'] > 10
+      elif self.radar_group3:
+        # Group 3 marks an empty object slot with LONG_DIST raw 0x7ff (204.7 m).
+        valid = msg['LONG_DIST'] < 204.7
       elif self.canfd:
         valid, track_state = canfd_group2_track_status(msg)
       elif self.radar_group4:
@@ -606,12 +579,16 @@ class RadarInterface(RadarInterfaceBase):
         self.pts[t_id].aRel = msg['REL_ACCEL1']
         self.pts[t_id].yvRel = msg['LAT_SPEED1']
       elif self.canfd:
-        self.pts[t_id].dRel = msg['LONG_DIST']
+        if self.radar_group3:
+          # Group 3 reports the object's center. Convert it to the rear surface to match SCC/vision dRel.
+          self.pts[t_id].dRel = max(0.0, msg['LONG_DIST'] - msg['OBJECT_LENGTH'] * 0.5 - 0.1)
+        else:
+          self.pts[t_id].dRel = msg['LONG_DIST']
         self.pts[t_id].yRel = msg['LAT_DIST']
         self.pts[t_id].vRel = msg['REL_SPEED']
         self.pts[t_id].vLead = self.pts[t_id].vRel + self.v_ego
-        self.pts[t_id].aRel = msg['REL_ACCEL']
-        self.pts[t_id].yvRel = msg['LAT_SPEED']
+        self.pts[t_id].aRel = float('nan') if self.radar_group3 else msg['REL_ACCEL']
+        self.pts[t_id].yvRel = 0.0 if self.radar_group3 else msg['LAT_SPEED']
         self.pts[t_id].trackState = track_state
       elif self.radar_group4:
         self.pts[t_id].dRel = msg['LONG_DIST']

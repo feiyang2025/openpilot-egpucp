@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Import a previously validated TensorRT plan into Jetlink's native cache."""
+"""Import a previously validated TensorRT plan into Jetlink's native cache.
+
+LEGACY, not updated for protocol 3: jetlink 0.7.2 removed the Python
+`jetlink.server` package and its TensorRT backend (the server is Swift's
+JetlinkKit now).
+"""
 import argparse
 import hashlib
 import json

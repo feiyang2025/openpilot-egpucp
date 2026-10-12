@@ -35,7 +35,6 @@ const CanMsg HYUNDAI_CANFD_HDA2_ALT_STEERING_TX_MSGS[] = {
 };
 
 const CanMsg HYUNDAI_CANFD_HDA2_LONG_TX_MSGS[] = {
-  {0x10B, 2, 16}, // ALT2 button intent; consumed, never sent directly
   {0x50, 0, 16},  // LKAS
   {0x1CF, 0, 8},  // CRUISE_BUTTON
   {0x1CF, 1, 8},  // CRUISE_BUTTON
@@ -91,7 +90,6 @@ const CanMsg HYUNDAI_CANFD_HDA2_LONG_TX_MSGS[] = {
 };
 
 const CanMsg HYUNDAI_CANFD_HDA1_TX_MSGS[] = {
-  {0x10B, 2, 16}, // ALT2 button intent; CAMERA_SCC + longitudinal only
   {0x12A, 0, 16}, // LFA
   {0x1A0, 0, 32}, // CRUISE_INFO
   {0x1CF, 0, 8},  // CRUISE_BUTTON
@@ -221,8 +219,6 @@ const int HYUNDAI_PARAM_CANFD_HDA2_ALT_STEERING = 128;
 bool hyundai_canfd_alt_buttons = false;
 bool hyundai_canfd_hda2_alt_steering = false;
 bool hyundai_canfd_buffered_fwd = false;
-const int HYUNDAI_PARAM_CANFD_CLUSTER_DIRECT_TX = 2048;
-bool hyundai_canfd_cluster_rx_forwarding = false;
 
 int hyundai_canfd_hda2_get_lkas_addr(void) {
   return hyundai_canfd_hda2_alt_steering ? 0x110 : 0x50;
@@ -251,41 +247,39 @@ typedef struct {
   int hz;
   uint32_t timeout_us;
   uint32_t last_tx_us;
-  uint32_t last_tx_tick;
-  bool tx_active;
 } CanfdTxState;
 
 // forwarding block용: bus 0,2만 사용
 CanfdTxState canfd_tx_states[] = {
-  {0x50,  0, 100, 0U, 0U, 0U, false}, // 80:  LKAS
-  {0x51,  0, 100, 0U, 0U, 0U, false}, // 81:  ADRV_0x51
-  {0x110, 0, 100, 0U, 0U, 0U, false}, // 272: LKAS_ALT
-  {0x12A, 0, 100, 0U, 0U, 0U, false}, // 298: LFA
-  {0x160, 0, 50,  0U, 0U, 0U, false}, // 352: ADRV_0x160
-  {0x161, 0, 20,  0U, 0U, 0U, false}, // 353: ADRV_0x161
-  {0x162, 0, 20,  0U, 0U, 0U, false}, // 354: CCNC_0x162
-  {0x1A0, 0, 50,  0U, 0U, 0U, false}, // 416: SCC_CONTROL
-  {0x1DA, 0, 1,   0U, 0U, 0U, false}, // 474: ADRV_0x1da
-  {0x1E0, 0, 20,  0U, 0U, 0U, false}, // 480: LFAHDA_CLUSTER
-  {0x1EA, 0, 20,  0U, 0U, 0U, false}, // 490: ADRV_0x1ea
-  {0x200, 0, 20,  0U, 0U, 0U, false}, // 512: ADRV_0x200
-  {0x2A4, 0, 20,  0U, 0U, 0U, false}, // 676: CAM_0x2a4
-  {0x345, 0, 5,   0U, 0U, 0U, false}, // 837: ADRV_0x345
-  {0x362, 0, 10,  0U, 0U, 0U, false}, // 866: CAM_0x362
-  {0x0CB, 0, 100, 0U, 0U, 0U, false}, // 203: LFA_ALT
+  {0x50,  0, 100, 0U, 0U}, // 80:  LKAS
+  {0x51,  0, 100, 0U, 0U}, // 81:  ADRV_0x51
+  {0x110, 0, 100, 0U, 0U}, // 272: LKAS_ALT
+  {0x12A, 0, 100, 0U, 0U}, // 298: LFA
+  {0x160, 0, 50,  0U, 0U}, // 352: ADRV_0x160
+  {0x161, 0, 20,  0U, 0U}, // 353: ADRV_0x161
+  {0x162, 0, 20,  0U, 0U}, // 354: CCNC_0x162
+  {0x1A0, 0, 50,  0U, 0U}, // 416: SCC_CONTROL
+  {0x1DA, 0, 1,   0U, 0U}, // 474: ADRV_0x1da
+  {0x1E0, 0, 20,  0U, 0U}, // 480: LFAHDA_CLUSTER
+  {0x1EA, 0, 20,  0U, 0U}, // 490: ADRV_0x1ea
+  {0x200, 0, 20,  0U, 0U}, // 512: ADRV_0x200
+  {0x2A4, 0, 20,  0U, 0U}, // 676: CAM_0x2a4
+  {0x345, 0, 5,   0U, 0U}, // 837: ADRV_0x345
+  {0x362, 0, 10,  0U, 0U}, // 866: CAM_0x362
+  {0x0CB, 0, 100, 0U, 0U}, // 203: LFA_ALT
 
-  {0x175, 2, 50,  0U, 0U, 0U, false}, // 373: TCS
-  {0x1AA, 2, 50,  0U, 0U, 0U, false}, // 426: CRUISE_ALT_BUTTONS
-  {0x1CF, 2, 50,  0U, 0U, 0U, false}, // 463: CRUISE_BUTTON
-  {0x1FA, 2, 10,  0U, 0U, 0U, false}, // 506: CLUSTER_SPEED_LIMIT
-  {0x0EA, 2, 100, 0U, 0U, 0U, false}, // 234: MDPS
-  {0x2AF, 2, 10,  0U, 0U, 0U, false}, // 687: STEER_TOUCH_2AF
-  {0x4A3, 2, 5,   0U, 0U, 0U, false}, // 1187: HDA_INFO_4A3
-  {0x4B4, 2, 10,  0U, 0U, 0U, false}, // 1204: NEW_MSG_4B4
-  {0x4BE, 2, 10,  0U, 0U, 0U, false}, // 1214: NEW_MSG_4BE
-  {0x4B9, 2, 10,  0U, 0U, 0U, false}, // 1209: NEW_MSG_4B9
+  {0x175, 2, 50,  0U, 0U}, // 373: TCS
+  {0x1AA, 2, 50,  0U, 0U}, // 426: CRUISE_ALT_BUTTONS
+  {0x1CF, 2, 50,  0U, 0U}, // 463: CRUISE_BUTTON
+  {0x1FA, 2, 10,  0U, 0U}, // 506: CLUSTER_SPEED_LIMIT
+  {0x0EA, 2, 100, 0U, 0U}, // 234: MDPS
+  {0x2AF, 2, 10,  0U, 0U}, // 687: STEER_TOUCH_2AF
+  {0x4A3, 2, 5,   0U, 0U}, // 1187: HDA_INFO_4A3
+  {0x4B4, 2, 10,  0U, 0U}, // 1204: NEW_MSG_4B4
+  {0x4BE, 2, 10,  0U, 0U}, // 1214: NEW_MSG_4BE
+  {0x4B9, 2, 10,  0U, 0U}, // 1209: NEW_MSG_4B9
 
-  {0, 0, 0, 0U, 0U, 0U, false},
+  {0, 0, 0, 0U, 0U},
 };
 
 static CanfdTxState* find_canfd_tx_state(int bus, int addr) {
@@ -318,9 +312,6 @@ static void hyundai_canfd_update_checksum(CANPacket_t* to_push) {
   uint32_t checksum = hyundai_common_canfd_compute_checksum(to_push);
   hyundai_canfd_set_checksum(to_push, (uint16_t)checksum);
 }
-#include "safety_hyundai_canfd_alt_buttons.h"
-#include "safety_hyundai_canfd_cluster.h"
-
 static void canfd_apply_counter_and_update_checksum(CANPacket_t* dst, uint8_t counter) {
   hyundai_canfd_set_counter(dst, counter);
   hyundai_canfd_update_checksum(dst);
@@ -328,9 +319,7 @@ static void canfd_apply_counter_and_update_checksum(CANPacket_t* dst, uint8_t co
 static void canfd_record_tx_time(int bus, int addr, bool tx) {
   CanfdTxState* st = find_canfd_tx_state(bus, addr);
   if (st != NULL) {
-    st->tx_active = tx;
     st->last_tx_us = tx ? microsecond_timer_get() : 0U;
-    st->last_tx_tick = safety_mode_cnt;
   }
 }
 
@@ -339,16 +328,7 @@ static bool canfd_should_block_fwd(int tx_bus, int addr, uint32_t now) {
   if (st == NULL) {
     return false;
   }
-  // The microsecond timer wraps every ~71 minutes. A zero timestamp is not
-  // evidence of TX, and an old nonzero timestamp must not become fresh again
-  // after an entire wrap with no traffic on this ID. The independent 1 Hz
-  // safety-mode clock bounds that case without shortening the longest (1.02 s)
-  // timeout, which can cross two tick boundaries. Init resets both clocks' state.
-  if (st->tx_active && (((safety_mode_cnt - st->last_tx_tick) > 2U) ||
-                        ((now - st->last_tx_us) >= st->timeout_us))) {
-    st->tx_active = false;
-  }
-  return st->tx_active;
+  return (now - st->last_tx_us) < st->timeout_us;
 }
 
 #define CANFD_BFWD_MAX_QUEUE 6
@@ -611,31 +591,6 @@ static bool hyundai_canfd_tx_hook(const CANPacket_t *to_send_const) {
   int addr = GET_ADDR(to_send);
   bool violation = false;
 
-  if (addr == 0x10B) {
-    bool accepted = hyundai_alt2_set_request(to_send, microsecond_timer_get());
-    if (accepted) {
-      extern bool safety_tx_buffered_for_fwd;
-      safety_tx_buffered_for_fwd = true;
-    }
-    return accepted;
-  }
-
-  if (hyundai_canfd_cluster_rx_forwarding && (GET_BUS(to_send) == 0)) {
-    HyundaiCanfdCluster *cluster = hyundai_canfd_cluster_find(addr);
-    if (cluster != NULL) {
-      // Reject before caching: the outer hook's whitelist alone cannot undo
-      // a cached packet later used by forwarding.
-      bool accepted = !relay_malfunction &&
-                      tx_msg_safety_check(to_send, current_safety_config.tx_msgs, current_safety_config.tx_msgs_len) &&
-                      hyundai_canfd_cluster_store(cluster, to_send, microsecond_timer_get());
-      if (accepted) {
-        extern bool safety_tx_buffered_for_fwd;
-        safety_tx_buffered_for_fwd = true;
-      }
-      return accepted;
-    }
-  }
-
   // steering
   const int steer_addr = (hyundai_canfd_hda2 && !hyundai_longitudinal) ? hyundai_canfd_hda2_get_lkas_addr() : 0x12a;
   if (addr == steer_addr) {
@@ -712,11 +667,7 @@ static bool hyundai_canfd_tx_hook(const CANPacket_t *to_send_const) {
     }
   }
 
-  // Only an accepted replacement may suppress stock forwarding. The outer
-  // hook's allowlist/relay rejection happens after this hook returns.
-  const bool accepted = tx && !relay_malfunction &&
-                        tx_msg_safety_check(to_send, current_safety_config.tx_msgs, current_safety_config.tx_msgs_len);
-  canfd_record_tx_time(GET_BUS(to_send), addr, accepted);
+  canfd_record_tx_time(GET_BUS(to_send), addr, tx);
 
   return tx;
 }
@@ -727,9 +678,6 @@ static int hyundai_canfd_fwd_hook(CANPacket_t* to_send) {
 
   int bus_fwd = -1;
   uint32_t now = microsecond_timer_get();
-  if (addr == 0x10B) {
-    hyundai_alt2_overlay(to_send, now);
-  }
   if (bus_num == 0) {
     bus_fwd = 2;
   }
@@ -738,16 +686,6 @@ static int hyundai_canfd_fwd_hook(CANPacket_t* to_send) {
   }
   else {
     return -1;
-  }
-
-  if (hyundai_canfd_cluster_rx_forwarding && (bus_num == 2)) {
-    HyundaiCanfdCluster *cluster = hyundai_canfd_cluster_find(addr);
-    if (cluster != NULL) {
-      hyundai_canfd_cluster_forward(cluster, to_send, now);
-      // One output per stock RX, including startup/stale fallback. Skip the
-      // old direct-TX blocking timer, which could otherwise drop stock frames.
-      return 0;
-    }
   }
 
   if (hyundai_canfd_buffered_fwd) {
@@ -819,14 +757,10 @@ static int hyundai_canfd_fwd_hook(CANPacket_t* to_send) {
 }
 
 static safety_config hyundai_canfd_init(uint16_t param) {
-  hyundai_alt2_reset();
-  hyundai_canfd_cluster_reset();
 
   for (int i = 0; canfd_tx_states[i].addr > 0; i++) {
     canfd_tx_states[i].timeout_us = (uint32_t)(1000000.0 / canfd_tx_states[i].hz) + 20000U;
     canfd_tx_states[i].last_tx_us = 0U;
-    canfd_tx_states[i].last_tx_tick = 0U;
-    canfd_tx_states[i].tx_active = false;
   }
 
   for (int i = 0; canfd_bfwd[i].addr > 0; i++) {
@@ -839,8 +773,6 @@ static safety_config hyundai_canfd_init(uint16_t param) {
   hyundai_canfd_alt_buttons = GET_FLAG(param, HYUNDAI_PARAM_CANFD_ALT_BUTTONS);
   hyundai_canfd_hda2_alt_steering = GET_FLAG(param, HYUNDAI_PARAM_CANFD_HDA2_ALT_STEERING);
   hyundai_canfd_buffered_fwd = hyundai_camera_scc;
-  // Optional legacy host-TX path for cluster displays only; control FIFOs stay RX-paced.
-  hyundai_canfd_cluster_rx_forwarding = hyundai_camera_scc && !GET_FLAG(param, HYUNDAI_PARAM_CANFD_CLUSTER_DIRECT_TX);
 
   // no long for radar-SCC HDA1 yet
   //if (!hyundai_canfd_hda2 && !hyundai_camera_scc) {

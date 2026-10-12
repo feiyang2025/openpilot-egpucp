@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TypeVar
 
 from openpilot.common.file_chunker import get_manifest_path
-from openpilot.selfdrive.modeld.big_model import selected_manifest
+from openpilot.selfdrive.modeld.big_model import active_manifest, read_state
 
 MODELS_DIR = Path(__file__).resolve().parent / 'models'
 TG_INPUT_DEVICES_PATH = MODELS_DIR / 'tg_input_devices.json'
@@ -26,7 +26,6 @@ USBGPU_TRANSIENT_INIT_TEXT = (
   "f0 out failed: -1",
   "libusb_open: no such device",
   "amd:0 does not exist",
-  "bulk out 0x02 failed: input/output error",
 )
 VisionStreamT = TypeVar("VisionStreamT")
 
@@ -41,12 +40,29 @@ def select_vision_streams(available_streams: Collection[VisionStreamT], road_str
   return None, False
 
 
+def default_tg_backend() -> str:
+  """Pick the local inference backend, preferring the integrated GPU.
+
+  Local-GPU mode (Jetson AGX Orin): no external USB GPU is attached, so the
+  runtime device is the integrated GPU via tinygrad's CUDA backend.
+  """
+  try:
+    from tinygrad import Device
+    available = set(Device.get_available_devices())
+    for backend in ("CUDA", "QCOM", "CPU"):
+      if backend in available:
+        return backend
+  except Exception:
+    pass
+  return "QCOM"
+
+
 def _default_tg_input_devices(process_name: str, usbgpu: bool):
-  backend = os.getenv("DEV", "QCOM")
+  backend = os.getenv("DEV") or default_tg_backend()
   defaults = {
     'openpilot.selfdrive.modeld.modeld': {
       'default': {'WARP_DEV': backend, 'QUEUE_DEV': backend},
-      'usbgpu': {'WARP_DEV': backend, 'QUEUE_DEV': 'AMD'},
+      'usbgpu': {'WARP_DEV': backend, 'QUEUE_DEV': backend},
     },
     'openpilot.selfdrive.modeld.dmonitoringmodeld': {
       'default': {'DEV': backend},
@@ -66,7 +82,7 @@ def modeld_pkl_path(usbgpu: bool, model_sha256: str | None = None):
   if not usbgpu:
     return MODELS_DIR / 'driving_tinygrad.pkl'
   if model_sha256 is None:
-    model = selected_manifest()
+    model = active_manifest()
     model_sha256 = model.sha256 if model is not None else 'unavailable'
   return MODELS_DIR / f'big_driving_{model_sha256[:16]}_tinygrad.pkl'
 
@@ -120,9 +136,10 @@ def usb_device_present(usb_ids: Collection[tuple[int, int]], min_speed_mbps: int
 
 
 def usbgpu_present() -> bool:
-  # The custom bridge can remain enumerated over USB 2.0 while its SuperSpeed
-  # link is unavailable. That state cannot support PCIe model loading.
-  return usb_device_present(USBGPU_USB_IDS, USBGPU_MIN_SPEED_MBPS)
+  # Local-GPU mode (Jetson AGX Orin): there is no external USB GPU bridge.
+  # The inference target is the integrated GPU, so "present" reports whether
+  # the local CUDA backend is usable instead of scanning USB VID/PID pairs.
+  return default_tg_backend() == "CUDA"
 
 
 def wait_for_usbgpu_present(timeout: float, poll_interval: float = 0.1) -> bool:
@@ -178,31 +195,37 @@ def usbgpu_pcie_not_ready(error: BaseException | str) -> bool:
 
 
 def active_usbgpu_compiled_path() -> Path | None:
-  model = selected_manifest()
+  # Local-GPU mode intentionally ignores installed precompiled artifacts:
+  # those bundles are tied to the external USB AMD runtime. Only a locally
+  # compiled tinygrad pickle is valid on the Jetson CUDA backend.
+  model = active_manifest()
   if model is None:
-    return None
-  from openpilot.selfdrive.modeld.precompiled_model import installed
-  if (precompiled := installed(model)) is not None:
-    return precompiled
-  if model.precompiled_only:
     return None
   path = modeld_pkl_path(usbgpu=True, model_sha256=model.sha256)
   return path if Path(get_manifest_path(path)).is_file() else None
 
 
 def usbgpu_compile_pending() -> bool:
-  model = selected_manifest()
+  model = active_manifest()
   if model is None:
     return False
-  from openpilot.selfdrive.modeld.precompiled_model import installed
-  if installed(model) is not None:
-    return False
   path = modeld_pkl_path(usbgpu=True, model_sha256=model.sha256)
-  return not Path(get_manifest_path(path)).is_file()
+  if Path(get_manifest_path(path)).is_file():
+    return False
+  # stateful/generic artifacts are plain pickles without a chunkmanifest
+  return not Path(path).is_file()
 
 
 def usbgpu_compiled_path() -> Path | None:
-  return active_usbgpu_compiled_path()
+  if (path := active_usbgpu_compiled_path()) is not None:
+    return path
+
+  previous = read_state()['previous']
+  if previous is not None:
+    path = modeld_pkl_path(usbgpu=True, model_sha256=previous.sha256)
+    if Path(get_manifest_path(path)).is_file():
+      return path
+  return None
 
 
 def usbgpu_compiled() -> bool:

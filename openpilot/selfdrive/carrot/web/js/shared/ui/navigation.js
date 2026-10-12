@@ -680,7 +680,6 @@ function runSettingScreenSlide(showEl, hideEl, direction, token) {
 }
 
 function showSettingScreen(which, pushHistory = false) {
-  if (typeof mountSettingInlineSearch === "function") mountSettingInlineSearch(which);
   const isGroups = (which === "groups");
   const showEl = isGroups ? screenGroups : screenItems;
   const hideEl = isGroups ? screenItems : screenGroups;
@@ -751,41 +750,9 @@ function showSettingScreen(which, pushHistory = false) {
   }
 }
 
-async function goToSettingParent() {
-  if (
-    CURRENT_SETTING_DETAIL
-    && typeof SETTING_INLINE_SEARCH_GROUP !== "undefined"
-    && CURRENT_GROUP === SETTING_INLINE_SEARCH_GROUP
-    && typeof showSettingInlineSearchResultsInGroups === "function"
-    && typeof isCompactLandscapeMode === "function"
-    && !isCompactLandscapeMode()
-  ) {
-    // Single-column search: the results sit on the group screen below this
-    // detail, so return to them instead of re-rendering the items list.
-    await showSettingInlineSearchResultsInGroups();
-    return;
-  }
-  // The header is an Up control: history may point at another app page after
-  // restoring a group or switching between the narrow and split layouts.
-  if (CURRENT_SETTING_DETAIL && CURRENT_GROUP) {
-    await transitionSettingItemsContent(
-      () => activateSettingGroup(CURRENT_GROUP, false, {
-        scrollMode: "restore", animateGroups: false, animateItems: false,
-      }),
-      "backward",
-    );
-    return;
-  }
-  resetSettingPageToRoot();
-}
-
 function resetSettingPageToRoot() {
   if (typeof closeSettingSearchPanel === "function") {
     closeSettingSearchPanel({ clear: false, syncHistory: false });
-  }
-
-  if (typeof exitSettingInlineSearchSurface === "function") {
-    exitSettingInlineSearchSurface();
   }
 
   if (shouldUseSettingSplitLayout("setting")) {
@@ -911,9 +878,10 @@ function goBackUnlessSettingSplit() {
 
 if (btnBackGroups) btnBackGroups.onclick = goBackUnlessSettingSplit;
 settingTitle.onclick = goBackUnlessSettingSplit;
-// In split layout the settings root (group rail) is already visible. Never
-// leave settings just because the previous browser entry belongs to a page.
-if (itemsTitle) itemsTitle.onclick = goToSettingParent;
+// The item title is the submenu back control in both layouts. In the split
+// layout the group rail remains visible, but the control must still unwind a
+// nested detail/history entry (or return to the previous page from a group).
+if (itemsTitle) itemsTitle.onclick = () => history.back();
 
 btnBackBranch.onclick = () => history.back();
 branchTitle.onclick = () => history.back();

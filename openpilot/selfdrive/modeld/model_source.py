@@ -21,32 +21,29 @@ from __future__ import annotations
 MODEL_BASE = "http://op.gitop.vip:82/egpu"
 
 # The branch's own pin, and the extra checkpoints the model picker may offer.
-# Cinque v3 is the pin, matching upstream's default: same e758b96d pickle and the
-# d5e17c93 runtime catalog, served from this fork's mirror. The v2 ONNX stays
-# selectable, so a device can still fall back to it from the model page.
 PINNED_MODEL = {
-  "model_id": "comma-pr38932-cinque-v3-892fc3a1-e758b96d",
-  "filename": "big_driving_tinygrad.pkl",
-  "size": 776_634_338,
-  "sha256": "e758b96df27858ea97122d18554930d04f9f8bda417417074edfb3a72b008d0b",
+  "model_id": "comma-pr38823-cinque-v2-37bfa141-09d080f3",
+  "filename": "big_driving_supercombo.onnx",
+  "size": 766_040_736,
+  "sha256": "09d080f36965bb2a0790500452bd328aa03c484d0222aa79d1ad9f021a522aec",
   # precompiled.json and firmware/amdgpu resolve relative to this URL, so each
   # model keeps its own directory under egpu/models/.
-  "url": f"{MODEL_BASE}/models/cinque-v3/big_driving_tinygrad.pkl",
-  # Picker metadata (ignored by BigModelManifest.from_dict): the short name this
-  # model is listed under, and that it belongs at the top of the list.
-  "label": "CTM V3",
-  "picker_first": True,
+  "url": f"{MODEL_BASE}/models/cinque-v2/big_driving_supercombo.onnx",
 }
 
 OPTIONAL_MODELS = (
   {
-    "model_id": "comma-pr38823-cinque-v2-37bfa141-09d080f3",
-    "filename": "big_driving_supercombo.onnx",
-    "size": 766_040_736,
-    "sha256": "09d080f36965bb2a0790500452bd328aa03c484d0222aa79d1ad9f021a522aec",
-    # Self-hosted like the pin: precompiled.json resolves relative to this URL.
-    "url": f"{MODEL_BASE}/models/cinque-v2/big_driving_supercombo.onnx",
-    "label": "CTM V2",
+    "model_id": "comma-pr38932-cinque-v3-892fc3a1-e758b96d",
+    "filename": "big_driving_tinygrad.pkl",
+    "size": 776_634_338,
+    "sha256": "e758b96df27858ea97122d18554930d04f9f8bda417417074edfb3a72b008d0b",
+    # Self-hosted like the pin: precompiled.json and precompiled-runtime.tar.gz
+    # resolve relative to this URL.
+    "url": f"{MODEL_BASE}/models/cinque-v3/big_driving_tinygrad.pkl",
+    # Picker metadata (ignored by BigModelManifest.from_dict): the short name this
+    # model is listed under, and that it belongs at the top of the list.
+    "label": "CTM V3",
+    "picker_first": True,
   },
 )
 

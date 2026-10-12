@@ -17,6 +17,21 @@
 #include "third_party/linux/include/v4l2-controls.h"
 #include <linux/videodev2.h>
 
+// Qualcomm MSM VIDC private V4L2 event/command definitions.
+// Not part of mainline/tegra UAPI headers; values match
+// openpilot/tools/replay/qcom_decoder.h (V4L2_EVENT_PRIVATE_START + 0x1000...).
+#ifndef V4L2_EVENT_MSM_VIDC_FLUSH_DONE
+#define V4L2_EVENT_MSM_VIDC_START (V4L2_EVENT_PRIVATE_START + 0x00001000)
+#define V4L2_EVENT_MSM_VIDC_FLUSH_DONE (V4L2_EVENT_MSM_VIDC_START + 1)
+#define V4L2_EVENT_MSM_VIDC_PORT_SETTINGS_CHANGED_INSUFFICIENT (V4L2_EVENT_MSM_VIDC_START + 3)
+#endif
+#ifndef V4L2_QCOM_CMD_FLUSH_CAPTURE
+#define V4L2_QCOM_CMD_FLUSH_CAPTURE (1 << 1)
+#endif
+#ifndef V4L2_QCOM_CMD_FLUSH
+#define V4L2_QCOM_CMD_FLUSH (4)
+#endif
+
 namespace {
 
 void xioctl(int fd, unsigned long request, void *arg, const char *message) {

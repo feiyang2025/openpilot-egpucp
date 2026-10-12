@@ -36,9 +36,6 @@ def unblock_stdout() -> None:
 
       try:
         sys.stdout.write(dat.decode('utf8'))
-        # Startup recovery captures stdout through a pipe, so Python no longer
-        # line-buffers it as it did when connected directly to tmux.
-        sys.stdout.flush()
       except (OSError, UnicodeDecodeError):
         pass
 
@@ -46,11 +43,6 @@ def unblock_stdout() -> None:
     # whose low byte is the signal number and whose high byte is the exit status
     exit_status = os.wait()[1] >> 8
     os._exit(exit_status)
-
-  # forkpty replaces fd 1 with a terminal, but Python's existing stdout keeps
-  # the block-buffering policy selected at interpreter startup on the pipe.
-  # Restore terminal-style output for manager prints and forked services too.
-  sys.stdout.reconfigure(line_buffering=True)
 
 
 def write_onroad_params(started, params):

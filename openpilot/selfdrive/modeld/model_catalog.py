@@ -16,10 +16,7 @@ import tempfile
 from pathlib import Path
 
 INDEX_FILENAME = 'models.json'
-# Delivery filenames this branch can have on disk: the pinned Cinque v2 ONNX and the
-# generic precompiled PKL that the optional Cinque v3 ships as (see model_source).
-MODEL_GLOBS = ('big_driving_supercombo-*.onnx', 'big_driving_tinygrad-*.pkl')
-ONNX_GLOB = MODEL_GLOBS[0]  # kept for callers that still reference the ONNX glob
+ONNX_GLOB = 'big_driving_supercombo-*.onnx'
 
 
 def _cache_dir(cache_dir: Path | None = None) -> Path:
@@ -140,31 +137,17 @@ def _sync_from_state(cache_dir: Path | None = None) -> dict:
 
 
 def _downloaded_sha_prefixes(cache_dir: Path | None = None) -> set[str]:
-  """First 16 hex chars of every delivered model file present on disk."""
+  """First 16 hex chars of every ONNX present on disk."""
   prefixes = set()
-  directory = _cache_dir(cache_dir)
   try:
-    for pattern in MODEL_GLOBS:
-      for path in directory.glob(pattern):
-        stem = path.stem  # big_driving_supercombo-<sha16> / big_driving_tinygrad-<sha16>
-        prefix = stem.rsplit('-', 1)[-1]
-        if len(prefix) == 16:
-          prefixes.add(prefix.lower())
+    for path in _cache_dir(cache_dir).glob(ONNX_GLOB):
+      stem = path.stem  # big_driving_supercombo-<sha16>
+      prefix = stem.rsplit('-', 1)[-1]
+      if len(prefix) == 16:
+        prefixes.add(prefix.lower())
   except OSError:
     pass
   return prefixes
-
-
-def optional_manifests() -> list:
-  """Built-in checkpoints this branch offers but does not download by default.
-
-  The index only knows a model once a server catalog advertised it or a download
-  finished, so without this a device could never opt into an extra checkpoint
-  before the server listed it. The dicts themselves live in model_source
-  (fork-only), and a bad entry is skipped there rather than raised here.
-  """
-  from openpilot.selfdrive.modeld import model_source
-  return model_source.optional_manifests()
 
 
 def list_models(cache_dir: Path | None = None) -> list[dict]:
@@ -179,21 +162,6 @@ def list_models(cache_dir: Path | None = None) -> list[dict]:
     item['downloaded'] = sha[:16].lower() in present
     item['selected'] = sha == selected
     out.append(item)
-  # Built-in opt-in checkpoints (Cinque v3) the index has never seen yet.
-  seen = {item['sha256'] for item in out}
-  for manifest in optional_manifests():
-    if manifest.sha256 in seen:
-      continue
-    out.append({
-      'model_id': manifest.model_id,
-      'sha256': manifest.sha256,
-      'size': manifest.size,
-      'url': manifest.url,
-      'filename': manifest.filename,
-      'downloaded': manifest.sha256[:16].lower() in present,
-      'selected': manifest.sha256 == selected,
-      'builtin': True,
-    })
   return out
 
 
@@ -209,21 +177,7 @@ def select(sha: str | None, cache_dir: Path | None = None) -> bool:
     write_index(value, cache_dir)
     return True
   if sha not in value['models']:
-    # A built-in optional checkpoint (Cinque v3) is known to this branch even though
-    # the index has never seen it; register it on the first pick so the downloader
-    # has a URL and filename to target.
-    for manifest in optional_manifests():
-      if manifest.sha256 == sha:
-        value['models'][sha] = {
-          'model_id': manifest.model_id,
-          'sha256': manifest.sha256,
-          'size': manifest.size,
-          'url': manifest.url,
-          'filename': manifest.filename,
-        }
-        break
-    else:
-      return False
+    return False
   value['selected'] = sha
   write_index(value, cache_dir)
   return True

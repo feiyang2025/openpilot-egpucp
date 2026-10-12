@@ -15,7 +15,6 @@ from openpilot.selfdrive.carrot.server.services.settings import (
   current_vehicle_brand,
   filter_settings_catalog_for_brand,
   group_index,
-  with_vehicle_gap_limits,
 )
 
 SETTINGS_PATH = Path(__file__).resolve().parents[3] / "carrot_settings.json"
@@ -41,54 +40,6 @@ def params(settings):
 def test_the_catalogue_is_readable_and_populated(params):
   assert len(params) > 100
   assert all(isinstance(p.get("name"), str) and p["name"] for p in params)
-
-
-@pytest.mark.parametrize("maximum", (3, 4))
-def test_gap_cycle_catalog_uses_vehicle_maximum_without_mutating_cache(settings, maximum):
-  groups, by_name, groups_list = group_index(settings)
-  original = by_name["CruiseGapLevels"]
-  data, adapted_groups, adapted_names, _ = with_vehicle_gap_limits((settings, groups, by_name, groups_list), maximum)
-  selected = adapted_names["CruiseGapLevels"]
-  assert (selected["min"], selected["max"], selected["default"]) == (2, maximum, maximum)
-  assert all(len(options) == maximum - 1 for options in selected["options"].values())
-  from openpilot.selfdrive.carrot.server.services.params import clamp_numeric
-  assert clamp_numeric(4, selected) == maximum
-  assert clamp_numeric(1, selected) == 2
-  assert next(p for p in data["params"] if p["name"] == "CruiseGapLevels") is selected
-  assert next(p for p in adapted_groups[selected["group"]] if p["name"] == "CruiseGapLevels") is selected
-  assert (original["max"], original["default"]) == (4, 4)
-  assert all(len(options) == 3 for options in original["options"].values())
-
-
-@pytest.mark.parametrize("maximum,stored,expected", ((3, 4, 3), (4, 4, 4), (3, 2, 2), (4, 3, 3), (3, 0, 3)))
-def test_gap_cycle_read_matches_vehicle_limit(monkeypatch, maximum, stored, expected):
-  from openpilot.selfdrive.carrot.server.services import params as service
-  class FakeParams:
-    def get_int(self, key):
-      return maximum
-  monkeypatch.setattr(service, "HAS_PARAMS", True)
-  monkeypatch.setattr(service, "Params", FakeParams)
-  monkeypatch.setattr(service, "_read_param_value", lambda params, name, default: stored)
-  assert service.get_param_values(["CruiseGapLevels"], {"CruiseGapLevels": maximum}) == {"CruiseGapLevels": expected}
-
-
-def test_gap_cycle_setting_is_registered_and_in_gap_menu(settings):
-  assert '{"CruiseGapLevels", {PERSISTENT, INT, "4"}}' in PARAMS_KEYS_PATH.read_text(encoding="utf-8")
-  groups, by_name, _ = group_index(settings)
-  categories = build_menu_categories(settings, by_name)
-  section = next(section for category in categories for group in category["groups"] for section in group["sections"]
-                 if "TFollowGap1" in section["items"])
-  assert section["items"].index("CruiseGapLevels") < section["items"].index("TFollowGap1")
-
-
-def test_rear_camera_hold_uses_meter_values_and_persistent_default(settings, params):
-  hold = next(p for p in params if p["name"] == "AutoNaviRearCameraHoldDistance")
-  assert (hold["min"], hold["max"], hold["default"], hold["unit"]) == (0, 300, 100, 10)
-  assert '"AutoNaviRearCameraHoldDistance", {PERSISTENT, INT, "100"}' in PARAMS_KEYS_PATH.read_text(encoding="utf-8")
-  driving = next(category for category in settings["menu"] if category["id"] == "DRIVING")
-  speed = next(group for group in driving["groups"] if group["id"] == "SPEED")
-  cameras = next(group for group in speed["groups"] if group["id"] == "SPEED_CAMERA")
-  assert hold["name"] in cameras["params"]
 
 
 def test_onnx_vision_toggle_uses_existing_runtime_flag_and_first_steering_section(settings, params):
@@ -177,8 +128,7 @@ def test_longitudinal_pid_defaults_match_registry(params):
     "LongTuningKpV", "LongTuningKiV", "LongTuningKf",
   )) == (100, 0, 100)
   for name in ("LongTuningKpV", "LongTuningKiV", "LongTuningKf"):
-    assert by_name[name]["hidden_brands"] == ["hyundai", "toyota"]
-    assert "Toyota/Lexus" in by_name[name]["edescr"]
+    assert by_name[name]["hidden_brands"] == ["hyundai"]
     assert "현대·기아·제네시스" in by_name[name]["descr"]
     assert "hidden and ignored" in by_name[name]["edescr"]
 
@@ -191,14 +141,13 @@ def test_longitudinal_pid_defaults_match_registry(params):
     assert f'{{"{name}", {{PERSISTENT, INT, "{default}"}}}}' in params_keys
 
 
-@pytest.mark.parametrize("brand", ["hyundai", "toyota"])
-def test_fixed_tuning_catalog_hides_longitudinal_pid_settings(settings, brand):
+def test_hyundai_catalog_hides_longitudinal_pid_settings(settings):
   groups, by_name, groups_list = group_index(settings)
   categories = build_menu_categories(settings, by_name)
   hidden = {"LongTuningKpV", "LongTuningKiV", "LongTuningKf"}
 
   filtered_groups, filtered_groups_list, filtered_categories, hidden_names = filter_settings_catalog_for_brand(
-    groups, groups_list, categories, brand,
+    groups, groups_list, categories, "hyundai",
   )
   visible_names = {item["name"] for items in filtered_groups.values() for item in items}
   menu_names = {
@@ -213,8 +162,7 @@ def test_fixed_tuning_catalog_hides_longitudinal_pid_settings(settings, brand):
   assert hidden.isdisjoint(visible_names)
   assert hidden.isdisjoint(menu_names)
   assert all(
-    group["count"] == sum(1 for item in filtered_groups[group["group"]]
-                          if not item.get("detail_parent") and not item.get("search_only"))
+    group["count"] == sum(1 for item in filtered_groups[group["group"]] if not item.get("detail_parent"))
     for group in filtered_groups_list
   )
 
@@ -223,7 +171,7 @@ def test_other_brands_keep_longitudinal_pid_settings(settings):
   groups, by_name, groups_list = group_index(settings)
   categories = build_menu_categories(settings, by_name)
   filtered_groups, _filtered_groups_list, _filtered_categories, hidden_names = filter_settings_catalog_for_brand(
-    groups, groups_list, categories, "gm",
+    groups, groups_list, categories, "toyota",
   )
   visible_names = {item["name"] for items in filtered_groups.values() for item in items}
 
@@ -279,38 +227,6 @@ def test_wide_camera_fallback_setting_is_exposed(settings, params):
 
   params_keys = PARAMS_KEYS_PATH.read_text(encoding="utf-8")
   assert '{"UseWideCamera", {PERSISTENT, BOOL, "1"}}' in params_keys
-
-
-def test_driver_monitoring_setting_is_default_on_search_only_and_session_state_is_internal(settings, params):
-  by_name = {p["name"]: p for p in params}
-  enabled = by_name["DriverMonitoringEnabled"]
-  assert (enabled["min"], enabled["max"], enabled["default"]) == (0, 1, 1)
-  assert enabled["control"] == "toggle"
-  assert enabled["risk"] == "high"
-  assert enabled["search_only"] is True
-  assert "DM 카메라" in enabled["descr"] and "법규" in enabled["descr"]
-  assert "DM camera" in enabled["edescr"] and "laws" in enabled["edescr"]
-  assert "DriverMonitoringSessionDisabled" not in by_name
-
-  vehicle = next(category for category in settings["menu"] if category["id"] == "VEHICLE")
-  driver_monitoring = next(group for group in vehicle["groups"] if group["id"] == "VEH_DM")
-  assert driver_monitoring["params"][:2] == ["DriverMonitoringEnabled", "DriverMonitoringMode"]
-
-  groups, indexed, _ = group_index(settings)
-  categories = build_menu_categories(settings, indexed)
-  driver_monitoring_view = next(
-    group for category in categories for group in category["groups"] if group["id"] == "VEH_DM"
-  )
-  assert "DriverMonitoringEnabled" in driver_monitoring_view["sections"][0]["items"]
-  assert driver_monitoring_view["count"] == sum(
-    1 for name in driver_monitoring["params"]
-    if not indexed[name].get("detail_parent") and not indexed[name].get("search_only")
-  )
-  assert enabled in groups[enabled["group"]]
-
-  params_keys = PARAMS_KEYS_PATH.read_text(encoding="utf-8")
-  assert '{"DriverMonitoringEnabled", {PERSISTENT, BOOL, "1"}}' in params_keys
-  assert '{"DriverMonitoringSessionDisabled", {CLEAR_ON_MANAGER_START | CLEAR_ON_IGNITION_ON, BOOL}}' in params_keys
 
 
 def test_vehicle_navi_can_control_exposes_route_filter_modes(settings, params):
@@ -426,6 +342,7 @@ def test_external_hud_brightness_and_orientation_use_catalog_controls(settings, 
   ]
   assert screen["params"] == [
     "ClusterHudEncoder",
+    "ClusterHudLiveFps",
     "ClusterHudScreenMode",
     "ClusterHudPanelLayout",
     "ClusterHudCameraViewMode",
@@ -476,7 +393,6 @@ def test_carrot_radar_is_fixed_without_mode_or_sensitivity(settings, params):
   radar = next(group for group in vehicle["groups"] if group["id"] == "VEH_RADAR")
   assert radar["params"] == [
     "EnableRadarTracks",
-    "RadarTrackFlip",
     "EnableCornerRadar",
   ]
 

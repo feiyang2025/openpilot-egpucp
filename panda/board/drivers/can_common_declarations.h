@@ -34,10 +34,6 @@ extern uint32_t ignition_can_cnt;
 // while a Tesla is in accessory or conditioning without putting openpilot on-road.
 extern bool wake_on_can;
 extern uint32_t wake_on_can_cnt;
-// Tesla power evidence authorizes gear/cabin ignition decoding in every
-// firmware variant. Only wake_on_can is allowed to wake the SOM.
-extern bool tesla_power_on_can;
-extern uint32_t tesla_power_on_can_cnt;
 
 #define ALL_CAN_SILENT 0xFF
 #define ALL_CAN_LIVE 0
@@ -49,7 +45,6 @@ extern bool can_loopback;
 
 // ******************* functions prototypes *********************
 bool can_init(uint8_t can_number);
-void can_set_mode(uint8_t mode);
 void process_can(uint8_t can_number);
 
 // ********************* instantiate queues *********************

@@ -46,7 +46,7 @@
     controlState: CARROT_VISION_CONTROL.IDLE,
     statusText: "",
     detailText: "",
-    disabledMessage: getUIText("vision_unavailable_hint", "Enable Carrot Vision in settings."),
+    disabledMessage: getUIText("vision_unavailable_hint", "Available when DisableDM is 2."),
     reason: "init",
     updatedAtMs: Date.now(),
     rtc: {
@@ -65,7 +65,7 @@
       code: "",
     },
     environment: {
-      carrotVisionEnabled: null,
+      disableDm: null,
       clusterHud: null,
       isOffroad: null,
       isOnroad: null,
@@ -106,7 +106,7 @@
     }
     switch (phase) {
       case CARROT_VISION_PHASE.UNAVAILABLE:
-        return CARROT_VISION_STATE.disabledMessage || getUIText("vision_unavailable_hint", "Enable Carrot Vision in settings.");
+        return CARROT_VISION_STATE.disabledMessage || getUIText("vision_unavailable_hint", "Available when DisableDM is 2.");
       case CARROT_VISION_PHASE.INACTIVE:
         return getUIText("start_vision_hint", "Tap the start button to enable drive vision.");
       case CARROT_VISION_PHASE.STARTING:
@@ -123,7 +123,7 @@
       case CARROT_VISION_PHASE.BUSY:
         return getUIText("vision_stream_busy", "Carrot Vision is active on another device.");
       case CARROT_VISION_PHASE.FAILED:
-        return getUIText("carrot_vision_enabled_check_failed", "Could not check the Carrot Vision setting.");
+        return getUIText("disable_dm_check_failed", "Could not check DisableDM status.");
       default:
         return "";
     }
@@ -142,7 +142,7 @@
     }
     switch (phase) {
       case CARROT_VISION_PHASE.UNAVAILABLE:
-        return getUIText("vision_step_unavailable", "Enable Carrot Vision in settings.");
+        return getUIText("vision_step_unavailable", "Enable DisableDM 2 to use Carrot Vision.");
       case CARROT_VISION_PHASE.INACTIVE:
         return getUIText("vision_step_inactive", "Ready to start.");
       case CARROT_VISION_PHASE.STARTING:
@@ -267,7 +267,7 @@
   function setCarrotVisionAvailable(available, detail = {}) {
     const nextAvailable = Boolean(available);
     const wasActive = CARROT_VISION_STATE.active;
-    const disabledMessage = nextAvailable ? "" : (detail.disabledMessage || getUIText("vision_unavailable_hint", "Enable Carrot Vision in settings."));
+    const disabledMessage = nextAvailable ? "" : (detail.disabledMessage || getUIText("vision_unavailable_hint", "Available when DisableDM is 2."));
     const nextPhase = detail.phase || (nextAvailable
       ? (CARROT_VISION_STATE.active ? CARROT_VISION_STATE.phase : CARROT_VISION_PHASE.INACTIVE)
       : CARROT_VISION_PHASE.UNAVAILABLE);
@@ -307,9 +307,12 @@
 
   function relocalizeCarrotVisionState() {
     const phase = CARROT_VISION_STATE.phase || CARROT_VISION_PHASE.UNAVAILABLE;
+    const clusterHudActive = Number(CARROT_VISION_STATE.environment?.clusterHud || 0) > 0;
     const disabledMessage = CARROT_VISION_STATE.available
       ? ""
-      : getUIText("vision_unavailable_hint", "Enable Carrot Vision in settings.");
+      : (clusterHudActive
+        ? getUIText("vision_unavailable_cluster_hud", "Carrot Vision is unavailable while Cluster HUD is enabled.")
+        : getUIText("vision_unavailable_hint", "Available when DisableDM is 2."));
     if (disabledMessage) CARROT_VISION_STATE.disabledMessage = disabledMessage;
     setCarrotVisionState({
       statusText: getCarrotVisionPhaseStatusText(phase),

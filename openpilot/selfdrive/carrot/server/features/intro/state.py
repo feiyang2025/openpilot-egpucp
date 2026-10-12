@@ -46,8 +46,9 @@ Consequences that broke the obvious approaches:
   · CompletedTrainingVersion defaults to "0.2.0", so it is ALWAYS set.
     Testing it for truthiness matches every device and would hide the intro
     from everyone, forever. (This module had exactly that bug.)
-  · Compare against params_keys.h defaults, which manager uses to initialize
-    params, rather than relying on the separate carrot_settings.json catalog.
+  · Comparing against carrot_settings.json defaults is wrong too — they
+    disagree with params_keys.h in at least one place (SpeedFromPCM is 2 in
+    params_keys.h, 0 in carrot_settings.json).
 
 What DOES work: compare against `params.get_default_value(k)`, the same value
 manager wrote. 159 of the 163 carrot settings have one. Any difference means
@@ -65,6 +66,7 @@ from ...config import (
   CARROT_SETTING_PROFILES_PATH,
   CARROT_STATE_DIR,
   CARROT_WEB_SETTINGS_PATH,
+  CARROT_YOUTUBE_LIVE_STATE_PATH,
 )
 from ...services.params import HAS_PARAMS, Params
 from ...services.settings import get_settings_cached
@@ -162,6 +164,7 @@ def _web_state_files() -> str:
     (CARROT_WEB_SETTINGS_PATH, "web_settings_exists"),
     (CARROT_SETTING_PROFILES_PATH, "setting_profiles_exists"),
     (CARROT_SETTING_FAVORITES_PATH, "setting_favorites_exists"),
+    (CARROT_YOUTUBE_LIVE_STATE_PATH, "youtube_live_exists"),
   ):
     if os.path.isfile(path):
       return label

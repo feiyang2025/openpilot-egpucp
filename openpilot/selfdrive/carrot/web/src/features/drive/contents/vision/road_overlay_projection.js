@@ -61,7 +61,7 @@ function finiteNumber(value, fallback = 0) {
 export function createRoadOverlayProjection(options = {}) {
   const projectPoint = options.projectPoint;
   const projectPointPrecise = options.projectPointPrecise;
-  const maxDrawDistance = finiteNumber(options.maxDrawDistance, 100);
+  const maxDrawDistance = finiteNumber(options.maxDrawDistance, 180);
   /* Sampling every model point is what keeps a curve reading as a curve. The
    * stride below exists because the Canvas2D path pays a CPU path operation per
    * point; on the WebGL2 path the extra vertices are effectively free while the

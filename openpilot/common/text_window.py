@@ -2,14 +2,13 @@
 import os
 import time
 import subprocess
-import sys
 from openpilot.common.basedir import BASEDIR
 
 
 class TextWindow:
   def __init__(self, text):
     try:
-      self.text_proc = subprocess.Popen([sys.executable, "./text.py", text],
+      self.text_proc = subprocess.Popen(["./text.py", text],
                                         stdin=subprocess.PIPE,
                                         cwd=os.path.join(BASEDIR, "openpilot", "system", "ui"),
                                         close_fds=True)
@@ -33,7 +32,7 @@ class TextWindow:
   def wait_for_exit(self):
     if self.text_proc is not None:
       while True:
-        if self.get_status() is not None:
+        if self.get_status() == 1:
           return
         time.sleep(0.1)
 

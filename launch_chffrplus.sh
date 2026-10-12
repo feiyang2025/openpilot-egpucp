@@ -141,21 +141,6 @@ function bootstrap_runtime_dependencies {
     return 1
   fi
 
-  # MPC headers, templates, native libraries and CasADi now come from one wheel.
-  if ! ensure_python_package "acados; from acados.acados_template import AcadosOcpSolver; from casadi import SX" \
-      "comma-deps-acados==0.2.2.post103" 1; then
-    return 1
-  fi
-
-  if ! ensure_python_package json11 "comma-deps-json11==20170411.0.post103" 1; then
-    return 1
-  fi
-
-  # Development checkouts build C++ tests by default, matching SConstruct extras.
-  if [ -f "$DIR/.gitattributes" ] && ! ensure_python_package catch2 "comma-deps-catch2==2.13.10.post96" 1; then
-    return 1
-  fi
-
   ensure_python_package shapely shapely 0
 }
 
@@ -216,14 +201,6 @@ function agnos_init {
       fi
     fi
 
-    # The update UI imports openpilot.system.hardware, which pulls in pyserial
-    # through the tici LPA. Runtime dependency bootstrap only runs after this
-    # function, so install it from the offline wheels before the UI starts.
-    if ! ensure_python_package serial pyserial 1; then
-      show_agnos_update_failure "The updater UI dependency pyserial could not be installed. Check the network, then retry."
-      return 1
-    fi
-
     local AGNOS_UI_LOG="/data/agnos-updater-ui.log"
     local ui_result
     : > "$AGNOS_UI_LOG"
@@ -235,7 +212,7 @@ function agnos_init {
       sleep 2
     done
 
-    show_agnos_update_failure "The automatic updater stopped three times. Check the updater log for the failure."
+    show_agnos_update_failure "The updater UI stopped three times. No unconfirmed update was installed."
     return 1
   else
     rm -f "$AGNOS_UPDATE_CONFIRMATION_FILE"
@@ -325,67 +302,38 @@ function invalidate_modeld_build_if_needed {
     FORCE_REBUILD=1
   fi
 
-  # The eGPU big model is content-addressed and delivered by download first:
-  # start_big_model_update() runs `big_model --ensure-if-egpu` in the background,
-  # which fetches the ONNX and then the chunked (or precompiled) artifacts while
-  # openpilot is already running. A missing or not-yet-downloaded artifact must
-  # NOT set FORCE_REBUILD here: releases are published without the big model, so
-  # that check fired on every boot of every device with an eGPU attached and ran
-  # the whole SCons build for nothing. Local compilation stays available as the
-  # last resort inside build_usbgpu_model(), and only runs when it is really
-  # needed (no download available and the GPU is present).
-  # BIG_MODEL_SHA is still used below to refresh the stamp after a real rebuild.
+  if [ -n "$BIG_MODEL_SHA" ]; then
+    old_big_stamp="$(cat "$big_stamp_path" 2>/dev/null || true)"
+    if [ "$BIG_MODEL_SHA" != "$old_big_stamp" ] || ! big_model_artifact_ready; then
+      echo "USB eGPU big model changed or needs compilation."
+      FORCE_REBUILD=1
+    fi
+  fi
 }
 
 function prepare_big_model_if_needed {
   BIG_MODEL_SHA=""
-  unset CARROT_BIG_MODEL_STARTUP_FAILED
 
-  # Delivery is background-only, on purpose. start_big_model_update() below runs
-  # `big_model --ensure-if-egpu` in a detached subshell (4 attempts, 180 s apart), so a
-  # boot never waits on the network: with an eGPU attached this boot drives on the
-  # internal model, and the next (manual) reboot picks up whatever landed meanwhile.
-  #
-  # This used to run `big_model --prepare-for-startup --retry-network` synchronously
-  # whenever an eGPU was present. That call was the only thing that could name the
-  # artifact for BIG_MODEL_SHA, and the only writer of CARROT_BIG_MODEL_STARTUP_FAILED,
-  # but it also meant a cold boot on a slow or offline uplink sat on the splash screen,
-  # and a failed delivery only fell back to the internal model after the whole wait.
-  # Nothing needs it: build.py's chunked boot_hook already stays out of the way while a
-  # download is in flight ("skipping the boot build"), build_usbgpu_model keeps the local
-  # compile as the last resort, and the stamp it refreshed is written by
-  # chunked_model.write_big_model_stamp on the delivery path.
-}
-
-function run_big_model_update {
-  if command -v ionice >/dev/null 2>&1; then
-    PYTHONUNBUFFERED=1 ionice -c 3 nice -n 10 python3 -m openpilot.selfdrive.modeld.big_model --ensure-if-egpu --network-wait-seconds 60 --retry-network
-  else
-    PYTHONUNBUFFERED=1 nice -n 10 python3 -m openpilot.selfdrive.modeld.big_model --ensure-if-egpu --network-wait-seconds 60 --retry-network
+  # Only local state is consulted on the startup path. Remote model delivery
+  # runs in the background below and must never delay manager startup.
+  if ! python3 -c 'from openpilot.selfdrive.modeld.helpers import usbgpu_present; raise SystemExit(0 if usbgpu_present() else 1)' 2>/dev/null; then
+    return
   fi
-}
 
-function big_model_update_failed {
-  # status.json carries state="error" when the downloader gave up (DNS not up yet
-  # right after boot, a dropped link, ...). Anything else counts as done.
-  python3 -c 'import json, sys
-from openpilot.selfdrive.modeld.big_model import model_cache_dir
-try:
-    state = json.load(open(str(model_cache_dir() / "status.json"))).get("state")
-except Exception:
-    state = None
-sys.exit(0 if state == "error" else 1)' 2>/dev/null
+  # The compiled artifact path is resolved by big_model_artifact_ready from the
+  # same active manifest, so it is not duplicated here. Keeping only the sha
+  # avoids a second stale lookup and the 'unavailable' fallback path.
+  BIG_MODEL_SHA="$(python3 -m openpilot.selfdrive.modeld.big_model --active-sha 2>/dev/null || true)"
+
+  # Do not reject compilation from a one-shot 12V check here. During ignition
+  # startup the USB bridge can enumerate before switched GPU power and PCIe are
+  # ready. Mark the missing target stale and let build_usbgpu_model perform its
+  # retrying readiness check while the build screen remains visible.
 }
 
 function start_big_model_update {
   local log_path="/tmp/big_model_update.log"
   local lock_path="/tmp/big_model_update.lock"
-  # The downloader gives up on its first error, and a cold boot starts it before
-  # DNS/USB enumeration are ready. Nothing used to retry until the next boot, so a
-  # switch to another model silently did not happen. Retry here: this runs in a
-  # detached subshell, so boot is never blocked by the retries either.
-  local attempts=4
-  local delay=180
 
   if command -v pgrep >/dev/null 2>&1 && pgrep -f '[o]penpilot.selfdrive.modeld.big_model --ensure-if-egpu' >/dev/null 2>&1; then
     return
@@ -396,20 +344,18 @@ function start_big_model_update {
     (
       exec 9>"$lock_path"
       flock -n 9 || exit 0
-      for attempt in $(seq 1 "$attempts"); do
-        run_big_model_update
-        big_model_update_failed || break
-        [ "$attempt" -lt "$attempts" ] && sleep "$delay"
-      done
+      if command -v ionice >/dev/null 2>&1; then
+        PYTHONUNBUFFERED=1 ionice -c 3 nice -n 10 python3 -m openpilot.selfdrive.modeld.big_model --ensure-if-egpu --network-wait-seconds 60
+      else
+        PYTHONUNBUFFERED=1 nice -n 10 python3 -m openpilot.selfdrive.modeld.big_model --ensure-if-egpu --network-wait-seconds 60
+      fi
     ) >> "$log_path" 2>&1 &
   else
-    (
-      for attempt in $(seq 1 "$attempts"); do
-        run_big_model_update
-        big_model_update_failed || break
-        [ "$attempt" -lt "$attempts" ] && sleep "$delay"
-      done
-    ) >> "$log_path" 2>&1 &
+    if command -v ionice >/dev/null 2>&1; then
+      PYTHONUNBUFFERED=1 ionice -c 3 nice -n 10 python3 -m openpilot.selfdrive.modeld.big_model --ensure-if-egpu --network-wait-seconds 60 >> "$log_path" 2>&1 &
+    else
+      PYTHONUNBUFFERED=1 nice -n 10 python3 -m openpilot.selfdrive.modeld.big_model --ensure-if-egpu --network-wait-seconds 60 >> "$log_path" 2>&1 &
+    fi
   fi
 }
 
@@ -447,27 +393,6 @@ function start_manager {
   fi
 }
 
-function run_startup_command {
-  "$@" 2>&1 | python3 -m openpilot.common.startup_recovery --capture-log /tmp/carrot_startup_failure.log
-  return "${PIPESTATUS[0]}"
-}
-
-function show_startup_failure {
-  local reason="$1"
-  # No build/manager can still hold the checkout when the update button runs.
-  flock -u 9
-  exec 9>&-
-  unset CARROT_BOOT_LOCK_FD
-  export CARROT_STARTUP_RECOVERY=1
-  start_carrot_recovery
-  while true; do
-    python3 "$DIR/openpilot/system/ui/startup_recovery.py" --reason "$reason" --log /tmp/carrot_startup_failure.log
-    echo "Recovery display stopped; checking for a fix without graphics. Web recovery remains on port 6999."
-    python3 -m openpilot.common.startup_recovery --repo "$DIR"
-    sleep 30
-  done
-}
-
 function launch {
   # Protect the checkout throughout bootstrap, SCons and manager initialization.
   # The manager releases this inherited flock after init; background web/recovery
@@ -481,8 +406,6 @@ function launch {
     while true; do sleep 1; done
   fi
   export CARROT_BOOT_LOCK_FD=9
-  # The launcher owns startup failure display, including Python import errors.
-  export CARROT_STARTUP_RECOVERY=1
   cleanup_stale_git_lfs_hooks
 
   # Check to see if there's a valid overlay-based update available. Conditions
@@ -545,24 +468,21 @@ function launch {
       flock -u 9
       while true; do sleep 1; done
     fi
-    # Offline wall-clock floor after any OS update, before dependency/bootstrap
-    # or Params SCons work. GPS timed starts only after the main build.
-    if ! run_startup_command python3 "$DIR/openpilot/common/build_time.py"; then
-      show_startup_failure "System clock correction failed before build"
-    fi
   fi
 
   # AGNOS must be current before installing its matching offline wheels. SCons
   # imports native dependency modules while building Params, so bootstrap them
   # before the first SCons invocation.
-  if ! run_startup_command bootstrap_runtime_dependencies; then
-    show_startup_failure "Runtime dependency installation failed"
+  if ! bootstrap_runtime_dependencies; then
+    flock -u 9
+    while true; do sleep 1; done
   fi
 
   # Build Params before any long-running carrot service imports it.
-  if ! run_startup_command bash "$DIR/scripts/ensure_params_build.sh"; then
+  if ! bash "$DIR/scripts/ensure_params_build.sh"; then
     echo "Params registry build failed, not starting openpilot."
-    show_startup_failure "Params registry build failed"
+    flock -u 9
+    while true; do sleep 1; done
   fi
 
   # Export in the parent so manager also knows the external watchdog owns the
@@ -592,9 +512,10 @@ function launch {
   # start manager
   cd openpilot/system/manager
   if [ "$FORCE_REBUILD" = "1" ] || [ ! -f $DIR/prebuilt ]; then
-    if ! run_startup_command ./build.py; then
+    if ! ./build.py; then
       echo "openpilot build failed, not starting manager."
-      show_startup_failure "openpilot build failed"
+      flock -u 9
+      while true; do sleep 1; done
     fi
     if [ "$FORCE_REBUILD" = "1" ]; then
       mkdir -p "$DIR/openpilot/selfdrive/modeld/models"
@@ -606,14 +527,12 @@ function launch {
     fi
   fi
   # Never start driving services if a rebuild left the Params registry stale.
-  if ! run_startup_command python3 "$DIR/openpilot/system/manager/params_check.py"; then
+  if ! python3 "$DIR/openpilot/system/manager/params_check.py"; then
     echo "Native Params still do not match this checkout; not starting manager."
-    show_startup_failure "Native Params do not match this checkout"
+    return 1
   fi
   start_big_model_update
-  if ! run_startup_command start_manager; then
-    show_startup_failure "Manager failed to start"
-  fi
+  start_manager
   # Also release if manager failed before reaching main()/initialization.
   flock -u 9
   exec 9>&-

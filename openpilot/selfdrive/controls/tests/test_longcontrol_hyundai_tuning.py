@@ -1,6 +1,4 @@
-import json
 import sys
-from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
@@ -19,7 +17,6 @@ if sys.platform == "win32":
   params_module.Params = object
   sys.modules.setdefault("openpilot.common.params", params_module)
 
-from opendbc.car.hyundai.values import HyundaiFlags
 import openpilot.selfdrive.controls.lib.longcontrol as longcontrol_module
 from openpilot.selfdrive.controls.lib.longcontrol import (
   HYUNDAI_LONGITUDINAL_KF,
@@ -32,8 +29,8 @@ from openpilot.selfdrive.controls.lib.longcontrol import (
 class RejectingParams:
   def get_float(self, name):
     if name == "StoppingAccel":
-      return -50.0
-    raise AssertionError(f"Fixed tuning must not read adjustable params: {name}")
+      return -50
+    raise AssertionError("Hyundai fixed tuning must not read adjustable PID params")
 
 
 class DictParams:
@@ -42,11 +39,7 @@ class DictParams:
     self.writes = []
 
   def get_float(self, name):
-    return float(self.values.get(name, 0))
-
-  def get_bool(self, name):
-    assert name != "CanfdStopRetry", "Removed stop retry setting must never be read"
-    return bool(self.values.get(name, False))
+    return self.values[name]
 
   def put_int(self, name, value):
     self.values[name] = value
@@ -56,7 +49,6 @@ class DictParams:
 def make_cp(brand="hyundai"):
   return SimpleNamespace(
     brand=brand,
-    flags=0, openpilotLongitudinalControl=True,
     longitudinalTuning=SimpleNamespace(
       kpBP=[0.0], kpV=[9.0], kiBP=[0.0], kiV=[9.0], kf=9.0,
     ),
@@ -72,7 +64,6 @@ def make_control(*, hyundai, params):
   control.hyundai_fixed_longitudinal_tuning = hyundai
   control.pid = SimpleNamespace(_k_p=([0.0], [9.0]), _k_i=([0.0], [9.0]), k_f=9.0)
   control.CP = SimpleNamespace(
-    brand="hyundai" if hyundai else "mock",
     longitudinalTuning=SimpleNamespace(kpBP=[0.0], kiBP=[0.0]),
   )
   control.params = params
@@ -91,114 +82,64 @@ def test_hyundai_constructor_overrides_car_tune_immediately(monkeypatch):
   assert control.pid.k_f == HYUNDAI_LONGITUDINAL_KF
 
 
-@pytest.mark.parametrize("brand", ["hyundai", "toyota", "gm", "mock"])
-@pytest.mark.parametrize("stored, expected", [
-  (None, -.5), (0, -.5), (10, -.5), (-10, -.5), (-50, -.5), (-70, -.7),
-  (-100, -1.), (-150, -1.), (float('nan'), -.5), (float('inf'), -.5), ('invalid', -.5),
-])
-def test_stopping_accel_bounds_apply_from_first_frame(monkeypatch, brand, stored, expected):
-  params = DictParams({"StoppingAccel": stored})
+@pytest.mark.parametrize("stored_value", [0, -10, -50, -100])
+def test_hyundai_startup_restores_only_zero_stopping_accel(monkeypatch, stored_value):
+  params = DictParams({"StoppingAccel": stored_value})
   monkeypatch.setattr(longcontrol_module, "Params", lambda: params)
+
+  control = LongControl(make_cp())
+
+  expected = -50 if stored_value == 0 else stored_value
+  assert params.values["StoppingAccel"] == expected
+  assert control.stopping_accel == pytest.approx(expected * 0.01)
+  assert params.writes == ([("StoppingAccel", -50)] if stored_value == 0 else [])
+
+
+@pytest.mark.parametrize("brand", ["toyota", "gm", "mock"])
+@pytest.mark.parametrize("stored_value", [0, -30])
+def test_other_brands_keep_stopping_accel_at_startup(monkeypatch, brand, stored_value):
+  params = DictParams({"StoppingAccel": stored_value})
+  monkeypatch.setattr(longcontrol_module, "Params", lambda: params)
+
   control = LongControl(make_cp(brand))
-  assert control.stopping_accel == pytest.approx(expected)
+
+  assert params.values["StoppingAccel"] == stored_value
+  assert control.stopping_accel == pytest.approx(stored_value * 0.01)
   assert params.writes == []
 
 
-def stop_inputs(*, soft_hold=0, a_ego=0., nearby=False):
-  cs = SimpleNamespace(softHoldActive=soft_hold, vEgo=.1, aEgo=a_ego, brakePressed=False,
-                       cruiseState=SimpleNamespace(standstill=False))
-  plan = SimpleNamespace(aTarget=-.5, vTargetNow=.1, jTargetNow=0., shouldStop=True)
-  radar = SimpleNamespace(leadOne=SimpleNamespace(status=nearby, dRel=3.))
-  return cs, plan, radar
+def test_hyundai_stopping_accel_restored_again_after_user_saves_zero(monkeypatch):
+  params = DictParams({"StoppingAccel": 0})
+  monkeypatch.setattr(longcontrol_module, "Params", lambda: params)
+
+  LongControl(make_cp())
+  LongControl(make_cp())
+  assert params.writes == [("StoppingAccel", -50)]
+
+  params.values["StoppingAccel"] = 0
+  control = LongControl(make_cp())
+  assert control.stopping_accel == -0.5
+  assert params.writes == [("StoppingAccel", -50), ("StoppingAccel", -50)]
 
 
-@pytest.mark.parametrize("flags", [0, HyundaiFlags.CANFD])
-@pytest.mark.parametrize("stored", [-50, -80, -100])
-@pytest.mark.parametrize("offset, expected", [(-.1, "pid"), (0., "pid"), (.1, "stopping")])
-def test_restored_entry_threshold(monkeypatch, flags, stored, offset, expected):
-  monkeypatch.setattr(longcontrol_module, "Params", lambda: DictParams({"StoppingAccel": stored}))
-  cp = make_cp()
-  cp.flags = flags
-  control = LongControl(cp)
-  control.long_control_state = longcontrol_module.LongCtrlState.pid
-  cs, plan, radar = stop_inputs(a_ego=stored * .01 + offset)
-  control.update(True, cs, plan, (-3.5, 2.), 0., radar)
-  assert control.long_control_state == getattr(longcontrol_module.LongCtrlState, expected)
-
-
-@pytest.mark.parametrize("flags", [0, HyundaiFlags.CANFD])
-def test_original_close_lead_handover_and_launch(monkeypatch, flags):
-  monkeypatch.setattr(longcontrol_module, "Params", RejectingParams)
-  cp = make_cp()
-  cp.flags = flags
-  control = LongControl(cp)
-  control.long_control_state = longcontrol_module.LongCtrlState.pid
-  control.last_output_accel = -.8
-  cs, plan, radar = stop_inputs(a_ego=-.8, nearby=True)
-  accel, _, _ = control.update(True, cs, plan, (-3.5, 2.), 0., radar)
-  assert control.long_control_state == longcontrol_module.LongCtrlState.stopping
-  assert accel == -.8
-  plan.shouldStop = False
-  control.update(True, cs, plan, (-3.5, 2.), 0., radar)
-  assert control.long_control_state == longcontrol_module.LongCtrlState.pid
-
-
-@pytest.mark.parametrize("flags", [0, HyundaiFlags.CANFD])
-@pytest.mark.parametrize("soft_hold", [0, 1])
-@pytest.mark.parametrize("initial", [-1.2, -.3, 0.])
-@pytest.mark.parametrize("stored", [-50, -80, -100])
-def test_original_one_way_ramp_and_vehicle_soft_hold(monkeypatch, flags, soft_hold, initial, stored):
-  monkeypatch.setattr(longcontrol_module, "Params", lambda: DictParams({"StoppingAccel": stored}))
-  cp = make_cp()
-  cp.flags = flags
-  cp.stopAccel = -2.
-  control = LongControl(cp)
-  control.last_output_accel = initial
-  cs, plan, radar = stop_inputs(soft_hold=soft_hold)
-  previous = initial
-  for _ in range(150):
-    accel, _, _ = control.update(True, cs, plan, (-3.5, 2.), 0., radar)
-    if soft_hold:
-      assert accel == cp.stopAccel
-    else:
-      assert previous - cp.stoppingDecelRate * longcontrol_module.DT_CTRL - 1e-9 <= accel <= previous
-    previous = accel
-  if not soft_hold:
-    target = min(initial, stored * .01)
-    assert target - cp.stoppingDecelRate * longcontrol_module.DT_CTRL - 1e-9 <= accel <= target
-
-
-@pytest.mark.parametrize("stored, expected", [(-80, -.8), (0, -.5), (-200, -1.), ('bad', -.5)])
-def test_live_setting_refresh_keeps_retry_independent(monkeypatch, stored, expected):
-  params = DictParams({"StoppingAccel": -50, "CanfdStopRetry": False})
+def test_hyundai_zero_setting_brakes_from_first_frame_and_after_param_refresh(monkeypatch):
+  params = DictParams({"StoppingAccel": 0})
   monkeypatch.setattr(longcontrol_module, "Params", lambda: params)
   control = LongControl(make_cp())
-  cs, plan, radar = stop_inputs()
-  control.update(True, cs, plan, (-3.5, 2.), 0., radar)
-  params.values["StoppingAccel"] = stored
-  for _ in range(99):
-    control.update(True, cs, plan, (-3.5, 2.), 0., radar)
-  assert control.stopping_accel == pytest.approx(expected)
+  cs = SimpleNamespace(
+    softHoldActive=0, vEgo=0.1, aEgo=0.0, brakePressed=False,
+    cruiseState=SimpleNamespace(standstill=False),
+  )
+  plan = SimpleNamespace(aTarget=0.0, vTargetNow=0.0, jTargetNow=0.0, shouldStop=True)
+  radar = SimpleNamespace(leadOne=SimpleNamespace(status=False, dRel=0.0))
 
+  for _ in range(150):
+    accel, _, _ = control.update(True, cs, plan, (-3.5, 2.0), 0.0, radar)
+    assert accel < 0.0
 
-def test_stopping_setting_catalog_bounds_and_menu():
-  root = Path(__file__).resolve().parents[4]
-  catalog = json.loads((root / 'openpilot/selfdrive/carrot_settings.json').read_text(encoding='utf-8'))
-  def objects(value):
-    if isinstance(value, dict):
-      yield value
-      for child in value.values():
-        yield from objects(child)
-    elif isinstance(value, list):
-      for child in value:
-        yield from objects(child)
-  entries = list(objects(catalog))
-  setting = next(x for x in entries if x.get('name') == 'StoppingAccel')
-  assert (setting['min'], setting['max'], setting['default'], setting['unit']) == (-100, -50, -50, 10)
-  menu = next(x for x in entries if x.get('id') == 'CRUISE_STOPGO')
-  assert 'StoppingAccel' in menu['params']
-  assert not any(x.get('name') == 'CanfdStopRetry' for x in entries)
-  assert '{"StoppingAccel", {PERSISTENT, INT, "-50"}}' in (root / 'openpilot/common/params_keys.h').read_text(encoding='utf-8')
+  assert control.stopping_accel == -0.5
+  assert -0.5 - control.CP.stoppingDecelRate * longcontrol_module.DT_CTRL <= accel <= -0.5
+  assert params.writes == [("StoppingAccel", -50)]
 
 
 def test_hyundai_tuning_is_fixed_without_reading_params():

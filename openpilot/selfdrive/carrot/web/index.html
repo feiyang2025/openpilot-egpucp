@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html class="notranslate" translate="no">
 <head>
   <script id="carrotAssetManifest" type="application/json"></script>
@@ -11,9 +11,9 @@
        /support-terminal-assets/ and non-JS/CSS files such as images. -->
   <meta charset="utf-8" />
   <meta name="google" content="notranslate" />
-  <!-- Keep CSS layout breakpoints stable when the keyboard opens. viewport.js
-       follows visualViewport for available height and keyboard-aware controls. -->
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-visual" />
+  <!-- Let keyboard-heavy pages follow the visible content viewport instead of
+       manually stacking keyboard offsets on top of the terminal/dialog layout. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
   <title>CarrotPilot</title>
   <link rel="icon" type="image/png" href="/assets/img_chffr_wheel.png?v=2604-01" />
   <script>
@@ -197,10 +197,7 @@
               </svg>
               <span id="settingFabResetDefaultsLabel">설정 초기화</span>
             </button>
-            <!-- Retired overlay-search entry point: hidden until the page's
-                 SETTING_OVERLAY_SEARCH_ENABLED flag re-enables it. The inline
-                 "설정 찾기" field is the active search. -->
-            <button id="btnSettingFabSearch" class="setting-fab-action" type="button" role="menuitem" hidden>
+            <button id="btnSettingFabSearch" class="setting-fab-action" type="button" role="menuitem">
               <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                 <path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16a6.47 6.47 0 0 0 4.23-1.57l.27.28v.79L19 20.49 20.49 19zM9.5 14A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14"/>
               </svg>
@@ -240,16 +237,6 @@
 
           <!-- CarrotPilot Groups -->
           <div id="carrotTabContent">
-            <form id="settingInlineSearch" class="setting-inline-search" role="search">
-              <div class="setting-inline-search__field">
-                <svg class="setting-inline-search__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                  <path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16a6.47 6.47 0 0 0 4.23-1.57l.27.28v.79L19 20.49 20.49 19zM9.5 14A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14"/>
-                </svg>
-                <input id="settingInlineSearchInput" type="search" placeholder="예: 감속, TF" autocomplete="off" spellcheck="false" enterkeyhint="search" aria-label="설정 찾기" />
-                <button id="settingInlineSearchClear" type="button" aria-label="검색어 지우기" hidden>×</button>
-              </div>
-              <output id="settingInlineSearchStatus" class="setting-inline-search__status" aria-live="polite"></output>
-            </form>
             <div id="groupList"></div>
           </div>
 
@@ -304,7 +291,6 @@
               <span id="egpuModelState" class="egpu-model-card__state">Checking</span>
             </div>
             <p id="egpuModelDetail" class="egpu-model-card__detail"></p>
-            <p id="egpuModelRecovery" class="egpu-model-card__detail" hidden></p>
             <div id="egpuModelProgress" class="egpu-model-card__progress" hidden>
               <div class="egpu-model-card__track"><span id="egpuModelProgressBar"></span></div>
             </div>
@@ -315,16 +301,11 @@
           </div>
         </section>
 
-        <div id="toolsModelPages" class="tools-primary-actions ui-action-grid ui-action-grid--quick mb-md" role="group" aria-label="Model pages">
-          <a id="btnToolsModelsPage" class="btn" href="models.html">eGPU Models</a>
-        </div>
-
         <div id="toolsPrimaryActions" class="tools-primary-actions ui-action-grid ui-action-grid--quick mb-md" role="group" aria-label="Tools shortcuts">
           <button id="btnToolsCarSelect" class="btn" type="button">Car Select</button>
           <button id="btnToolsLanguage" class="btn" type="button" aria-haspopup="dialog">Language</button>
           <button id="btnToolsWebSettings" class="btn" type="button">Web Settings</button>
           <button id="btnDeviceInfo" class="btn" type="button">Info</button>
-          <button id="btnToolsBluetooth" class="btn" type="button" aria-haspopup="dialog">Bluetooth</button>
         </div>
 
         <div class="section tools-group is-open" data-tools-group="git">
@@ -356,7 +337,6 @@
           </button>
           <div id="toolsGroupBodySystem" class="tools-group__body">
             <div class="tools-group__bodyInner ui-action-grid">
-              <button id="btnRecordToggle" class="btn" type="button" aria-label="Record">Record</button>
               <button id="btnDeviceLang" class="btn" hidden style="display:none;">Device Lang</button>
               <button id="btnResetCalib" class="btn btn--danger">Reset Calib</button>
               <button id="btnSendTmuxLog" class="btn">capture tmux</button>
@@ -733,7 +713,7 @@
             </section>
           </div>
         </aside>
-        <div class="carrot-stage__controls" role="group" aria-label="Sound, HUD and display controls">
+        <div class="carrot-stage__controls" role="group" aria-label="Sound, HUD, display and recording controls">
           <label id="carrotReplayHudControl" class="carrot-stage__controlBtn carrot-stage__controlBtn--hud carrot-replay-controls__hudToggle" for="carrotReplayHudToggle" hidden>
             <input id="carrotReplayHudToggle" type="checkbox">
             <span id="carrotReplayHudToggleLabel">HUD</span>
@@ -741,6 +721,7 @@
           <button id="btnWebSound" class="carrot-stage__controlBtn carrot-stage__controlBtn--sound" type="button" aria-label="Web sound">Sound</button>
           <button id="btnCarrotReplaySpeed" class="carrot-stage__controlBtn carrot-stage__controlBtn--replay-speed" type="button" aria-label="Replay speed" hidden>1×</button>
           <button id="btnDisplayModeCycle" class="carrot-stage__controlBtn carrot-stage__controlBtn--display" type="button" aria-label="Display mode">Normal</button>
+          <button id="btnRecordToggle" class="carrot-stage__controlBtn carrot-stage__controlBtn--record" type="button" aria-label="Record">Record</button>
         </div>
         </div>
         <div id="carrotNaviDivider" class="carrot-navi-divider" data-drive-workspace-divider role="separator" aria-orientation="vertical" aria-label="Resize Carrot Navi" aria-valuemin="30" aria-valuemax="70" aria-valuenow="70" tabindex="0" hidden>
@@ -862,6 +843,7 @@
     <button id="btnHome" class="nav-btn active">
       <span id="navHomeStatusBadges" class="nav-status-badges" aria-hidden="true">
         <span id="navRecordStatusBadge" class="nav-status-badge nav-status-badge--record" hidden>REC</span>
+        <span id="navYouTubeStatusBadge" class="nav-status-badge nav-status-badge--live" hidden>LIVE</span>
       </span>
       <span class="nav-icon">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
@@ -972,6 +954,7 @@
   <script src="/js/shared/ui/media_transport.js"></script>
   <script src="/js/shared/ui/navigation.js"></script>
   <script src="/js/pages/car.js"></script>
+  <script src="/js/pages/setting_youtube_live.js"></script>
   <script src="/js/pages/setting_mapbox_tokens.js"></script>
   <script src="/js/shared/ui/nav_status_badges.js"></script>
   <script src="/js/pages/setting.js"></script>

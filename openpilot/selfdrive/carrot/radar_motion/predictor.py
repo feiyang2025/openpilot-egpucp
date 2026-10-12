@@ -17,8 +17,6 @@ from functools import lru_cache
 from statistics import median
 from typing import Any
 
-from openpilot.selfdrive.carrot.radar_motion import native
-
 
 MOTION_HORIZONS_S = (
   0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0,
@@ -662,37 +660,26 @@ def _radar_path(
   return _path_geometry(_path_key(path))[0]
 
 
-# Stopping trajectories pack their final time samples into centimetres. Their
-# individual headings cannot define the lateral offset of a point beyond the
-# observed path. Use a spatial chord there, without extending the search path.
-TERMINAL_PATH_TANGENT_SPAN_M = 2.0
-
-
-@lru_cache(maxsize=8)
-def _terminal_path_tangent(
+@lru_cache(maxsize=256)
+def _project_to_model_path_cached(
   path: tuple[tuple[float, float], ...],
-) -> tuple[float, float, float, float] | None:
+  x: float,
+  y: float,
+) -> ModelPathProjection:
   points, segments = _path_geometry(path)
-  remaining = TERMINAL_PATH_TANGENT_SPAN_M
-  for x0, y0, tx, ty, length, _ in reversed(segments):
-    if length < remaining:
-      remaining -= length
-      continue
-    anchor_x = x0 + tx * (length - remaining)
-    anchor_y = y0 + ty * (length - remaining)
-    dx = points[-1][0] - anchor_x
-    dy = points[-1][1] - anchor_y
-    span = math.hypot(dx, dy)
-    # Arc length alone is not support if a looping/reversing tail folds back
-    # onto itself. Do not manufacture a heading from its tiny net movement.
-    if dx <= 0.0 or span < 0.5 * TERMINAL_PATH_TANGENT_SPAN_M:
-      return None
-    total_s = segments[-1][5] + segments[-1][4]
-    return dx / span, dy / span, total_s, max(point[0] for point in points)
-  return None
+  if not points:
+    raise ValueError("model path is required for dPath prediction")
+  if not segments:
+    center_x, center_y = points[0]
+    return ModelPathProjection(
+      x - center_x,
+      center_x,
+      center_y,
+      1.0,
+      0.0,
+      y - center_y,
+    )
 
-
-def _nearest_segment_python(segments, x, y):
   best_values: tuple[
     float, float, float, float, float, float,
   ] | None = None
@@ -724,45 +711,7 @@ def _nearest_segment_python(segments, x, y):
         tangent_y,
         -tangent_y * offset_x + tangent_x * offset_y,
       )
-  return best_values
-
-
-@lru_cache(maxsize=256)
-def _project_to_model_path_cached(
-  path: tuple[tuple[float, float], ...],
-  x: float,
-  y: float,
-) -> ModelPathProjection:
-  points, segments = _path_geometry(path)
-  if not points:
-    raise ValueError("model path is required for dPath prediction")
-  if not segments:
-    center_x, center_y = points[0]
-    return ModelPathProjection(
-      x - center_x,
-      center_x,
-      center_y,
-      1.0,
-      0.0,
-      y - center_y,
-    )
-
-  best_values = native.nearest_segment(segments, x, y) if native.nearest_segment is not None else None
-  if best_values is None:
-    best_values = _nearest_segment_python(segments, x, y)
   assert best_values is not None
-  terminal = _terminal_path_tangent(path)
-  if terminal is not None:
-    tangent_x, tangent_y, total_s, max_x = terminal
-    path_s, center_x, center_y, _, _, _ = best_values
-    if x > max_x and path_s >= total_s - TERMINAL_PATH_TANGENT_SPAN_M:
-      # Keep the nearest point and arc position on the measured polyline.
-      # Only its terminal normal needs spatial support: a nearly sideways
-      # 3 cm segment must not turn 11 m of forward separation into dPath.
-      best_values = (
-        path_s, center_x, center_y, tangent_x, tangent_y,
-        -tangent_y * (x - center_x) + tangent_x * (y - center_y),
-      )
   return ModelPathProjection(*best_values)
 
 
@@ -1193,23 +1142,13 @@ def is_review_candidate(
   )
 
 
-@dataclass(frozen=True)
-class RadarCutOutPrediction:
-  """The only prediction fields consumed by production lead-role selection."""
-  track_id: int
-  cut_out_probability: float
-
-
 class RadarMotionPredictor:
   """Maintain independent front/corner dPath histories and predict path overlap."""
 
   def __init__(
     self,
     directional_min_consistency: float = DIRECTIONAL_MIN_CONSISTENCY,
-    *,
-    cut_out_only: bool = False,
   ) -> None:
-    self.cut_out_only = cut_out_only
     self.directional_min_consistency = float(
       directional_min_consistency,
     )
@@ -1346,7 +1285,7 @@ class RadarMotionPredictor:
     observation: _Observation,
     path: Sequence[tuple[float, float]],
     config: _SourceConfig,
-  ) -> RadarMotionPrediction | RadarCutOutPrediction:
+  ) -> RadarMotionPrediction:
     observations = tuple(state.observations)
     short = _window(observations, SHORT_HISTORY_S)
     long = _window(observations, LONG_HISTORY_S)
@@ -1537,11 +1476,6 @@ class RadarMotionPredictor:
     self._update_path_occupancy_state(
       state, observation, enough_history,
     )
-    # Keep all history, reassociation and occupancy state updates identical to
-    # the full predictor. Production needs no diagnostic trajectories or CUT-IN
-    # scores from this second predictor; trajectory_cutin owns that decision.
-    if self.cut_out_only and not (enough_history and state.inside_latched):
-      return RadarCutOutPrediction(track_id, 0.0)
     path_entry_age_s = (
       observation.time_s - state.entry_time_s
       if state.entry_time_s is not None
@@ -1552,7 +1486,6 @@ class RadarMotionPredictor:
     path_accel = max(-3.0, min(3.0, observation.a_lead))
     samples: list[RadarMotionSample] = []
     path_key = _path_key(path)
-    max_cut_out_probability = 0.0
     for horizon_s in MOTION_HORIZONS_S:
       path_displacement = (
         path_speed * horizon_s
@@ -1565,10 +1498,22 @@ class RadarMotionPredictor:
         observation.d_path
         + path_slope * path_displacement
       )
+      _, future_y = _model_path_point_at_s(
+        path_key,
+        future_path_x,
+        future_d_path,
+      )
       lateral_sigma = (
         lateral_base_uncertainty
         + slope_disagreement * abs(path_displacement)
         + 0.20 * abs(curvature) * path_displacement ** 2
+      )
+      longitudinal_sigma = (
+        config.base_longitudinal_sigma_m
+        + d_rel_residual
+        + 0.5 * path_x_long_residual
+        + 0.25 * path_x_short_residual
+        + 0.20 * abs(relative_accel) * horizon_s ** 2
       )
       extrapolation_support = min(
         1.0,
@@ -1584,20 +1529,6 @@ class RadarMotionPredictor:
         * extrapolation_support
         if future_d_rel > 0.0
         else 0.0
-      )
-      if self.cut_out_only:
-        if abs(future_d_path) > abs(observation.d_path):
-          max_cut_out_probability = max(max_cut_out_probability, 1.0 - occupancy_prob)
-        continue
-      _, future_y = _model_path_point_at_s(
-        path_key, future_path_x, future_d_path,
-      )
-      longitudinal_sigma = (
-        config.base_longitudinal_sigma_m
-        + d_rel_residual
-        + 0.5 * path_x_long_residual
-        + 0.25 * path_x_short_residual
-        + 0.20 * abs(relative_accel) * horizon_s ** 2
       )
       path_proximity_score = (
         _path_proximity_score(future_d_path) * extrapolation_support
@@ -1615,9 +1546,6 @@ class RadarMotionPredictor:
         occupancy_prob=occupancy_prob,
         path_proximity_score=path_proximity_score,
       ))
-
-    if self.cut_out_only:
-      return RadarCutOutPrediction(track_id, max_cut_out_probability * motion_consistency)
 
     (
       predicted_path_overlap_start_s,
@@ -1914,7 +1842,7 @@ class RadarMotionPredictor:
     ] | None = None,
     prediction_identities: Iterable[tuple[str, int]] | None = None,
     allow_low_speed_identities: Iterable[tuple[str, int]] = (),
-  ) -> dict[tuple[str, int], RadarMotionPrediction | RadarCutOutPrediction]:
+  ) -> dict[tuple[str, int], RadarMotionPrediction]:
     time_s = float(time_s)
     v_ego = _finite(v_ego)
     yaw_rate_rad_s = _finite(yaw_rate_rad_s)
@@ -1977,7 +1905,7 @@ class RadarMotionPredictor:
         if state is not None:
           self._retire_state(sensor, state)
 
-    predictions: dict[tuple[str, int], RadarMotionPrediction | RadarCutOutPrediction] = {}
+    predictions: dict[tuple[str, int], RadarMotionPrediction] = {}
     ego_projection = project_to_model_path(path, 0.0, 0.0)
     cos_heading = math.cos(self._ego_heading_rad)
     sin_heading = math.sin(self._ego_heading_rad)

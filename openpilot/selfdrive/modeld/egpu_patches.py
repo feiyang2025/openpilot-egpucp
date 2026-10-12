@@ -9,9 +9,12 @@ worker subprocess and the ``check_usbgpu`` probe alike).
 
 What is patched, and why the patches are needed at all:
 
-* ``AM_POWER_LIMIT``: the chestnut (ASM24) board defaults to the GPU's SMU PPT limit
-  (~182W). 120W lowers the peak current and cuts USB/PCIe link flapping under load,
-  which showed up as ``bulk IN`` I/O errors mid-inference. tinygrad's amdev reads it.
+* ``AM_POWER_LIMIT`` / ``AM_POWER_LIMIT_PRECOMPILED``: the chestnut (ASM24) board defaults to
+  the GPU's SMU PPT limit (~182W), and tinygrad's amdev reads the env var. Uncapped is fine for
+  the chunked model (hours of clean running), but every precompiled generic-onnx artifact we
+  tested fails with ``bulk IN`` I/O errors within minutes at full clocks on two different C3s,
+  while the same artifact is stable for hours with a cap. ``apply_env_defaults`` therefore caps
+  only the precompiled worker.
 * ``tinygrad.helpers.fetch_fw``: tinygrad only looks for AMD firmware in
   ``/lib/firmware`` and otherwise downloads it from gitlab. That directory holds a
   different linux-firmware build than the one tinygrad pins, the download is blocked
@@ -38,6 +41,7 @@ Rules for anything added here:
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import importlib.machinery
 import os
@@ -47,12 +51,18 @@ from collections.abc import Callable
 
 ENABLED = os.environ.get("OPENPILOT_EGPU_PATCH", "1") != "0"
 
-AM_POWER_LIMIT = ""  # the chunked model runs uncapped; see AM_POWER_LIMIT_PRECOMPILED below
-# The precompiled worker gets a cap instead of the default above. Every generic-onnx artifact
-# we tested dies with "bulk IN 0x81 failed: Input/Output Error" at full clocks on two C3s, while
-# the same artifact is stable for hours with a power wall. The chunked model runs through this
-# repo's own tinygrad, which retries those transfers, and has run uncapped for hours.
+AM_POWER_LIMIT = ""
+# The precompiled worker gets a cap instead: every generic-onnx artifact we tested dies with
+# "bulk IN 0x81 failed: Input/Output Error" at full clocks on two different C3s, and the same
+# artifact is stable for hours once the power wall is applied. The chunked model runs through
+# this repo's own tinygrad, which retries those transfers, and has run uncapped for hours, so
+# the two deliveries get different limits rather than one global compromise.
 AM_POWER_LIMIT_PRECOMPILED = "120"
+# ``max``: keep the highest real DPM clock while the power cap applies. ``keep``: leave
+# AM_POWER_LIMIT's own clock branch alone (soft max = 0xffff, which the board answers with a
+# low clock state -- 46s to link failure at full clocks vs hours without). See
+# patch_am_clock_policy.
+AM_CLOCK_POLICY = "keep"
 
 # Firmware search order for fetch_fw: the read-only system dir AGNOS ships, then the
 # persistent dir the model server fills. The in-tree blobs (see firmware_bases()) are
@@ -139,19 +149,20 @@ def _decompress(raw: bytes) -> bytes | None:
 def _is_precompiled_worker() -> bool:
   """True inside the subprocess that owns the AMD device for a precompiled artifact.
 
-  That worker is exec'd as ``<python> .../precompiled_worker.py <pkl> ...`` and is the only
-  process that initialises the eGPU for a precompiled delivery, so the power cap is decided
-  there: a delivery switch then needs no restart, and the chunked model keeps running uncapped.
+  That worker is exec'd as ``<python> .../precompiled_worker.py <pkl> ...``, and it is the only
+  process that initialises the eGPU for a precompiled delivery: modeld itself only touches
+  tinygrad's AMD backend for the chunked model. Deciding here means a delivery switch needs no
+  restart, and that the chunked path keeps the repo's uncapped default.
   """
   return any("precompiled_worker.py" in str(arg) for arg in sys.argv[:2])
 
 
 def apply_env_defaults() -> bool:
-  """Inject AM_POWER_LIMIT for the delivery that is actually about to use the eGPU.
+  """Set the values launch_env.sh used to export, for direct runs (the GPU probe).
 
-  Precompiled worker -> AM_POWER_LIMIT_PRECOMPILED (override with the same env var, e.g.
-  AM_POWER_LIMIT_PRECOMPILED="" for a full-speed A/B). Anything else (the chunked model in
-  modeld) -> no cap unless AM_POWER_LIMIT is set by the environment.
+  Power limit is per delivery: the precompiled worker caps (AM_POWER_LIMIT_PRECOMPILED),
+  everything else (the chunked model in modeld) runs uncapped. Override either side with the
+  matching environment variable, e.g. AM_POWER_LIMIT_PRECOMPILED="" for a full-speed A/B.
   """
   changed = False
   if _is_precompiled_worker():
@@ -165,7 +176,12 @@ def apply_env_defaults() -> bool:
   elif AM_POWER_LIMIT and os.environ.get("AM_POWER_LIMIT") is None:
     os.environ["AM_POWER_LIMIT"] = AM_POWER_LIMIT
     changed = True
+  if AM_CLOCK_POLICY and os.environ.get("AM_CLOCK_POLICY") is None:
+    os.environ["AM_CLOCK_POLICY"] = AM_CLOCK_POLICY
+    changed = True
   return changed
+
+
 def patch_fetch_fw(helpers) -> bool:
   """Wrap tinygrad's fetch_fw so the local firmware dirs are searched first."""
   if getattr(helpers, "_fork_fw_bases", None) is not None:
@@ -205,19 +221,6 @@ def patch_record_failure(precompiled_model) -> bool:
   precompiled_model.record_failure = record_failure
   precompiled_model._fork_transient_wrapper = True
   return True
-
-
-def _selected_manifest():
-  """The model that may execute, asked of the module that defines it.
-
-  Not ``helpers.active_manifest``: that name was only readable on ``helpers`` because
-  upstream imported it there, and upstream has since renamed it (``selected_manifest``)
-  and dropped that import, which made every call below raise AttributeError at interpreter
-  start (ui_state resolves the compiled path while importing). Reading the definition site
-  keeps this file out of upstream's import list, which is the whole reason it exists.
-  """
-  from openpilot.selfdrive.modeld.big_model import selected_manifest
-  return selected_manifest()
 
 
 def patch_model_delivery(helpers) -> bool:
@@ -261,7 +264,7 @@ def patch_model_delivery(helpers) -> bool:
       from openpilot.selfdrive.modeld.precompiled_model import installed
     except Exception:
       return None, None
-    model = _selected_manifest()
+    model = helpers.active_manifest()
     if model is None:
       return None, None
     try:
@@ -276,7 +279,13 @@ def patch_model_delivery(helpers) -> bool:
     try:
       from openpilot.common.file_chunker import get_manifest_path
       path = helpers.modeld_pkl_path(usbgpu=True, model_sha256=model.sha256)
-      return path if pathlib.Path(get_manifest_path(path)).is_file() else None
+      p = pathlib.Path(path)
+      if pathlib.Path(get_manifest_path(path)).is_file():
+        return path
+      # stateful/generic artifact: plain pickle without chunkmanifest
+      if p.is_file() and p.stat().st_size > 0:
+        return path
+      return None
     except Exception:
       return None
 
@@ -284,7 +293,7 @@ def patch_model_delivery(helpers) -> bool:
     if pinned_source() != "precompiled":
       # 'auto' and 'chunked' both want the chunked artifact first; only the answer for a
       # missing set differs, and a precompiled-only model has no chunked set either way.
-      model = _selected_manifest()
+      model = helpers.active_manifest()
       if model is not None and not model.precompiled_only:
         chunked = chunked_artifact(model)
         if chunked is not None:
@@ -296,7 +305,7 @@ def patch_model_delivery(helpers) -> bool:
 
   def usbgpu_compile_pending():
     if pinned_source() == "chunked":
-      model = _selected_manifest()
+      model = helpers.active_manifest()
       if model is not None and not model.precompiled_only and chunked_artifact(model) is None:
         return True  # the boot build still has to produce it, so nothing usable is here yet
     model, precompiled = pinned_precompiled()
@@ -306,6 +315,40 @@ def patch_model_delivery(helpers) -> bool:
   helpers.usbgpu_compile_pending = usbgpu_compile_pending
   helpers._fork_model_delivery = True
   return True
+
+
+def patch_am_clock_policy(module) -> bool:
+  """Let AM_POWER_LIMIT cap watts only, without also dropping the card into a low clock state.
+
+  When a power limit is set, tinygrad stops asking for the highest DPM clock and instead sends
+  SetSoftMaxByFreq with 0xffff, which is not a frequency: on the chestnut (ASM24) board the SMU
+  answers with a low clock (~1.1GHz, board draw ~30W) long before the 120W cap is reached. The
+  uncapped path reads the real DPM table and pins min/max to its top entry, so map the capped
+  branch onto that same call and let the power wall be the only limiter.
+  """
+  if getattr(module, "_fork_clock_policy", False):
+    return False
+  patched = False
+  for name in dir(module):
+    owner = getattr(module, name, None)
+    if not isinstance(owner, type):
+      continue
+    original = getattr(owner, "set_clocks", None)
+    if original is None or getattr(original, "_fork_clock_policy", False):
+      continue
+
+    @functools.wraps(original)
+    def set_clocks(self, level, _fn=original):
+      if level is None and os.environ.get("AM_CLOCK_POLICY", "max") == "max":
+        level = -1  # highest real DPM entry, like the uncapped path
+      return _fn(self, level)
+
+    set_clocks._fork_clock_policy = True
+    owner.set_clocks = set_clocks
+    patched = True
+  if patched:
+    module._fork_clock_policy = True
+  return patched
 
 
 def patch_after_import(module_name: str, callback: Callable[[object], bool]) -> bool:
@@ -360,6 +403,11 @@ def apply() -> list[str]:
   try:
     if apply_env_defaults():
       applied.append("env:AM_POWER_LIMIT")
+  except Exception:
+    pass
+  try:
+    if patch_after_import("tinygrad.runtime.support.am.ip", patch_am_clock_policy):
+      applied.append("hook:tinygrad.runtime.support.am.ip")
   except Exception:
     pass
   try:

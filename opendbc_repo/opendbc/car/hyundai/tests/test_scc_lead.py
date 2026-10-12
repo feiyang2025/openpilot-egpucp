@@ -25,11 +25,11 @@ def make_cs(radar):
   )
 
 
-def send(cs, enabled=True, hud_lateral=None):
+def send(cs, enabled=True):
   msg, _ = create_acc_control_scc2(
     CANPacker("hyundai_canfd_generated"), SimpleNamespace(ECAN=0), enabled, -0.5, -0.8, False, False, 80.0,
     SimpleNamespace(leadDistanceBars=2, leadVisible=False),
-    SimpleNamespace(carrot_cruise=0, jerk_u=1.0, jerk_l=2.0), cs, hud_lateral=hud_lateral,
+    SimpleNamespace(carrot_cruise=0, jerk_u=1.0, jerk_l=2.0), cs,
   )
   assert msg[0] == 0x1a0 and msg[2] == 0
   parser = CANParser("hyundai_canfd_generated", [("SCC_CONTROL", 50)], 0)
@@ -66,21 +66,6 @@ def test_missing_or_invalid_lead_clears_previous_object(radar):
   assert {k: v for k, v in values.items() if k not in object_fields} == {
     k: v for k, v in previous.items() if k not in object_fields
   }
-
-
-def test_stationary_lead_noise_keeps_white_hud_without_changing_control_fields():
-  cs = make_cs(make_radar(vRel=0.0))
-  baseline = send(cs)
-  # Incident lead speed ranged from -0.15 to +0.03 m/s while stopped.
-  for v_rel in (-0.15, 0.03, 0.0, 0.01, -0.01, 0.03, 0.3, 0.31, -0.1):
-    cs.radarState = make_radar(vRel=v_rel)
-    values = send(cs)
-    assert values["HUD_LEAD_INFO"] == (1 if v_rel > 0.3 else 2)
-    assert values["ACC_ObjRelSpd"] == pytest.approx(v_rel, abs=0.051)
-    changing_fields = {"CHECKSUM", "HUD_LEAD_INFO", "ACC_ObjRelSpd"}
-    assert {k: v for k, v in values.items() if k not in changing_fields} == {
-      k: v for k, v in baseline.items() if k not in changing_fields
-    }
 
 
 @pytest.mark.parametrize(("y_rel", "v_rel", "lat", "speed"), [(1000, -1000, -45.6, -170), (-1000, 1000, 5.5, 239.3)])

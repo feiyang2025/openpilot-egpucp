@@ -6,18 +6,33 @@ See the LICENSE file in the root directory for more details.
 
 Every size on the wire, derived from the model's ONNX metadata.
 
-Mirrors get_policy_npy_shapes / make_input_queues in openpilot master's
-selfdrive/modeld/compile_modeld.py. feat_dim is prod(fb[2:]); older forks use
-fb[2], which gives 32 rather than 16384 for the big model's (1,32,32,512)
-features_buffer. tests/test_queues.py catches the drift.
+Two graph layouts are in the wild. The queued one takes its history as
+stacked inputs (img, features_buffer, desire_pulse) and the server keeps the
+queues; see queues.PolicyQueues. It mirrors get_policy_npy_shapes /
+make_input_queues in openpilot's selfdrive/modeld/compile_modeld.py up to
+openpilot #38916. feat_dim is prod(fb[2:]); older forks use fb[2], which gives
+32 rather than 16384 for the big model's (1,32,32,512) features_buffer.
+tests/test_queues.py catches the drift.
+
+The stateful one (openpilot #38916, 2026-09-15; Cinque Terre V3 onwards)
+carries its history in the graph: the newest warped frame goes in as new_img,
+each queue goes in as state_<q> and comes back advanced as next_state_<q>, and
+the hidden state never leaves the graph.
+
+Either way the wire carries the newest frame and three scalars, and the reply
+the outputs less hidden_state (protocol 3): the queued graph's server feeds its
+own hidden state back, which modeld did through prev_feat until then.
 """
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 from dataclasses import dataclass
+from functools import cached_property
+from pathlib import Path
 
-from jetlink.onnx_meta import OnnxMeta, parse_file
+from jetlink.onnx_meta import parse_file
 from jetlink.protocol import INFER_REQ_SIZE, INFER_RESP_SIZE
 
 # openpilot ModelConstants; duplicated so the server needs no openpilot import
@@ -26,7 +41,14 @@ MODEL_CONTEXT_FREQ = 5
 DEFAULT_FRAME_SKIP = MODEL_RUN_FREQ // MODEL_CONTEXT_FREQ  # 4
 
 CHUNK = 4 << 20  # model upload chunk
+
+# the driving output every layout has, 18452 floats in openpilot's layout
+DRIVING_OUTPUT = 'outputs'
+# the slice of it that stays on the server; 16384 of the 18452
+HIDDEN_STATE = 'hidden_state'
+# the input only a stateful graph has; see the module docstring
 STATEFUL_FRAME = 'new_img'
+STATE_OUTPUT_PREFIX = 'next_'
 
 
 @dataclass(frozen=True)
@@ -40,21 +62,23 @@ class ModelSpec:
   output_slices: dict[str, slice]
   checkpoint: str | None
 
-  # --- vision ---
+  # --- layout ---
   @property
   def stateful(self) -> bool:
-    """Whether the graph carries its temporal state in its inputs."""
+    """The graph keeps its own history (openpilot #38916)."""
     return STATEFUL_FRAME in self.input_shapes
 
   @property
   def state_pairs(self) -> dict[str, str]:
-    """State input -> corresponding advanced-state output."""
-    return {name: f'next_{name}' for name in self.input_shapes
-            if name.startswith('state_') and f'next_{name}' in self.output_shapes}
+    """state_<q> input -> the next_state_<q> output that feeds it next frame.
+    Empty for a queued graph. Same rule as openpilot's ModelState."""
+    return {n: STATE_OUTPUT_PREFIX + n for n in self.input_shapes
+            if STATE_OUTPUT_PREFIX + n in self.output_shapes}
 
+  # --- vision ---
   @property
   def img_shape(self) -> tuple[int, ...]:
-    return self.input_shapes['img']  # (1, 12, H, W)
+    return self.input_shapes['img']  # (1, 12, H, W); queued graphs only
 
   @property
   def n_frames(self) -> int:
@@ -62,6 +86,7 @@ class ModelSpec:
 
   @property
   def model_hw(self) -> tuple[int, int]:
+    # new_img is (2, 6, H, W) and img (1, 12, H, W): the last two either way
     shape = self.input_shapes[STATEFUL_FRAME] if self.stateful else self.img_shape
     return shape[-2], shape[-1]
 
@@ -89,30 +114,36 @@ class ModelSpec:
 
   @property
   def packed_shapes(self) -> dict[str, tuple[int, ...]]:
+    """The floats a frame sends after the image: compile_modeld's
+    packed_npy_inputs less prev_feat, which the server keeps."""
+    scalars = {'traffic_convention': tuple(self.input_shapes['traffic_convention']),
+               'action_t': tuple(self.input_shapes['action_t'])}
     if self.stateful:
-      return {
-        'desire': (math.prod(self.input_shapes['desire']),),
-        'traffic_convention': tuple(self.input_shapes['traffic_convention']),
-        'action_t': tuple(self.input_shapes['action_t']),
-      }
-    dp = self.input_shapes['desire_pulse']
-    tc = self.input_shapes['traffic_convention']
-    at = self.input_shapes['action_t']
-    fb = self.input_shapes['features_buffer']
-    return {
-      'desire': (dp[2],),
-      'traffic_convention': tuple(tc),
-      'action_t': tuple(at),
-      'prev_feat': (fb[0], self.feat_dim),
-    }
+      # the pulse is the graph's own input
+      return {'desire': (math.prod(self.input_shapes['desire']),), **scalars}
+    return {'desire': (self.input_shapes['desire_pulse'][2],), **scalars}
 
   @property
-  def packed_sizes(self) -> list[int]:
-    return [math.prod(s) for s in self.packed_shapes.values()]
+  def prev_feat_shape(self) -> tuple[int, int]:
+    """The hidden state a queued graph's server feeds back each frame."""
+    return (self.input_shapes['features_buffer'][0], self.feat_dim)
+
+  @property
+  def packed_layout(self) -> dict[str, tuple[slice, tuple[int, ...]]]:
+    """Where each of packed_shapes sits in the flat floats: name -> (slice, shape)."""
+    out, offset = {}, 0
+    for name, shape in self.packed_shapes.items():
+      out[name] = (slice(offset, offset + math.prod(shape)), shape)
+      offset += math.prod(shape)
+    return out
 
   @property
   def packed_nelem(self) -> int:
-    return sum(self.packed_sizes)
+    return sum(math.prod(s) for s in self.packed_shapes.values())
+
+  def feed_back(self, packed, output) -> None:
+    """Nothing: the server feeds the hidden state back itself (protocol 3).
+    Kept for the modeld glue that still calls it after every frame."""
 
   @property
   def packed_nbytes(self) -> int:
@@ -131,11 +162,32 @@ class ModelSpec:
   # --- output ---
   @property
   def output_nelem(self) -> int:
-    return math.prod(self.output_shapes['outputs'])
+    return math.prod(self.output_shapes[DRIVING_OUTPUT])
 
   @property
   def output_nbytes(self) -> int:
     return self.output_nelem * 4  # we return float32, as openpilot's JIT does
+
+  # cached: the client reads these on every frame, and a frozen dataclass
+  # without slots has a __dict__ to keep them in
+  @cached_property
+  def hidden_range(self) -> tuple[int, int] | None:
+    """[start, stop) of hidden_state in the output: what the reply leaves out.
+    Its ends resolve as Python slicing resolves them, an open end or one
+    counted from the back included, which is also how the Swift server reads
+    them (NamedSlice.range(in:)). None when the model names no such slice or
+    it takes nothing, and then the reply is whole."""
+    s = self.output_slices.get(HIDDEN_STATE)
+    if s is None or s.step not in (None, 1):
+      return None
+    start, stop, _ = s.indices(self.output_nelem)
+    return (start, stop) if start < stop else None
+
+  @cached_property
+  def reply_nelem(self) -> int:
+    """The floats an INFER_RESP carries: the output less hidden_state."""
+    h = self.hidden_range
+    return self.output_nelem - (h[1] - h[0] if h else 0)
 
   # --- wire sizes ---
   @property
@@ -144,7 +196,9 @@ class ModelSpec:
 
   @property
   def infer_resp_nbytes(self) -> int:
-    return INFER_RESP_SIZE + self.output_nbytes
+    """Without telemetry; with Flag.WANT_HIDDEN it is INFER_RESP_SIZE +
+    output_nbytes."""
+    return INFER_RESP_SIZE + self.reply_nelem * 4
 
   # -- the wire form of a spec ---------------------------------------------
   # One encoder and one decoder: both ends and the bench need this, and copies
@@ -171,6 +225,11 @@ class ModelSpec:
       output_slices={k: slice(*v) for k, v in d['output_slices'].items()},
       checkpoint=d.get('checkpoint'))
 
+  @classmethod
+  def load(cls, path: str | Path) -> ModelSpec:
+    """A spec saved as to_dict's JSON."""
+    return cls.from_dict(json.loads(Path(path).read_text()))
+
 
 def sha256_file(path: str, bufsize: int = 1 << 20) -> tuple[str, int]:
   h = hashlib.sha256()
@@ -184,20 +243,8 @@ def sha256_file(path: str, bufsize: int = 1 << 20) -> tuple[str, int]:
 
 def spec_from_onnx(path: str, frame_skip: int = DEFAULT_FRAME_SKIP,
                    sha256: str | None = None, nbytes: int | None = None) -> ModelSpec:
-  meta: OnnxMeta = parse_file(path)
+  meta = parse_file(path)
   if sha256 is None or nbytes is None:
     sha256, nbytes = sha256_file(path)
-  return spec_from_meta(meta, sha256, nbytes, frame_skip)
-
-
-def spec_from_meta(meta: OnnxMeta, sha256: str, nbytes: int,
-                   frame_skip: int = DEFAULT_FRAME_SKIP) -> ModelSpec:
-  return ModelSpec(
-    sha256=sha256,
-    nbytes=nbytes,
-    frame_skip=frame_skip,
-    input_shapes=dict(meta.inputs),
-    output_shapes=dict(meta.outputs),
-    output_slices=meta.output_slices,
-    checkpoint=meta.model_checkpoint,
-  )
+  return ModelSpec(sha256=sha256, nbytes=nbytes, frame_skip=frame_skip, input_shapes=dict(meta.inputs),
+                   output_shapes=dict(meta.outputs), output_slices=meta.output_slices, checkpoint=meta.model_checkpoint)

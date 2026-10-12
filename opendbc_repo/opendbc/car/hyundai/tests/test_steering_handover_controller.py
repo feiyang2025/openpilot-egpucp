@@ -7,19 +7,12 @@ from opendbc.car.hyundai import carcontroller, hyundaicanfd
 from opendbc.car.hyundai.values import CAR, HyundaiFlags
 
 
-def setup_controller(monkeypatch, *, mode=None, angle=True, camera=True):
-  settings = {"MaxAngleFrames": 89}
-  if mode is not None:
-    settings["SteerHandoverMode"] = mode  # leftover value on an upgraded device
-
-  def get_int(key):
-    assert key != "SteerHandoverMode", "retired setting must not be read"
-    return settings.get(key, 0)
-
-  params = NS(get_int=get_int, get_bool=lambda key: False)
+def setup_controller(monkeypatch, *, mode=0, angle=True, camera=True):
+  settings = {"SteerHandoverMode": mode, "MaxAngleFrames": 89}
+  params = NS(get_int=lambda key: settings.get(key, 0), get_bool=lambda key: False)
   monkeypatch.setattr(carcontroller, "Params", lambda: params)
   monkeypatch.setattr(hyundaicanfd, "Params", lambda: params)
-  # Keep actual angle limiting, legacy authority and steering
+  # Keep actual angle limiting, legacy authority, setting polling and steering
   # CAN packing. Unrelated cluster/button paths are outside this fixture.
   monkeypatch.setattr(hyundaicanfd, "create_lfahda_cluster", lambda *a, **kw: [])
   monkeypatch.setattr(hyundaicanfd, "create_lfa_icon_non_camera_scc", lambda *a, **kw: [])
@@ -63,31 +56,39 @@ def test_experimental_output_reaches_can_without_mutating_legacy(monkeypatch, ca
   assert actuators.steeringAngleDeg == pytest.approx(0.5)
 
 
-@pytest.mark.parametrize("saved", [None, 0, 1, 2, 3, -1, 99])
-def test_combined_recovery_is_standard_regardless_of_retired_setting(monkeypatch, saved):
-  controller, cs, cc, _ = setup_controller(monkeypatch, mode=saved)
-  for _ in range(115):
-    output, _ = step(controller, cs, cc)
-  assert controller.steer_handover.mode == 3
-  assert 70 < output.torqueOutputCan <= 80
-  assert controller.lkas_max_torque == 25
-
-
-def test_retired_setting_changes_cannot_reset_recovery(monkeypatch):
-  controller, cs, cc, settings = setup_controller(monkeypatch)
-  for _ in range(100):
+@pytest.mark.parametrize("before,after", [(a, b) for a in range(4) for b in range(4) if a != b])
+def test_all_runtime_mode_transitions_clear_only_experimental_history(monkeypatch, before, after):
+  controller, cs, cc, settings = setup_controller(monkeypatch, mode=before)
+  for _ in range(150):
     step(controller, cs, cc)
-  assert controller.steer_handover.state == "offering"
-  offer_since = controller.steer_handover.offer_since
-  for saved in (0, 1, 2, 3):
-    settings["SteerHandoverMode"] = saved
-    for _ in range(5):
-      output, _ = step(controller, cs, cc)
-    assert controller.steer_handover.mode == 3
-    assert controller.steer_handover.offer_since == offer_since
-    assert controller.steer_handover.effort is not None
-  # The unchanged no-response timeout may start gradual withdrawal here.
-  assert output.torqueOutputCan > 25
+  assert controller.override_latched
+  settings["SteerHandoverMode"] = after
+  output, _ = step(controller, cs, cc)
+  assert controller.steer_handover_mode == after
+  assert controller.steer_handover.effort is None
+  assert controller.override_latched
+  assert controller.lkas_max_torque == output.torqueOutputCan == 25
+
+
+def test_live_switch_is_polled_and_same_value_keeps_state(monkeypatch):
+  controller, cs, cc, settings = setup_controller(monkeypatch)
+  for _ in range(20):
+    assert step(controller, cs, cc)[0].torqueOutputCan == 25
+  settings["SteerHandoverMode"] = 1
+  for _ in range(30):
+    step(controller, cs, cc)
+    assert controller.steer_handover_mode == 0
+  step(controller, cs, cc)
+  assert controller.steer_handover_mode == 1
+  assert controller.steer_handover.effort is None
+  for _ in range(99):
+    actuators, _ = step(controller, cs, cc)
+  assert actuators.torqueOutputCan > 70  # several unchanged polls did not reset
+  settings["SteerHandoverMode"] = 0
+  for _ in range(50):
+    actuators, _ = step(controller, cs, cc)
+  assert controller.steer_handover_mode == 0
+  assert actuators.torqueOutputCan == 25
 
 
 @pytest.mark.parametrize("bad_input", ["can", "temporary", "permanent", "model", "uncertain", "frozen"])
@@ -111,14 +112,10 @@ def test_controller_rejects_unhealthy_or_stale_input(monkeypatch, bad_input):
 
 
 @pytest.mark.parametrize("camera", [False, True])
-def test_torque_control_does_not_call_handover(monkeypatch, camera):
-  def unexpected_handover(*args, **kwargs):
-    pytest.fail("torque-control platform must not use angle handover")
-
+def test_torque_control_can_is_unchanged_in_all_modes(monkeypatch, camera):
   traces = []
   for mode in range(4):
     controller, cs, cc, _ = setup_controller(monkeypatch, mode=mode, angle=False, camera=camera)
-    monkeypatch.setattr(controller.steer_handover, "update", unexpected_handover)
     cc.actuators.torque = 0.1
     trace = [step(controller, cs, cc) for _ in range(120)]
     traces.append([(a.torqueOutputCan, a.steeringAngleDeg, messages) for a, messages in trace])
@@ -138,12 +135,10 @@ def test_disengagement_clears_authority_and_experimental_evidence(monkeypatch):
 
 
 @pytest.mark.parametrize("camera", [False, True])
-def test_combined_recovery_preserves_legacy_angle_commands(monkeypatch, camera):
+def test_all_modes_preserve_angle_commands_during_release_and_model_changes(monkeypatch, camera):
   angles = []
-  for legacy in (False, True):
-    controller, cs, cc, _ = setup_controller(monkeypatch, camera=camera)
-    if legacy:
-      monkeypatch.setattr(controller.steer_handover, "update", lambda **kw: kw["baseline"])
+  for mode in range(4):
+    controller, cs, cc, _ = setup_controller(monkeypatch, mode=mode, camera=camera)
     trace = []
     for tick in range(300):
       cc.actuators.steeringAngleDeg = 30 if tick < 150 else -10
@@ -158,7 +153,7 @@ def test_combined_recovery_preserves_legacy_angle_commands(monkeypatch, camera):
 
 @pytest.mark.parametrize("camera", [False, True])
 def test_recovery_selected_total_cap_reaches_both_can_paths(monkeypatch, camera):
-  controller, cs, cc, _ = setup_controller(monkeypatch, camera=camera)
+  controller, cs, cc, _ = setup_controller(monkeypatch, mode=2, camera=camera)
   cc.actuators.steeringAngleDeg = 12
   for _ in range(100):
     step(controller, cs, cc)
@@ -174,55 +169,3 @@ def test_recovery_selected_total_cap_reaches_both_can_paths(monkeypatch, camera)
   address, byte = (0xCB, 6) if camera else (0x12A, 12)
   data = next(data for addr, data, _ in messages if addr == address)
   assert abs(data[byte] - output.torqueOutputCan) <= 0.5
-
-
-@pytest.mark.parametrize('angle', [False, True])
-def test_missing_camera_template_cannot_accumulate_first_transmitted_command(monkeypatch, angle):
-  controller, cs, cc, settings = setup_controller(monkeypatch, angle=angle)
-  settings.update(CustomSteerMax=409, CustomSteerDeltaUp=3)
-  cs.out.steeringPressed = False
-  cs.out.steeringTorque = 0
-  cs.out.steeringAngleDeg = -2.2
-  cc.actuators.torque = 1.0
-  cc.actuators.steeringAngleDeg = 30
-  attr = 'lfa_alt' if angle else 'lfa'
-  setattr(cs, attr, None)
-  address = 0xCB if angle else 0x12A
-  for _ in range(200):
-    output, messages = step(controller, cs, cc)
-    assert not any(addr == address for addr, _, _ in messages)
-    assert output.torqueOutputCan == 0
-    assert controller.apply_torque_last == 0
-    assert controller.apply_angle_last == pytest.approx(-2.2)
-    assert controller.lkas_max_torque == 0
-    assert cc.latActive  # local guard must not mutate the subscription
-  setattr(cs, attr, {})
-  output, messages = step(controller, cs, cc)
-  data = next(data for addr, data, _ in messages if addr == address)
-  if angle:
-    assert output.torqueOutputCan == controller.params.ANGLE_MIN_TORQUE
-    assert abs(output.steeringAngleDeg - cs.out.steeringAngleDeg) <= 1.0
-    assert data[6] == controller.params.ANGLE_MIN_TORQUE
-  else:
-    assert output.torqueOutputCan == 3
-    assert ((int.from_bytes(data, 'little') >> 41) & 0x7ff) - 1024 == 3
-
-
-@pytest.mark.parametrize('angle', [False, True])
-def test_initial_template_guard_does_not_rearm_during_operation(monkeypatch, angle):
-  controller, cs, cc, _ = setup_controller(monkeypatch, angle=angle)
-  cs.out.steeringPressed = False
-  cs.out.steeringTorque = 0
-  cc.actuators.torque = 1.0
-  cc.actuators.steeringAngleDeg = 30
-  step(controller, cs, cc)
-  assert controller.steering_template_ready
-  setattr(cs, 'lfa_alt' if angle else 'lfa', None)
-  for _ in range(10):
-    output, _ = step(controller, cs, cc)
-    assert output.torqueOutputCan > 0
-  cc.latActive = False
-  step(controller, cs, cc)
-  cc.latActive = True
-  output, _ = step(controller, cs, cc)
-  assert output.torqueOutputCan > 0 and controller.steering_template_ready

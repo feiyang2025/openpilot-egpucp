@@ -68,6 +68,8 @@ class LanePlanner:
     self.lane_width_left_filtered = FirstOrderFilter(1.0, 1.0, DT_MDL)
     self.lane_width_right_filtered = FirstOrderFilter(1.0, 1.0, DT_MDL)
     self.lane_offset_filtered = FirstOrderFilter(0.0, 2.0, DT_MDL)
+    self.avoidance_offset = 0.0   # 阶段2:避障横向偏移(m),由 lateral_planner 注入
+    self.avoidance_offset_target = 0.0
 
     self.lanefull_mode = False
     self.d_prob_count = 0
@@ -207,6 +209,14 @@ class LanePlanner:
       diff_center = 0.0
     #print("center = {:.2f}={:.2f}-{:.2f}, lanefull={}".format(diff_center, lane_path_y_center, path_xyz_y_center, self.lanefull_mode))
     #diff_center = lane_path_y[5] - path_xyz[:,1][5] if not self.lanefull_mode else 0.0
+    # 阶段2:避障横向偏移(车道内小幅贴边,不跨线)——此处叠加不被上面分支覆盖
+    # 换道中 lane_change_multiplier<0.5 会在 d_prob 处压掉,不干扰换道
+    if offset_curve * self.avoidance_offset < 0:
+      offset_lane = np.clip(offset_lane + self.avoidance_offset, -0.4, 0.4)
+    else:
+      offset_lane = np.clip(max(offset_lane, self.avoidance_offset, key=abs), -0.4, 0.4)
+    self.debugText_avoid = f"AVOFF:{self.avoidance_offset:+.2f} "
+
     if offset_curve * offset_lane < 0:
       offset_total = np.clip(offset_curve + offset_lane + diff_center, - ADJUST_OFFSET_LIMIT, ADJUST_OFFSET_LIMIT)
     else:

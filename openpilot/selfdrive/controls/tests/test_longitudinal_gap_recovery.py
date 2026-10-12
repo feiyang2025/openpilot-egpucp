@@ -6,9 +6,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from openpilot.selfdrive.controls.lib.longitudinal_gap_recovery import (
-  LeadGapState, advance_headroom, distance_recovery_weight, gap_reference, displayed_follow_distance,
-)
+from openpilot.selfdrive.controls.lib.longitudinal_gap_recovery import LeadGapState, advance_headroom, gap_reference
+from openpilot.selfdrive.controls.lib.longitudinal_safe_follow import SafeFollowState
 
 
 def load_mpc_update(path):
@@ -30,10 +29,11 @@ def load_mpc_update(path):
             'MODEL_NAME': 'long', 'ACADOS_SOLVER_TYPE': 'SQP_RTI', 'COST_DIM': 6, 'COST_E_DIM': 5, 'X_DIM': 3, 'PARAM_DIM': 8,
             'A_CHANGE_COST': 200., 'A_CHANGE_COST_STARTING': 10., 'LEAD_DANGER_FACTOR': .8, 'LIMIT_COST': 1e6,
             'DANGER_ZONE_COST': 100., 'CRASH_DISTANCE': .25, 'X_EGO_OBSTACLE_COST': 5., 'X_EGO_COST': 0.,
-            'V_EGO_COST': 0., 'A_EGO_COST': 0., 'SOURCES': ['lead0','lead1','cruise','e2e'],
+            'V_EGO_COST': 0., 'A_EGO_COST': 0., 'J_EGO_COST': 5., 'SOURCES': ['lead0','lead1','cruise','e2e'],
             'AcadosOcpSolverCython': RecordingSolver, 'LEAD_ACCEL_MIN_TRACK_FRAMES': 3,
             'LeadAccelResponseState': preview.LeadAccelResponseState, 'get_lead_accel_mpc_request': preview.get_lead_accel_mpc_request,
-            'LeadGapState': LeadGapState, 'gap_reference': gap_reference, 'displayed_follow_distance': displayed_follow_distance,
+            'LeadGapState': LeadGapState, 'gap_reference': gap_reference,
+            'SafeFollowState': SafeFollowState,
             'get_traffic_stop_distance_adjust': get_traffic_stop_distance_adjust,
             'get_traffic_stop_obstacle_distance': get_traffic_stop_obstacle_distance,
             'LaneChangeGapPlan': LaneChangeGapPlan, 'cutout_obstacle_relief': cutout_obstacle_relief}
@@ -42,10 +42,8 @@ def load_mpc_update(path):
   ns['FCW_IDXS'] = ns['T_IDXS'] < 5
   ns['PRED_DANGER_IDXS'] = (ns['T_IDXS'] > .2) & (ns['T_IDXS'] < 3.)
   tree = ast.parse(path.read_text(encoding='utf-8'))
-  jerk_cost = next(node for node in tree.body if isinstance(node, ast.Assign)
-                   and any(isinstance(target, ast.Name) and target.id == 'J_EGO_COST' for target in node.targets))
   nodes = [node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and not node.name.startswith('gen_')]
-  exec(compile(ast.Module(body=[jerk_cost]+nodes, type_ignores=[]), str(path), 'exec'), ns)
+  exec(compile(ast.Module(body=nodes, type_ignores=[]), str(path), 'exec'), ns)
   cls = ns['LongitudinalMpc']
   cls.run = lambda self: None
   return cls
@@ -53,7 +51,7 @@ def load_mpc_update(path):
 
 def run_update(cls, level=1, *, distance=45.15, speed=79.04/3.6, lead_speed=None,
                frames=10, status=True, radar=True, enabled=True, reset=False, lane_change=False, mode='acc', lead_index=0,
-               lead_accel=0., driving_mode=3, ego_accel=0., gap_enabled=True, relative_speed=None, stop_distance=6.):
+               lead_accel=0., driving_mode=3, ego_accel=0., gap_enabled=True, relative_speed=None):
   if lead_speed is None:
     lead_speed = speed-1.96
   lead = SimpleNamespace(status=status, radar=radar, radarTrackId=49, dRel=distance, vLead=lead_speed,
@@ -61,7 +59,7 @@ def run_update(cls, level=1, *, distance=45.15, speed=79.04/3.6, lead_speed=None
                          aLeadK=lead_accel, aLeadTau=1.5, modelProb=1.)
   absent = SimpleNamespace(status=False, radar=False, radarTrackId=-1, vRel=0., aLeadK=0., modelProb=0.)
   rs = SimpleNamespace(leadOne=lead if lead_index == 0 else absent, leadTwo=lead if lead_index == 1 else absent)
-  carrot = SimpleNamespace(leadAccelResponse=level, myDrivingMode=driving_mode, jerk_factor=1., comfort_brake=2.4, stop_distance=stop_distance,
+  carrot = SimpleNamespace(leadAccelResponse=level, myDrivingMode=driving_mode, jerk_factor=1., comfort_brake=2.4, stop_distance=6.,
                            mode=mode, v_cruise=30., stop_dist=1000., trafficStopDistanceAdjust=0., lane_change_active=lane_change,
                            get_T_FOLLOW=lambda *args, **kwargs: .65)
   mpc = cls(mode=mode)
@@ -79,143 +77,11 @@ def mpc_class():
 
 
 def step(state, **kwargs):
-  # Legacy dynamics fixtures stay inside the hold band. Distance-band cases
-  # below explicitly use realistic 4/6 m stop gaps instead of this large gap.
   args = {'level': 0, 'track_id': 49, 'enabled': True, 'dt': .05, 'ego_speed': 10., 'lead_speed': 10.,
-          'distance': 40., 'desired_distance': 20., 'base_tf': .6, 'stop_distance': 34.}
+          'distance': 40., 'desired_distance': 20., 'base_tf': .6}
   args.update(kwargs)
   args.setdefault('relative_speed', args['lead_speed'] - args['ego_speed'])
   return state.update(**args)
-
-
-@pytest.mark.parametrize('ratio,expected', [(0., 0.), (1.2, 0.), (1.35, .5), (1.5, 1.), (3., 1.)])
-@pytest.mark.parametrize('ego_speed,base_tf,stop_distance', [(0., .9, 6.), (3., .9, 4.), (20., 1.2, 8.)])
-def test_distance_band_uses_tf_plus_configured_stop_gap(ratio, expected, ego_speed, base_tf, stop_distance):
-  distance = ratio * (ego_speed * base_tf + stop_distance)
-  assert distance_recovery_weight(distance, ego_speed, base_tf, stop_distance) == pytest.approx(expected)
-
-
-def test_distance_band_has_zero_endpoint_slopes_and_handles_zero_reference():
-  h = 1e-5
-  for boundary in (1.2, 1.5):
-    left = distance_recovery_weight((boundary-h)*6., 0., .9, 6.)
-    right = distance_recovery_weight((boundary+h)*6., 0., .9, 6.)
-    assert abs(right-left)/(2*h) < .001
-  assert distance_recovery_weight(10., 0., 0., 0.) == 1.
-
-
-@pytest.mark.parametrize('lead_speed', [0., 1., 10.])
-@pytest.mark.parametrize('relative_speed', [-1., 0., 1.])
-def test_far_gap_releases_at_level_rate_regardless_of_speed_or_opening(lead_speed, relative_speed):
-  state = LeadGapState()
-  args = {'level': 3, 'ego_speed': 3., 'lead_speed': lead_speed, 'relative_speed': relative_speed,
-              'distance': 20., 'desired_distance': 20., 'base_tf': .9, 'stop_distance': 6.}
-  step(state, **args)
-  state.extra_tf = state.recovery_tf = .8
-  for _ in range(100):
-    step(state, **args)
-  # Level 3 has k=1/s: equal initial states release through two filter stages.
-  assert state.extra_tf == pytest.approx(.8 * 6. * np.exp(-5.))
-  assert state.recovery_tf == pytest.approx(.8 * np.exp(-5.))
-
-
-@pytest.mark.parametrize('lead_speed,relative_speed', [(0., -1.), (1., 1.), (10., 1.)])
-def test_hold_weakens_progressively_across_distance_band(lead_speed, relative_speed):
-  remaining = []
-  for ratio in (1.2, 1.25, 1.35, 1.45, 1.5):
-    state = LeadGapState()
-    distance = ratio * (3.*.9 + 6.)
-    args = {'level': 3, 'ego_speed': 3., 'lead_speed': lead_speed, 'relative_speed': relative_speed,
-                'distance': distance, 'desired_distance': distance, 'base_tf': .9, 'stop_distance': 6.}
-    step(state, **args)
-    state.extra_tf = state.recovery_tf = .8
-    for _ in range(100):
-      step(state, **args)
-    remaining.append(state.extra_tf)
-  assert remaining[0] == pytest.approx(.8)
-  assert all(a > b for a, b in zip(remaining, remaining[1:], strict=False))
-
-
-def test_far_opening_does_not_replenish_after_buffer_has_released():
-  state = LeadGapState()
-  args = {'level': 3, 'ego_speed': 3., 'lead_speed': 4., 'relative_speed': 1.,
-              'distance': 20., 'desired_distance': 6., 'base_tf': .9, 'stop_distance': 6.}
-  step(state, **args)
-  for _ in range(400):
-    step(state, **args)
-  assert state.candidate > 1.
-  assert state.extra_tf < 1e-6
-
-
-def test_partial_distance_release_is_stable_across_planner_intervals():
-  remaining = []
-  for dt in (.02, .05, .1):
-    state = LeadGapState()
-    args = {'level': 3, 'dt': dt, 'ego_speed': 3., 'lead_speed': 0., 'relative_speed': 1.,
-                'distance': 1.35*8.7, 'desired_distance': 20., 'base_tf': .9, 'stop_distance': 6.}
-    step(state, **args)
-    state.extra_tf = state.recovery_tf = .8
-    for _ in range(round(5./dt)):
-      step(state, **args)
-    remaining.append(state.extra_tf)
-  assert max(remaining)-min(remaining) < .002
-
-
-def test_projection_crosses_distance_band_like_live_updates_without_mutating_state():
-  state = LeadGapState()
-  args = {'level': 3, 'ego_speed': 3., 'lead_speed': 4., 'relative_speed': 1.,
-              'distance': 7., 'desired_distance': 6., 'base_tf': .9, 'stop_distance': 4.}
-  step(state, **args)
-  times = np.arange(101)*.05
-  saved = vars(state).copy()
-  margins = state.margins(level=3, times=times, ego_speeds=np.full_like(times, 3.),
-                          lead_speeds=np.full_like(times, 4.), base_tf=.9, stop_distance=4.,
-                          lead_distances=7.+times, desired_distances=np.full_like(times, 6.))
-  assert vars(state) == saved
-  expected = [margins[0]]
-  for t in times[1:]:
-    expected.append(3.*step(state, **dict(args, distance=7.+t)))
-  np.testing.assert_allclose(margins, expected, rtol=0, atol=1e-12)
-  assert margins[-1] < max(margins)*.5
-
-
-@pytest.mark.parametrize('stop_distance', [-1., np.nan, np.inf])
-def test_invalid_stop_gap_clears_state(stop_distance):
-  state = LeadGapState()
-  step(state)
-  assert step(state, stop_distance=stop_distance) == 0.
-  assert state.key is None
-
-
-def test_close_stopped_cutin_discards_far_lead_headroom():
-  state = LeadGapState()
-  args = {'level': 3, 'ego_speed': 4., 'lead_speed': 5., 'relative_speed': 1.,
-          'distance': 20., 'desired_distance': 10., 'base_tf': .9, 'stop_distance': 6.}
-  for _ in range(20):
-    step(state, **args)
-  assert state.extra_tf > 0.
-  # New stopped lead lies inside its ordinary braking-aware target distance.
-  args.update(track_id=50, lead_speed=0., relative_speed=-4., distance=8., desired_distance=4.**2/4.8+.9*4.+6.)
-  assert step(state, **args) == 0.
-  assert state.extra_tf == state.recovery_tf == 0.
-  times = np.arange(13)*.1
-  margins = state.margins(level=3, times=times, ego_speeds=np.full_like(times, 4.),
-                          lead_speeds=np.zeros_like(times), base_tf=.9, stop_distance=6.)
-  np.testing.assert_array_equal(margins, 0.)
-
-
-@pytest.mark.parametrize('boundary', [1.2, 1.5])
-def test_small_distance_noise_cannot_reset_or_jump_applied_tf(boundary):
-  state = LeadGapState()
-  args = {'level': 3, 'dt': .001, 'ego_speed': 3., 'lead_speed': 0., 'relative_speed': 1.,
-          'distance': boundary*8.7, 'desired_distance': 20., 'base_tf': .9, 'stop_distance': 6.}
-  step(state, **args)
-  state.extra_tf = state.recovery_tf = .8
-  for i in range(100):
-    before = state.extra_tf
-    step(state, **dict(args, distance=(boundary+(-1 if i%2 else 1)*1e-5)*8.7))
-    assert 0. <= state.extra_tf <= before + 1e-12
-    assert before-state.extra_tf < .001
 
 
 def test_half_of_excess_is_captured_once_not_replenished_by_a_large_gap():
@@ -251,9 +117,8 @@ def test_stopped_lead_holds_tf_but_stopping_ego_loses_distance_margin():
   for _ in range(500):
     step(state, ego_speed=max(0., 10.-_*0.05), lead_speed=0.)
   assert state.extra_tf == initial
-  step(state, lead_speed=0.)  # Align the live speed with the horizon's first node.
   times, speeds = np.array([0., 1., 2., 3.]), np.array([10., 5., 1., 0.])
-  margin = state.margins(level=0, times=times, ego_speeds=speeds, lead_speeds=np.zeros(4), base_tf=.6, stop_distance=34.)
+  margin = state.margins(level=0, times=times, ego_speeds=speeds, lead_speeds=np.zeros(4), base_tf=.6)
   np.testing.assert_allclose(margin, speeds*initial)
   assert margin[-1] == 0.
 
@@ -308,7 +173,7 @@ def test_opening_holds_headroom_even_after_candidate_falls():
     step(state, relative_speed=1., lead_speed=11., distance=20.)
   assert state.extra_tf == initial
   times = np.array([0., 1., 2., 3.])
-  margins = state.margins(level=0, times=times, ego_speeds=np.full(4, 10.), lead_speeds=np.full(4, 11.), base_tf=.6, stop_distance=34.)
+  margins = state.margins(level=0, times=times, ego_speeds=np.full(4, 10.), lead_speeds=np.full(4, 11.), base_tf=.6)
   np.testing.assert_allclose(margins, initial * 10.)
   # Once the lead matches speed, the buffer releases rather than holding
   # permanently just because the actual distance is still large.
@@ -321,12 +186,12 @@ def test_relative_speed_noise_and_single_spike_do_not_replenish():
   state = LeadGapState()
   step(state, distance=20.)
   for i in range(200):
-    step(state, distance=40., relative_speed=.06*np.sin(i))
+    step(state, distance=60., relative_speed=.06*np.sin(i))
   assert state.extra_tf == 0.
-  step(state, distance=40., relative_speed=.4)
+  step(state, distance=60., relative_speed=.4)
   assert state.extra_tf == 0.
   for _ in range(20):
-    step(state, distance=40., relative_speed=1.)
+    step(state, distance=60., relative_speed=1.)
   assert state.extra_tf > 0.  # sustained opening can replenish existing headroom
 
 
@@ -393,7 +258,7 @@ def test_horizon_matches_updates_including_entry_and_new_capture(opening, lead_s
   saved = vars(state).copy()
   margins = state.margins(level=1, times=times, ego_speeds=np.full_like(times, 10.),
                           lead_speeds=np.full_like(times, lead_speed), base_tf=.6,
-                          lead_distances=28. + (lead_speed - 10.)*times, desired_distances=desired, stop_distance=34.)
+                          lead_distances=28. + (lead_speed - 10.)*times, desired_distances=desired)
   assert vars(state) == saved
   live = copy(state)
   expected = [margins[0]]
@@ -404,12 +269,12 @@ def test_horizon_matches_updates_including_entry_and_new_capture(opening, lead_s
 
 def test_candidate_jump_is_rate_limited_and_does_not_accumulate_past_cap():
   state = LeadGapState()
-  step(state, distance=20., relative_speed=2., lead_speed=12., stop_distance=1000.)
-  step(state, distance=1000., relative_speed=2., lead_speed=12., stop_distance=1000.)
+  step(state, distance=20., relative_speed=2., lead_speed=12.)
+  step(state, distance=1000., relative_speed=2., lead_speed=12.)
   assert state.recovery_tf == pytest.approx(.025)  # reservoir rise <= 0.5 TF/s
   assert 0.0 < state.extra_tf < state.recovery_tf
   for _ in range(1000):
-    step(state, distance=1000., relative_speed=2., lead_speed=12., stop_distance=1000.)
+    step(state, distance=1000., relative_speed=2., lead_speed=12.)
     assert 0.0 <= state.extra_tf <= state.recovery_tf <= 1.9
   assert state.extra_tf == pytest.approx(1.9)
 
@@ -422,7 +287,7 @@ def test_horizon_distance_and_relative_speed_share_the_measured_anchor():
   # Both the relative speed AND the gap forecast must use the measured anchor.
   predicted = state.margins(level=1, times=times, ego_speeds=np.full_like(times, 12.),
                            lead_speeds=np.full_like(times, 11.), base_tf=.6,
-                           lead_distances=28.-times, desired_distances=np.full_like(times, 20.), stop_distance=34.)
+                           lead_distances=28.-times, desired_distances=np.full_like(times, 20.))
   expected = [predicted[0]]
   for t in times[1:]:
     expected.append(12.*step(state, level=1, ego_speed=12., lead_speed=11., relative_speed=1., distance=28.+t))
@@ -562,37 +427,3 @@ def test_planner_gap_gate_allows_zero_level_and_stopping_but_not_override(gas, r
     'reset_state': reset, 'sm': {'carState': SimpleNamespace(gasPressed=gas)}, 'force_slow_decel': force,
     'carrot': SimpleNamespace(leadAccelResponse=0, lane_change_active=lane),
     'self': SimpleNamespace(output_should_stop=True)}) == expected
-
-
-def test_displayed_target_includes_headroom_and_uses_restrictive_valid_lead():
-  assert displayed_follow_distance([20., 30.], [60., 70.], [60., 70.], [5., 25.], [True, True]) == 55.
-  assert displayed_follow_distance([20., 30.], [60., 70.], [60., 70.], [5., 25.], [True, False]) == 25.
-  assert displayed_follow_distance([20., 30.], [60., 70.], [60., 70.], [5., 25.], [False, False]) == 0.
-
-
-def test_displayed_target_accounts_for_existing_relief_without_changing_inputs():
-  obstacles = np.array([60., 70.])
-  margins = np.array([5., 0.])
-  assert displayed_follow_distance([20., 30.], [58., 70.], obstacles, margins, [True, False]) == 23.
-  assert obstacles == pytest.approx([60., 70.])
-  assert margins == pytest.approx([5., 0.])
-
-
-@pytest.mark.parametrize('lead_index', [0, 1])
-def test_mpc_publishes_current_dynamic_follow_target(mpc_class, lead_index):
-  mpc = run_update(mpc_class, level=0, lead_index=lead_index)
-  assert mpc.desired_distance == pytest.approx(mpc.base_desired_distances[lead_index] + mpc.lead_gap_margins[0, lead_index])
-  assert mpc.desired_distance > mpc.base_desired_distances[lead_index]
-
-
-def test_mpc_passes_configured_stop_distance_to_live_and_prediction(mpc_class, monkeypatch):
-  calls = []
-  for method in ('update', 'margins'):
-    original = getattr(LeadGapState, method)
-    def record(self, _method=method, _original=original, **kwargs):
-      calls.append((_method, kwargs['stop_distance']))
-      return _original(self, **kwargs)
-    monkeypatch.setattr(LeadGapState, method, record)
-  run_update(mpc_class, stop_distance=9.)
-  assert {method for method, _ in calls} == {'update', 'margins'}
-  assert all(distance == 9. for _, distance in calls)

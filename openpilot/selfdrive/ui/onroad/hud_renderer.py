@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from openpilot.common.constants import CV
 from openpilot.selfdrive.carrot.deceleration_source import deceleration_source_presentation
 from openpilot.selfdrive.ui.amapnavi_overlay import draw_bsd_panel, draw_ext_state_badge, ext_state_from
-from openpilot.selfdrive.ui.big_model_badge import draw as draw_model_progress
 from openpilot.selfdrive.ui.onroad.exp_button import ExpButton
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
 from openpilot.system.hardware.usbgpu import usbgpu_badge_state
@@ -302,7 +301,6 @@ class HudRenderer(Widget):
     self._draw_date_time(rect)
     self._draw_tpms(rect)
     self._draw_egpu_badge(rect)
-    draw_model_progress(rect, self._font_semi_bold)
     self._draw_cruise_speed_animation(rect)
     draw_bsd_panel(ui_state.sm, rect, font=self._font_display)  # amapnavi 盲区图标 / 四角距离
 
@@ -312,20 +310,14 @@ class HudRenderer(Widget):
   def _draw_egpu_badge(self, rect: rl.Rectangle) -> None:
     # Keep runtime state visible while the shared USB hub re-enumerates; a
     # transient missing sysfs sample must not hide loading or failure details.
-    if not (getattr(ui_state, 'jetlink_badge', None) or getattr(ui_state, 'usbgpu_delivery_badge', None) or
-            ui_state.usbgpu_present or ui_state.usbgpu_active or
+    if not (ui_state.usbgpu_present or ui_state.usbgpu_active or
             ui_state.usbgpu_loading or ui_state.usbgpu_startup_failed):
       return
 
     state = usbgpu_badge_state(ui_state.usbgpu_compiled, ui_state.usbgpu_loading,
                                ui_state.usbgpu_active, ui_state.usbgpu_startup_failed,
                                ui_state.usbgpu_compile_pending)
-    text = "eGPU REBOOT" if state == "compile_pending" else "eGPU ERROR" if state == "error" else "eGPU"
-    if (getattr(ui_state, "usbgpu_delivery_badge", None) and
-        not (ui_state.usbgpu_active or ui_state.usbgpu_loading or ui_state.usbgpu_startup_failed)):
-      text, state = ui_state.usbgpu_delivery_badge
-    if getattr(ui_state, 'jetlink_badge', None) and not ui_state.usbgpu_active:
-      text, state = ui_state.jetlink_badge
+    text = "eGPU REBOOT" if state == "compile_pending" else "eGPU"
     color = {
       "active": COLORS.GREEN_210,
       "loading": COLORS.YELLOW_210,
@@ -334,9 +326,8 @@ class HudRenderer(Widget):
       "not_compiled": COLORS.ORANGE_230,
       "ready": COLORS.WHITE_210,
     }[state]
-    font = gui_app.font(FontWeight.DISPLAY) if not text.isascii() else self._font_semi_bold
-    font_size = 30 if not text.isascii() else 38
-    text_size = measure_text_cached(font, text, font_size)
+    font_size = 38
+    text_size = measure_text_cached(self._font_semi_bold, text, font_size)
     pad_x, pad_y = 18, 8
     badge_w = text_size.x + pad_x * 2
     exp_button_left = rect.x + rect.width - UI_CONFIG.border_size - UI_CONFIG.button_size
@@ -349,7 +340,7 @@ class HudRenderer(Widget):
     rl.draw_rectangle_rounded(badge, 0.35, 8, rl.Color(0, 0, 0, 150))
     rl.draw_rectangle_rounded_lines_ex(badge, 0.35, 8, 3, color)
     rl.draw_text_ex(
-      font,
+      self._font_semi_bold,
       text,
       rl.Vector2(badge.x + pad_x, badge.y + pad_y),
       font_size,

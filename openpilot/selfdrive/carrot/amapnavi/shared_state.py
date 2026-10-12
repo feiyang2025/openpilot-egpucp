@@ -31,17 +31,6 @@ class SharedData:
     self.right_lane = 0
     self.left_lane_blind = 0 #车道线阻止变道
     self.right_lane_blind = 0
-    # 临匝道时 App 请求"临时屏蔽激光来源"(变道方向相关)：
-    #   激光极易把匝道护栏/匝道墙当成侧方障碍；屏蔽期间归一化盲区只保留
-    #   摄像头与"原车前雷达"。缺省 / 报文超时 / App 停发 → False(恢复)
-    self.suppress_lidar_l = False
-    self.suppress_lidar_r = False
-    # App 侧"线型判据是否有效"：lane 报文有心跳(1s)，通道会长期在线，
-    #   靠这个字段区分"在线且有判据"与"在线但检测已关闭/停摆"。
-    #   为 False 时 CP 不得用 App 的线型覆盖 carState
-    #   (否则 App 关闭虚实线检测时，心跳发出的"0(虚线)"会把 xiaoge/车厂线型压掉)
-    #   默认 True：兼容不发该字段的旧版 App
-    self.lane_publish_valid = True
     self.left_blind = False #摄像头盲区信号
     self.right_blind = False
     self.lidar_lblind = False #雷达盲区信号

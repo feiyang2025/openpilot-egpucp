@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import os
+import pickle
+from pathlib import Path
 os.environ['GMMU'] = '0' # for usbgpu fast loading, noop for qcom
 from tinygrad.tensor import Tensor
 import time
@@ -13,7 +15,6 @@ from opendbc.car.car_helpers import get_demo_car_params
 from openpilot.common.swaglog import cloudlog
 from openpilot.common.runtime_diagnostics import RuntimeDiagnostics
 from openpilot.common.params import Params
-from openpilot.common.stopping_params import get_stopping_speed
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.realtime import config_realtime_process, DT_MDL
 from openpilot.common.transformations.camera import DEVICE_CAMERAS
@@ -23,26 +24,37 @@ from openpilot.selfdrive.controls.lib.desire_helper import DesireHelper
 from openpilot.selfdrive.controls.lib.drive_helpers import get_accel_from_plan, smooth_value, get_curvature_from_plan
 from openpilot.selfdrive.modeld.parse_model_outputs import Parser
 from openpilot.selfdrive.modeld.compile_modeld import make_input_queues, WARP_INPUTS, POLICY_INPUTS
+from openpilot.selfdrive.modeld.tensorrt_policy_runner import TensorRTPolicyRunner
 from openpilot.selfdrive.modeld.fill_model_msg import fill_model_msg, fill_driving_model_data, fill_pose_msg, PublishState
 from openpilot.common.file_chunker import open_file_chunked
-from openpilot.selfdrive.modeld.camera_sync import FrameMeta, receive_camera_pair
 from openpilot.selfdrive.modeld.constants import ModelConstants, Plan
 from openpilot.selfdrive.modeld.helpers import (get_tg_input_devices, load_oob, modeld_pkl_path,
                                                 refresh_usbgpu_device_cache, select_vision_streams, usbgpu_compiled_path,
                                                 usbgpu_pcie_not_ready, usbgpu_present, wait_for_usbgpu_present)
+from openpilot.selfdrive.modeld.camera_calibration import CalibrationCache, compose_camera_euler
+from openpilot.selfdrive.modeld.frame_pairing import CameraPhaseEstimator, nearest_frame, should_receive_main
 
 PROCESS_NAME = "openpilot.selfdrive.modeld.modeld"
+_camera_calibration_cache = CalibrationCache()
 SEND_RAW_PRED = os.getenv('SEND_RAW_PRED')
 SIMULATION = os.getenv('SIMULATION') == '1'
+
+def _input_view(buffer, shape, dtype, offset=0):
+  from tinygrad import Tensor
+  from tinygrad.uop.ops import UOp
+  buf = buffer.view(int(np.prod(shape)), dtype, offset).ensure_allocated()
+  return Tensor(UOp.from_buffer(buf)).reshape(shape)
+
+def _round_up(n, m):
+  return (n + m - 1) // m * m
 
 LAT_SMOOTH_SECONDS = 0.0
 LONG_SMOOTH_SECONDS = 0.3
 MIN_LAT_CONTROL_SPEED = 0.3
-USBGPU_MODEL_LOAD_TIMEOUT = 120
+USBGPU_MODEL_LOAD_TIMEOUT = 40
 USBGPU_DISCOVERY_GRACE_SECONDS = 5.0
 USBGPU_DISCOVERY_POLL_INTERVAL = 0.1
 USBGPU_INIT_ATTEMPTS = 6
-USBGPU_PRECOMPILED_INIT_ATTEMPTS = 2
 USBGPU_INIT_RETRY_INTERVAL = 2.0
 USBGPU_TMUX_ERROR_REASON = "egpu_error"
 
@@ -121,29 +133,234 @@ def get_action_from_model(model_output: dict[str, np.ndarray], prev_action: log.
                                 shouldStop=bool(should_stop),
                                 desiredVelocity=float(desired_velocity_now))
 
+class FrameMeta:
+  frame_id: int = 0
+  timestamp_sof: int = 0
+  timestamp_eof: int = 0
+
+  def __init__(self, vipc=None):
+    if vipc is not None:
+      self.frame_id, self.timestamp_sof, self.timestamp_eof = vipc.frame_id, vipc.timestamp_sof, vipc.timestamp_eof
+
+
 class ModelState:
   prev_desire: np.ndarray  # for tracking the rising edge of the pulse
 
   def __init__(self, cam_w: int, cam_h: int, usbgpu: bool, pkl_path=None):
     input_devices = get_tg_input_devices(PROCESS_NAME, usbgpu)
     self.WARP_DEV, self.QUEUE_DEV = input_devices['WARP_DEV'], input_devices['QUEUE_DEV']
-    jits = load_oob(open_file_chunked(pkl_path or modeld_pkl_path(usbgpu)))
+    _pkl_path = self._pkl_path = pkl_path or modeld_pkl_path(usbgpu)
+    try:
+      jits = load_oob(open_file_chunked(_pkl_path))
+    except Exception:
+      # stateful/generic artifacts are plain pickles, not chunked OOB
+      import pickle as _pickle
+      with open(_pkl_path, 'rb') as _f:
+        jits = _pickle.load(_f)
+    self.usbgpu = usbgpu
+    self.parser = Parser()
+
+    if 'input_specs' in jits and 'run' in jits:
+      # ---- generic / stateful (cinque-v3) model ----
+      self.generic = True
+      from tinygrad import Tensor as _Tensor
+      from tinygrad.dtype import dtypes as _dtypes
+      self.model_device = jits['input_specs']['new_img'][2]
+      def _np_dtype(d):
+        try:
+          return np.dtype(str(d))
+        except Exception:
+          return np.dtype(d) if isinstance(d, np.dtype) else np.dtype('float32')
+      self.input_shapes = {name: (shape, _np_dtype(dtype)) for name, (shape, dtype, _) in jits['input_specs'].items()}
+      self.state_pairs = {name: f'next_{name}' for name in self.input_shapes if f'next_{name}' in jits['metadata']['output_shapes']}
+      self.vision_input_names = ('img', 'big_img')
+      import base64, pickle as _p
+      self.output_slices = _p.loads(base64.b64decode(jits['metadata']['metadata']['output_slices']))
+      self.prev_desire = np.zeros(ModelConstants.DESIRE_LEN, dtype=np.float32)
+      # webcamerad packs NV12 with stride == width (no alignment): w*h + w*(h//2)
+      self.frame_copy_size = cam_w * (cam_h + cam_h // 2)
+      self._init_generic(jits, cam_w, cam_h)
+      return
+
+    self.generic = False
     metadata = jits['metadata']
     self.input_shapes = metadata['input_shapes']
     self.vision_input_names = [k for k in self.input_shapes if 'img' in k]
     self.output_slices = metadata['output_slices']
 
     self.prev_desire = np.zeros(ModelConstants.DESIRE_LEN, dtype=np.float32)
-    self.usbgpu = usbgpu
 
     self.frame_skip = ModelConstants.MODEL_RUN_FREQ // ModelConstants.MODEL_CONTEXT_FREQ
     self.input_queues, self.npy = make_input_queues(self.input_shapes, self.frame_skip, device=self.QUEUE_DEV)
     self.full_frames: dict[str, Tensor] = {}
     self._blob_cache: dict[int, Tensor] = {}
-    self.parser = Parser()
     self.frame_buf_params = {k: get_nv12_info(cam_w, cam_h) for k in ('img', 'big_img')}
     self.run_policy = jits['run_policy']
+    self.trt_policy = None
+    _trt_engine = os.getenv('MODEL_TRT_ENGINE')
+    if not _trt_engine and os.getenv('MODEL_TRT_DISABLE') != '1':
+      _default_trt_engine = '/data/openpilot/openpilot/selfdrive/modeld/models/big_driving_fp16.plan'
+      if os.path.isfile(_default_trt_engine):
+        _trt_engine = _default_trt_engine
+    if _trt_engine and self.usbgpu:
+      self.trt_policy = TensorRTPolicyRunner(_trt_engine, self.input_shapes, self.frame_skip)
+      cloudlog.warning(f"TensorRT big-model backend enabled: {_trt_engine}")
     self.warp = jits[(cam_w,cam_h)]
+
+  def _init_generic(self, jits, cam_w, cam_h):
+    import numpy as np
+    from tinygrad import Tensor
+    from tinygrad.dtype import dtypes
+    self.run_model = jits['run']
+    self.input_queues = {}
+    for name, (shape, dtype) in self.input_shapes.items():
+      if name not in self.state_pairs:
+        continue
+      if 'img' in name or name == 'state_img_q':
+        self.input_queues[name] = Tensor(np.zeros(shape, dtype=np.uint8), device=self.model_device).realize()
+      else:
+        self.input_queues[name] = Tensor(np.zeros(shape, dtype=dtype), device=self.model_device).realize()
+    shapes = {'tfm': (2, 3, 3)} | {name: shape for name, (shape, _) in self.input_shapes.items()
+                                   if name not in self.state_pairs and name not in ('new_img', 'state_img_q', 'state_desire_q', 'state_feat_q')}
+    npy_size = sum(_round_up(int(np.prod(shape)) * 4, 128) for shape in shapes.values())
+    self.packed_input = np.zeros(npy_size + 2 * self.frame_copy_size, dtype=np.uint8)
+    self.input_host = Tensor(self.packed_input, device='NPY')._buffer()
+    self.input_device = Tensor(self.packed_input, device=self.model_device).realize()._buffer()
+    self.npy = {}
+    offset = 0
+    for name, shape in shapes.items():
+      self.npy[name] = np.ndarray(shape, dtype=np.float32, buffer=self.packed_input, offset=offset)
+      self.input_queues[name] = Tensor(np.zeros(shape, dtype=np.float32), device=self.model_device).realize()
+      offset += _round_up(self.npy[name].nbytes, 128)
+    self.frames = self.packed_input[npy_size:].reshape(2, self.frame_copy_size)
+    self.warp_inputs = {'input_frame': _input_view(self.input_device, self.frames.shape, dtypes.uint8, npy_size)}
+    def _np_dtype2(d):
+      try:
+        return np.dtype(str(d))
+      except Exception:
+        return np.dtype(d) if isinstance(d, np.dtype) else np.dtype('float32')
+    self.outputs = {name: Tensor(np.zeros(shape, dtype=_np_dtype2(dtype)), device=device).realize()
+                    for name, (shape, dtype, device) in jits['output_specs'].items()}
+    # next_state feedback: alias output buffer to the state input buffer
+    # (zero-copy; CUDA offset views supported; relaxed JIT check accepts it)
+    for name, next_name in self.state_pairs.items():
+      state = self.input_queues[name]
+      self.outputs[next_name] = _input_view(state._buffer(), state.shape, state.dtype, 0)
+    # warp: use classic warp if present, else need a stateful warp from the artifact
+    if (cam_w, cam_h) in jits:
+      self.run_warp = jits[(cam_w, cam_h)]
+      self.warp_cached = False
+    else:
+      # generic artifacts carry run_warp keyed by resolution in newer format
+      self.run_warp = None
+      self.warp_cached = True
+    # TRT fast path for stateful model: a <model>.plan next to the pkl wins.
+    self.trt_policy = None
+    _plan = Path(str(self._pkl_path).replace('_tinygrad.pkl', '.plan').replace('.pkl', '.plan'))
+    if _plan.is_file() and os.getenv('MODEL_TRT_DISABLE') != '1':
+      try:
+        from openpilot.selfdrive.modeld.stateful_trt_runner import StatefulTensorRTPolicyRunner
+        _pure_shapes = {k: v[0] if isinstance(v, tuple) and v and isinstance(v[0], tuple) else tuple(v)
+                        for k, v in self.input_shapes.items()}
+        self.trt_policy = StatefulTensorRTPolicyRunner(_plan, _pure_shapes)
+        cloudlog.warning(f"TensorRT stateful backend enabled: {_plan}")
+        # TRT needs float inputs; init state buffers as float
+        def _pure(name):
+          v = self.input_shapes[name]
+          return v[0] if isinstance(v, tuple) and v and isinstance(v[0], tuple) else tuple(v)
+        self._trt_state_img = np.zeros(_pure('state_img_q'), dtype=np.float32)
+        self._trt_state_desire = np.zeros(_pure('state_desire_q'), dtype=np.float32)
+        self._trt_state_feat = np.zeros(_pure('state_feat_q'), dtype=np.float32)
+      except Exception as exc:
+        cloudlog.warning(f"TensorRT stateful backend unavailable, using tinygrad: {exc!r}")
+        self.trt_policy = None
+
+  def _run_generic(self, bufs, transforms, inputs):
+    import numpy as np
+    if getattr(self, 'trt_policy', None) is not None:
+      return self._run_generic_trt(bufs, transforms, inputs)
+    for i, key in enumerate(self.vision_input_names):
+      fdata = np.frombuffer(bufs[key].data, dtype=np.uint8)
+      if len(fdata) != self.frame_copy_size:
+        # tolerate stride/layout drift from the camera source: copy what fits
+        cloudlog.warning(f"generic cam {key} frame size {len(fdata)} != expected {self.frame_copy_size}")
+        n = min(len(fdata), self.frame_copy_size)
+        self.frames[i][:n] = fdata[:n]
+      else:
+        np.copyto(self.frames[i], fdata)
+      self.npy['tfm'][i] = transforms[key]
+    # desire rising-edge pulse
+    inputs['desire_pulse'][0] = 0
+    self.npy['desire'][:] = np.where(inputs['desire_pulse'] - self.prev_desire > .99, inputs['desire_pulse'], 0)
+    self.prev_desire[:] = inputs['desire_pulse']
+    self.npy['traffic_convention'][:] = inputs['traffic_convention']
+    self.npy['action_t'][:] = inputs['action_t']
+    self.input_device.copyin(memoryview(self.input_host._buf)) if hasattr(self.input_device, 'copyin') else self.input_device.copy_from(self.input_host)
+    for _name in ('desire', 'traffic_convention', 'action_t'):
+      if _name in self.input_queues and _name in self.npy:
+        _sq = self.input_queues[_name]
+        if hasattr(_sq._buffer(), 'copyin'):
+          _sq._buffer().copyin(memoryview(np.ascontiguousarray(self.npy[_name])))
+    if self.run_warp is not None:
+      # classic warp: (tfm, big_tfm, frame, big_frame) -> (2,6,H,W), matches new_img
+      import tinygrad as _tg
+      from tinygrad import Tensor as _T
+      # frames are views into the packed buffer; warp wants Tensors on WARP_DEV
+      tfm = _T(self.npy['tfm'][0].copy(), device=self.WARP_DEV).realize()
+      big_tfm = _T(self.npy['tfm'][1].copy(), device=self.WARP_DEV).realize()
+      frame_t = _T(np.ascontiguousarray(self.frames[0]), device=self.WARP_DEV).realize()
+      big_frame_t = _T(np.ascontiguousarray(self.frames[1]), device=self.WARP_DEV).realize()
+      warped = self.run_warp(tfm=tfm, big_tfm=big_tfm, frame=frame_t, big_frame=big_frame_t)
+      self.input_queues['new_img'] = warped
+    else:
+      raise RuntimeError("generic model requires a warp in the artifact")
+    _model_keys = {n for n, (_, _) in self.input_shapes.items() if n not in self.state_pairs} | set(self.state_pairs)
+    _model_keys = {n for n, _ in self.input_shapes.items()}
+    self.run_model(output_buffers=self.outputs, **{k: v for k, v in self.input_queues.items() if k in _model_keys})
+    # zero-copy feedback: next_state outputs are aliased to state input buffers
+    model_output = self.outputs['outputs'].numpy()[0]
+    if not np.all(np.isfinite(model_output)):
+      raise RuntimeError("model output not finite")
+    outputs_dict = self.parser.parse_outputs(self.slice_outputs(model_output, self.output_slices))
+    if SEND_RAW_PRED:
+      outputs_dict['raw_pred'] = model_output.copy()
+    return outputs_dict
+
+  def _run_generic_trt(self, bufs, transforms, inputs):
+    import numpy as np
+    for i, key in enumerate(self.vision_input_names):
+      fdata = np.frombuffer(bufs[key].data, dtype=np.uint8, count=self.frame_copy_size)
+      if len(fdata) < self.frame_copy_size:
+        fdata = np.pad(fdata, (0, self.frame_copy_size - len(fdata)))
+      np.copyto(self.frames[i], fdata)
+      self.npy['tfm'][i] = transforms[key]
+    inputs['desire_pulse'][0] = 0
+    self.npy['desire'][:] = np.where(inputs['desire_pulse'] - self.prev_desire > .99, inputs['desire_pulse'], 0)
+    self.prev_desire[:] = inputs['desire_pulse']
+    self.npy['traffic_convention'][:] = inputs['traffic_convention']
+    self.npy['action_t'][:] = inputs['action_t']
+    # warp -> new_img (float for TRT)
+    tfm_t = Tensor(self.npy['tfm'][0].copy(), device=self.WARP_DEV).realize()
+    big_tfm_t = Tensor(self.npy['tfm'][1].copy(), device=self.WARP_DEV).realize()
+    frame_t = Tensor(np.ascontiguousarray(self.frames[0]), device=self.WARP_DEV).realize()
+    big_frame_t = Tensor(np.ascontiguousarray(self.frames[1]), device=self.WARP_DEV).realize()
+    warped = self.run_warp(tfm=tfm_t, big_tfm=big_tfm_t, frame=frame_t, big_frame=big_frame_t)
+    new_img = np.ascontiguousarray(warped.numpy(), dtype=np.float32)
+    out = self.trt_policy.run(
+      new_img,
+      self.npy['desire'].copy(),
+      self.npy['traffic_convention'].copy(),
+      self.npy['action_t'].copy(),
+      self._trt_state_img, self._trt_state_desire, self._trt_state_feat,
+    )
+    # feedback state from runner
+    self._trt_state_img = self.trt_policy.state_img
+    self._trt_state_desire = self.trt_policy.state_desire
+    self._trt_state_feat = self.trt_policy.state_feat
+    outputs_dict = self.parser.parse_outputs(self.slice_outputs(out, self.output_slices))
+    if SEND_RAW_PRED:
+      outputs_dict['raw_pred'] = out.copy()
+    return outputs_dict
 
   def slice_outputs(self, model_outputs: np.ndarray, output_slices: dict[str, slice]) -> dict[str, np.ndarray]:
     parsed_model_outputs = {k: model_outputs[np.newaxis, v] for k,v in output_slices.items()}
@@ -151,6 +368,9 @@ class ModelState:
 
   def run(self, bufs: dict[str, VisionBuf], transforms: dict[str, np.ndarray],
           inputs: dict[str, np.ndarray], prepare_only: bool) -> dict[str, np.ndarray] | None:
+    if getattr(self, 'generic', False):
+      return self._run_generic(bufs, transforms, inputs)
+
     for key in bufs.keys():
       stride, y_height, uv_height, yuv_size = self.frame_buf_params[key]
       frame_data = np.frombuffer(bufs[key].data, dtype=np.uint8)
@@ -197,11 +417,17 @@ class ModelState:
     if prepare_only:
       return None
 
-    outs, = self.run_policy(
-      **{k: self.input_queues[k] for k in POLICY_INPUTS if k in self.input_queues}, warped=warped
-    )
-    model_output = outs.numpy()[0]
-    if self.usbgpu and not np.all(np.isfinite(model_output)):
+    if self.trt_policy is not None:
+      _warped_np = warped.numpy()
+      model_output = self.trt_policy.run(
+        _warped_np, self.npy['desire'], self.npy['traffic_convention'],
+        self.npy['action_t'], self.npy['prev_feat'])
+    else:
+      outs, = self.run_policy(
+        **{k: self.input_queues[k] for k in POLICY_INPUTS if k in self.input_queues}, warped=warped
+      )
+      model_output = outs.numpy()[0]
+    if (self.usbgpu or self.trt_policy is not None) and not np.all(np.isfinite(model_output)):
       raise RuntimeError("eGPU model output is not finite")
     outputs_dict = self.parser.parse_outputs(self.slice_outputs(model_output, self.output_slices))
     self.npy['prev_feat'][:] = model_output[self.output_slices['hidden_state']]
@@ -237,8 +463,6 @@ def main(demo=False):
   params.put_bool("UsbGpuCompiled", _compiled)
   params.put_bool("UsbGpuLoading", USBGPU)
   params.put_bool("UsbGpuActive", False)
-  if _present and (not _compiled or _startup_failed):
-    queue_usbgpu_error_tmux(params, "USB present but eGPU model unavailable at startup")
   use_wide_camera = bool(params.get("UseWideCamera", return_default=True))
 
   config_realtime_process(7, 54)
@@ -276,24 +500,20 @@ def main(demo=False):
   usbgpu_model_loaded = False
   if USBGPU:
     usbgpu_model = None
-    precompiled = usbgpu_pkl_path.name == 'model.pkl' and (usbgpu_pkl_path.parent / 'installed.json').is_file()
-    # Repeatedly reloading the same large PKL cannot repair a persistently down
-    # PCIe link. One retry allows delayed readiness, then start the internal model.
-    init_attempts = USBGPU_PRECOMPILED_INIT_ATTEMPTS if precompiled else USBGPU_INIT_ATTEMPTS
 
     def load_usbgpu_model():
       nonlocal usbgpu_model
-      for attempt in range(1, init_attempts + 1):
+      for attempt in range(1, USBGPU_INIT_ATTEMPTS + 1):
         try:
-          if precompiled:
+          if usbgpu_pkl_path.name == 'model.pkl' and (usbgpu_pkl_path.parent / 'installed.json').is_file():
             from openpilot.selfdrive.modeld.precompiled_runner import PrecompiledModelState
             usbgpu_model = PrecompiledModelState(vipc_client_main.width, vipc_client_main.height, usbgpu_pkl_path)
           else:
             usbgpu_model = ModelState(vipc_client_main.width, vipc_client_main.height, True, usbgpu_pkl_path)
           return
         except Exception as exc:
-          if usbgpu_pcie_not_ready(exc) and attempt < init_attempts:
-            cloudlog.warning(f"eGPU PCIe link not ready; retrying ({attempt}/{init_attempts}): {exc!r}")
+          if usbgpu_pcie_not_ready(exc) and attempt < USBGPU_INIT_ATTEMPTS:
+            cloudlog.warning(f"eGPU PCIe link not ready; retrying ({attempt}/{USBGPU_INIT_ATTEMPTS}): {exc!r}")
             time.sleep(USBGPU_INIT_RETRY_INTERVAL)
             refresh_usbgpu_device_cache()
             continue
@@ -321,23 +541,9 @@ def main(demo=False):
 
   # Keep the internal-GPU model ready so a USB disconnect or runtime error does
   # not take modeld down while driving.
-  phase_start = time.monotonic()
   small_model = ModelState(vipc_client_main.width, vipc_client_main.height, False) if model is None or USBGPU else None
-  cloudlog.warning("model startup internal model: %.3fs, loaded=%s", time.monotonic() - phase_start, small_model is not None)
   if model is None:
     model = small_model
-  # Keep the existing eGPU selection unchanged. A separate USB owner handles
-  # external computers and late server startup through the selected Jetlink model.
-  if not USBGPU and os.path.isfile('/AGNOS'):
-    phase_start = time.monotonic()
-    adapter_ready = False
-    try:
-      from openpilot.selfdrive.modeld.jetlink.model import JoiningModel
-      model = JoiningModel(model, vipc_client_main.width, vipc_client_main.height)
-      adapter_ready = True
-    except Exception:
-      cloudlog.exception('Jetlink camera adapter unavailable; retaining internal model')
-    cloudlog.warning("model startup Jetlink wrapper: %.3fs, created=%s", time.monotonic() - phase_start, adapter_ready)
   # Loading is not complete until the first model result is published. The
   # first eGPU execution can spend several seconds initializing queues/kernels
   # after the PKL has loaded; clearing this here causes a false commIssue while
@@ -349,7 +555,7 @@ def main(demo=False):
 
   # messaging
   pm = PubMaster(["modelV2", "drivingModelData", "cameraOdometry"])
-  sm = SubMaster(["deviceState", "carState", "roadCameraState", "liveCalibration", "driverMonitoringState", "carControl", "selfdriveState", "liveDelay", "carrotMan", "radarState"])
+  sm = SubMaster(["deviceState", "carState", "roadCameraState", "liveCalibration", "driverMonitoringState", "carControl", "liveDelay", "carrotMan", "radarState"])
 
   publish_state = PublishState()
   params = Params()
@@ -385,10 +591,13 @@ def main(demo=False):
   frame = 0
   custom_lat_delay = 0.0
   lat_smooth_seconds = LAT_SMOOTH_SECONDS
-  vEgoStopping = get_stopping_speed(params)
+  vEgoStopping = params.get_float("VEgoStopping") * 0.01
   camera_yaw_trim_deg = params.get_float("CameraYawTrimDeg") * 0.01
   lat_delay_dynamic = lat_smooth_seconds
   diagnostics = RuntimeDiagnostics('modeld', cloudlog.event)
+  previous_extra = None
+  current_extra = None
+  camera_phase = CameraPhaseEstimator()
   while True:
     loop_start, cpu_start = time.monotonic(), time.thread_time()
     frame += 1
@@ -396,7 +605,7 @@ def main(demo=False):
       custom_lat_delay = params.get_float("SteerActuatorDelay") * 0.01
       lat_smooth_seconds = params.get_float("LatSmoothSec") * 0.01
       long_delay = params.get_float("LongActuatorDelay")*0.01
-      vEgoStopping = get_stopping_speed(params)
+      vEgoStopping = params.get_float("VEgoStopping") * 0.01
       camera_yaw_trim_deg = params.get_float("CameraYawTrimDeg") * 0.01
       # eGPU power follows ignition on the vehicle. Keep UI state current when
       # the shared USB hub is connected or removed after modeld starts.
@@ -406,16 +615,51 @@ def main(demo=False):
         params.put_bool_nonblocking("UsbGpuHardwareSeen", True)
       params.put_bool_nonblocking("UsbGpuCompiled", usbgpu_compiled_path() is not None)
 
-    frames = receive_camera_pair(vipc_client_main, vipc_client_extra if use_extra_client else None)
-    if frames is None:
-      cloudlog.debug("camera pair unavailable or out of sync")
+    # Keep receiving frames until we are at least 1 frame ahead of previous extra frame
+    received_main = False
+    while should_receive_main(received_main, meta_main.timestamp_sof, meta_extra.timestamp_sof):
+      buf_main = vipc_client_main.recv()
+      meta_main = FrameMeta(vipc_client_main)
+      received_main = True
+      if buf_main is None:
+        break
+
+    if buf_main is None:
+      cloudlog.debug("vipc_client_main no frame")
       continue
-    buf_main, meta_main, buf_extra, meta_extra = frames
+
+    if use_extra_client:
+      # Retain the two wide frames bracketing the road timestamp and use the
+      # actual nearest one. The first future frame is not always the closest.
+      extra_target = camera_phase.corrected_extra_target(meta_main.timestamp_sof)
+      while current_extra is None or current_extra[1] < extra_target:
+        next_buf = vipc_client_extra.recv()
+        next_meta = FrameMeta(vipc_client_extra)
+        if next_buf is None:
+          break
+        previous_extra = current_extra
+        current_extra = (next_buf, next_meta.timestamp_sof, next_meta)
+
+      if current_extra is None:
+        cloudlog.debug("vipc_client_extra no frame")
+        continue
+
+      selected_extra = nearest_frame(extra_target, previous_extra, current_extra)
+      buf_extra, _, meta_extra = selected_extra
+      phase_ns = camera_phase.observe(meta_main.timestamp_sof - meta_extra.timestamp_sof)
+      sync_error_ns = meta_main.timestamp_sof - meta_extra.timestamp_sof - phase_ns
+
+      if abs(sync_error_ns) > 10000000:
+        cloudlog.error(f"frames out of sync! main: {meta_main.frame_id} ({meta_main.timestamp_sof / 1e9:.5f}),\
+                         extra: {meta_extra.frame_id} ({meta_extra.timestamp_sof / 1e9:.5f})")
+
+    else:
+      # Use single camera
+      buf_extra = buf_main
+      meta_extra = meta_main
 
     camera_ready = time.monotonic()
     sm.update(0)
-    if hasattr(model, 'update'):
-      model.update(sm, meta_main)
     desire = DH.desire
     is_rhd = sm["driverMonitoringState"].isRHD
     frame_id = sm["roadCameraState"].frameId
@@ -431,9 +675,31 @@ def main(demo=False):
         device_from_calib_euler[2] -= np.radians(applied_yaw_trim_deg)
 
       dc = DEVICE_CAMERAS[(str(sm['deviceState'].deviceType), str(sm['roadCameraState'].sensor))]
-      model_transform_main = get_warp_matrix(device_from_calib_euler, dc.ecam.intrinsics if main_wide_camera else dc.fcam.intrinsics, False).astype(np.float32)
+      camera_calibration = _camera_calibration_cache.resolve(params, dc, time.monotonic())
+      wide_from_device_euler = np.array(sm["liveCalibration"].wideFromDeviceEuler, dtype=np.float32)
+      road_euler = compose_camera_euler(device_from_calib_euler, None, camera_calibration.road.pitch_offset)
+      wide_euler = compose_camera_euler(device_from_calib_euler, wide_from_device_euler,
+                                        camera_calibration.wide.pitch_offset)
+      road_intrinsics = dc.fcam.intrinsics.copy()
+      road_intrinsics[0, 0] = road_intrinsics[1, 1] = camera_calibration.road.focal_length
+      wide_intrinsics = dc.ecam.intrinsics.copy()
+      wide_intrinsics[0, 0] = wide_intrinsics[1, 1] = camera_calibration.wide.focal_length
+
+      if main_wide_camera:
+        main_euler = wide_euler
+        main_intrinsics = wide_intrinsics
+      else:
+        main_euler = road_euler
+        main_intrinsics = road_intrinsics
+      model_transform_main = get_warp_matrix(main_euler, main_intrinsics, False).astype(np.float32)
       has_wide_camera = use_extra_client or main_wide_camera
-      model_transform_extra = get_warp_matrix(device_from_calib_euler, dc.ecam.intrinsics if has_wide_camera else dc.fcam.intrinsics, True).astype(np.float32)
+      if has_wide_camera:
+        extra_euler = wide_euler
+        extra_intrinsics = wide_intrinsics
+      else:
+        extra_euler = road_euler
+        extra_intrinsics = road_intrinsics
+      model_transform_extra = get_warp_matrix(extra_euler, extra_intrinsics, True).astype(np.float32)
       live_calib_seen = True
 
     traffic_convention = np.zeros(2)
@@ -452,9 +718,13 @@ def main(demo=False):
     run_count = run_count + 1
 
     frame_drop_ratio = frames_dropped / (1 + frames_dropped)
-    prepare_only = vipc_dropped_frames > 0
-    if prepare_only:
-      cloudlog.error(f"camera dropped {vipc_dropped_frames} frames; advancing model history")
+    # A slow local-GPU inference can miss one or more camera frames.  Do not
+    # suppress inference for every missed frame: at a sustained camera rate
+    # that makes modeld permanently publish no modelV2 at all.  The model
+    # input queue is updated with the newest frame and can safely run it.
+    prepare_only = False
+    if vipc_dropped_frames > 0:
+      cloudlog.warning(f"camera dropped {vipc_dropped_frames} frames; running latest frame")
 
     bufs = {name: buf_extra if 'big' in name else buf_main for name in model.vision_input_names}
     transforms = {name: model_transform_extra if 'big' in name else model_transform_main for name in model.vision_input_names}

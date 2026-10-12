@@ -89,11 +89,7 @@ def _clean_values(values: Any) -> Dict[str, Any]:
   if not isinstance(values, dict):
     return {}
   _, _, by_name, _ = get_settings_cached()
-  allowed = {
-    name
-    for name, meta in by_name.items()
-    if not meta.get("search_only", False)
-  }
+  allowed = set(by_name.keys())
   return {
     str(key): value
     for key, value in values.items()
@@ -106,7 +102,6 @@ def _setting_defaults() -> Dict[str, Any]:
   return {
     name: meta.get("default", 0)
     for name, meta in by_name.items()
-    if not meta.get("search_only", False)
   }
 
 

@@ -31,10 +31,6 @@ export function createSettingsGroupRenderPlan(options = {}) {
       ? String(entry?.label || profilesLabel)
       : String(getGroupLabel(group));
 
-    if (group === ids.searchGroup) {
-      return Object.freeze({ kind: "search", key: group, label, index });
-    }
-
     if (divider) {
       return Object.freeze({
         kind: "divider",
@@ -89,13 +85,7 @@ function replaceGroupContent(element, title) {
 
 function applyGroupElement(element, entry, animate) {
   element.onclick = null;
-  if (entry.kind === "search") {
-    // The page owns this form. Do not replace the focused input during typing.
-    // The slot still takes the shared stagger class: it is created with the
-    // rest of the group list, so it must reveal with its neighbours instead of
-    // popping in while every other row animates.
-    element.className = joinClassNames("setting-inline-search-slot", animate && "ui-stagger-item");
-  } else if (entry.kind === "divider") {
+  if (entry.kind === "divider") {
     element.className = joinClassNames(
       "setting-profile-divider",
       entry.categoryDivider && "setting-category-divider",
@@ -137,7 +127,7 @@ export function renderSettingsGroupList(root, plan, options = {}) {
 
   const fragment = root.ownerDocument.createDocumentFragment();
   entries.forEach((entry) => {
-    const element = root.ownerDocument.createElement(entry.kind === "group" ? "button" : "div");
+    const element = root.ownerDocument.createElement(entry.kind === "divider" ? "div" : "button");
     if (entry.kind === "group") element.type = "button";
     applyGroupElement(element, entry, animate);
     fragment.appendChild(element);
@@ -153,7 +143,6 @@ export function createSettingsItemLayoutPlan(options = {}) {
   const detailMode = options.detailMode === true;
   const profile = options.profile || null;
   const favoriteMode = !detailMode && options.favoriteMode === true;
-  const searchMode = !detailMode && options.searchMode === true;
   const getSectionLabel = typeof options.getSectionLabel === "function"
     ? options.getSectionLabel
     : () => "";
@@ -183,12 +172,6 @@ export function createSettingsItemLayoutPlan(options = {}) {
       section = { kind: "detail", staggerIndex: 1 };
     } else if (index === 0 && favoriteMode) {
       section = { kind: "favorites", staggerIndex: 1 };
-    } else if (searchMode) {
-      const label = options.getItemContextLabel?.(originGroup, item) || getGroupLabel(originGroup);
-      if (label !== lastCategorySectionKey) {
-        lastCategorySectionKey = label;
-        section = { kind: "search", label, staggerIndex: Math.min(index + 1, 14) };
-      }
     } else if (!detailMode && profile && originGroup !== lastProfileGroup) {
       lastProfileGroup = originGroup;
       const stateKey = `${profile.id}:${originGroup}`;

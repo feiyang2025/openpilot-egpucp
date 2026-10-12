@@ -134,6 +134,7 @@ window.HomeDrive = (() => {
   // Mirror of openpilot common/transformations/camera.py DEVICE_CAMERAS[*].fcam.
   const ROAD_CAMERA_PROFILES = {
     ar_ox: { width: 1928, height: 1208, focal: 2648.0 },
+    j501_imx390_30: { width: 1344, height: 760, focal: 2508.0 },
     os04c10: { width: 1344, height: 760, focal: 1141.5 },
   };
   let _roadCameraDeviceType = "";
@@ -623,6 +624,7 @@ window.HomeDrive = (() => {
       0: "unknown", 1: "ar0231", 2: "ox03c10", 3: "os04c10",
     });
 
+    if (deviceKey === "pc" && sensorKey === "unknown") return { key: "j501_imx390_30", deviceKey, sensorKey };
     if (sensorKey === "os04c10") return { key: "os04c10", deviceKey, sensorKey };
     if (sensorKey === "ar0231" || sensorKey === "ox03c10") return { key: "ar_ox", deviceKey, sensorKey };
     // Only tici has a native "unknown sensor" fallback. C3X/C4 must wait for

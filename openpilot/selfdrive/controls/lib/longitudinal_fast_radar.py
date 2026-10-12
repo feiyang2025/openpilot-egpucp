@@ -13,9 +13,9 @@ from typing import Any
 
 from openpilot.selfdrive.carrot.radar_motion import (
   CORNER_RADAR_MEASUREMENT_DELAY_S,
+  LEAD_ACCEL_FILTER_ALPHA,
   LEAD_ACCEL_TAU_S,
 )
-from openpilot.selfdrive.carrot.radar_motion.lead_dynamics import LeadAccelTau
 
 
 FAST_RADAR_MAX_SELECTION_AGE_S = 0.15
@@ -89,7 +89,7 @@ class FastRadarOverlay:
       "leadTwo": _Selection(),
     }
     self._last_radar_state_mono_ns = 0
-    self._a_lead_tau: dict[tuple[str, int], LeadAccelTau] = {}
+    self._a_lead_tau: dict[int, float] = {}
 
   @staticmethod
   def _signature(lead: Any) -> tuple[bool, bool, int]:
@@ -123,9 +123,9 @@ class FastRadarOverlay:
         active_track_ids.add(signature[2])
 
     self._a_lead_tau = {
-      identity: tau
-      for identity, tau in self._a_lead_tau.items()
-      if identity[1] in active_track_ids
+      track_id: tau
+      for track_id, tau in self._a_lead_tau.items()
+      if track_id in active_track_ids
     }
 
   def _selection_ready(self, role: str, lead: Any) -> tuple[bool, str]:
@@ -151,14 +151,22 @@ class FastRadarOverlay:
       else self.front_radar_delay_s
     )
 
-  def _update_a_lead_tau(self, lead: Any, point: Any, track_id: int, sample_time_s: float) -> float:
+  def _update_a_lead_tau(self, lead: Any, point: Any, track_id: int) -> float:
     initial_tau = float(getattr(lead, "aLeadTau", LEAD_ACCEL_TAU_S))
     if not math.isfinite(initial_tau) or initial_tau < 0.0:
       initial_tau = LEAD_ACCEL_TAU_S
-    identity = _source_name(point), track_id
-    if identity not in self._a_lead_tau:
-      self._a_lead_tau[identity] = LeadAccelTau(initial_tau)
-    return self._a_lead_tau[identity].update(float(point.aLead), float(point.jLead), sample_time_s)
+    tau = self._a_lead_tau.get(track_id, initial_tau)
+    a_lead = float(point.aLead)
+    j_lead = float(point.jLead)
+    if (
+      abs(a_lead) < 0.5
+      and abs(j_lead) < 0.5
+    ):
+      tau = LEAD_ACCEL_TAU_S
+    else:
+      tau *= 1.0 - LEAD_ACCEL_FILTER_ALPHA
+    self._a_lead_tau[track_id] = max(0.0, float(tau))
+    return self._a_lead_tau[track_id]
 
   def _overlay_lead(
     self,
@@ -167,7 +175,6 @@ class FastRadarOverlay:
     point: Any | None,
     v_ego: float,
     selection_age_s: float,
-    sample_time_s: float,
   ) -> tuple[bool, str]:
     ready, reason = self._selection_ready(role, lead)
     if not ready:
@@ -213,7 +220,7 @@ class FastRadarOverlay:
     lead.aLead = float(point.aLead)
     lead.aLeadK = lead.aLead
     lead.jLead = float(point.jLead)
-    lead.aLeadTau = self._update_a_lead_tau(lead, point, track_id, sample_time_s)
+    lead.aLeadTau = self._update_a_lead_tau(lead, point, track_id)
     return True, "active"
 
   def build(
@@ -230,9 +237,6 @@ class FastRadarOverlay:
     """Return a copied radarState with safe same-track kinematic overlays."""
     output = _copy_builder(radar_state)
     age_s = (int(live_tracks_mono_ns) - int(radar_state_mono_ns)) * 1e-9
-    if not radar_state_valid or not live_tracks_valid or not (0.0 <= age_s <= FAST_RADAR_MAX_SELECTION_AGE_S):
-      for state in self._a_lead_tau.values():
-        state.clear_evidence()
     if not radar_state_valid:
       return FastRadarResult(output, selection_age_s=age_s, lead_one_reason="radarStateInvalid")
     if not live_tracks_valid:
@@ -251,13 +255,9 @@ class FastRadarOverlay:
     for role, mask in (("leadOne", LEAD_ONE_MASK), ("leadTwo", LEAD_TWO_MASK)):
       lead = getattr(output, role)
       point = points_by_id.get(int(getattr(lead, "radarTrackId", -1)))
-      active, reason = self._overlay_lead(role, lead, point, float(v_ego), age_s, int(live_tracks_mono_ns) * 1e-9)
+      active, reason = self._overlay_lead(role, lead, point, float(v_ego), age_s)
       if active:
         lead_mask |= mask
-      else:
-        for identity, state in self._a_lead_tau.items():
-          if identity[1] == int(lead.radarTrackId):
-            state.clear_evidence()
       if role == "leadOne":
         lead_one_reason = reason
 

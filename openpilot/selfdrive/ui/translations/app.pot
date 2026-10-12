@@ -1496,11 +1496,3 @@ msgstr ""
 #: openpilot/selfdrive/ui/mici/onroad/vision_renderer.py
 msgid "NO DETECTION"
 msgstr ""
-
-#: openpilot/selfdrive/selfdrived/events.py
-msgid "Reboot to Apply Update"
-msgstr ""
-
-#: openpilot/selfdrive/selfdrived/events.py
-msgid "Park safely before rebooting your device"
-msgstr ""

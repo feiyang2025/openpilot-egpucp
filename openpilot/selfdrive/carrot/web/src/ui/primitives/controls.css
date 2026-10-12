@@ -145,9 +145,6 @@
   box-sizing: border-box;
   transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease, transform 0.12s ease;
   letter-spacing: 0.1px;
-  /* Applied to <a> elements too (e.g. the model page links in the tools grid),
-     which would otherwise inherit the browser's default underline. */
-  text-decoration: none;
 }
 
 .btn:hover,

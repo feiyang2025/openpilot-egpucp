@@ -52,6 +52,25 @@ _ar_ox_config = DeviceCameraConfig(CameraConfig(1928, 1208, 2648.0), _ar_ox_fish
 _os_config = DeviceCameraConfig(CameraConfig(2688 // 2, 1520 // 2, 1522.0 * 3 / 4), _os_fisheye, _os_fisheye)
 _neo_config = DeviceCameraConfig(CameraConfig(1164, 874, 910.0), CameraConfig(816, 612, 650.0), _NoneCameraConfig())
 
+# J501 dual IMX390 first-pass calibration. Both sensors are captured at
+# 1920x1080 and resized to 1344x760 by tools/webcam/camera.py.
+# video0: rectilinear road camera, stated horizontal FOV 30 degrees.
+#   fx = (1344 / 2) / tan(30deg / 2) = 2508.0 px.
+# video1: equidistant fisheye wide camera, stated horizontal FOV 190 degrees.
+#   f = 1344 / radians(190deg) = 405.2 px.
+# CameraConfig currently has one focal value, so fx == fy for this coarse
+# alignment. Replace with measured intrinsics/distortion during fine tuning.
+_j501_imx390_road = CameraConfig(1344, 760, 2508.0)
+_j501_imx390_fisheye = CameraConfig(1344, 760, 405.2)
+# USB IMX678 90°(driver 路): rectilinear, fx = (1344/2)/tan(90deg/2) = 672.0 px
+# 供 dmonitoring / lane 推理与顶替场景参考;精确值需棋盘格标定。
+_j501_usb90_config = CameraConfig(1344, 760, 672.0)
+_j501_imx390_config = DeviceCameraConfig(
+  _j501_imx390_road,
+  _j501_usb90_config,
+  _j501_imx390_fisheye,
+)
+
 DEVICE_CAMERAS = {
   # A "device camera" is defined by a device type and sensor
 
@@ -64,8 +83,9 @@ DEVICE_CAMERAS = {
   ("unknown", "ar0231"): _ar_ox_config,
   ("unknown", "ox03c10"): _ar_ox_config,
 
-  # simulator (emulates a tici)
-  ("pc", "unknown"): _ar_ox_config,
+  # J501/webcam: video0 road (30 deg), video1 wide fisheye (190 deg)
+  ("pc", "unknown"): _j501_imx390_config,
+  ("pc", "imx390"): _j501_imx390_config,
 }
 prods = itertools.product(('tici', 'tizi', 'mici'), (('ar0231', _ar_ox_config), ('ox03c10', _ar_ox_config), ('os04c10', _os_config)))
 DEVICE_CAMERAS.update({(d, c[0]): c[1] for d, c in prods})

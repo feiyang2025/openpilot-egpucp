@@ -8,7 +8,6 @@ import subprocess
 import threading
 
 from panda import Panda, PandaDFU, PandaProtocolMismatch, FW_PATH
-from openpilot.cereal import car
 from openpilot.common.basedir import BASEDIR
 from openpilot.common.params import Params
 from openpilot.system.hardware import HARDWARE
@@ -16,11 +15,6 @@ from openpilot.common.swaglog import cloudlog
 from openpilot.common.utils import sudo_write
 from openpilot.selfdrive.pandad.panda_helpers import connect_all_pandas, pandas_include_internal
 
-TESLA_WAKE_CAR_FINGERPRINTS = {"TESLA_MODEL_3", "TESLA_MODEL_Y"}
-
-def tesla_wake_on_can_enabled(params: Params) -> bool:
-  if not params.get_bool("TeslaWakeOnCAN"):
-    return False
 
 def system_uptime() -> float:
   """Seconds since system boot, read from /proc/uptime."""
@@ -33,46 +27,13 @@ def system_uptime() -> float:
 
 def get_expected_signature(panda: Panda) -> bytes:
   try:
-    selected_car = params.get("CarSelected3")
-    if isinstance(selected_car, bytes):
-      selected_car = selected_car.decode("utf-8", errors="strict")
+    fn = os.path.join(FW_PATH, panda.get_mcu_type().config.app_fn)
+    return Panda.get_signature_from_firmware(fn)
+  except Exception:
+    cloudlog.exception("Error computing expected signature")
+    return b""
 
-    car_params = params.get("CarParamsPersistent") or params.get("CarParams")
-    if car_params is None:
-      return selected_car in TESLA_WAKE_CAR_FINGERPRINTS
-    with car.CarParams.from_bytes(car_params) as CP:
-      return CP.brand == "tesla" and CP.carFingerprint in TESLA_WAKE_CAR_FINGERPRINTS
-  except (UnicodeDecodeError, ValueError, TypeError):
-    cloudlog.exception("Invalid CarParams while selecting Tesla wake firmware")
-    return False
-
-
-def get_firmware_path(panda: Panda, params: Params) -> str:
-  app_fn = panda.get_mcu_type().config.app_fn
-  if not tesla_wake_on_can_enabled(params):
-    return os.path.join(FW_PATH, app_fn)
-
-  wake_fn = app_fn.removesuffix(".bin.signed") + "_tesla_wake.bin.signed"
-  fn = os.path.join(FW_PATH, wake_fn)
-  if not os.path.isfile(fn):
-    raise FileNotFoundError(f"Tesla wake firmware is missing: {fn}")
-  return fn
-
-
-def configure_boardd_firmware_check(params: Params) -> None:
-  # Python has already verified the exact selected image. The C++ check only
-  # knows the stock filenames, so it must not reject the Tesla variant.
-  if tesla_wake_on_can_enabled(params):
-    os.environ["BOARDD_SKIP_FW_CHECK"] = "1"
-  else:
-    os.environ.pop("BOARDD_SKIP_FW_CHECK", None)
-
-
-def get_expected_signature(panda: Panda, params: Params) -> bytes:
-  fn = get_firmware_path(panda, params)
-  return Panda.get_signature_from_firmware(fn)
-
-def flash_panda(panda_serial: str, params: Params) -> Panda:
+def flash_panda(panda_serial: str) -> Panda:
   try:
     panda = Panda(panda_serial)
   except PandaProtocolMismatch:
@@ -81,8 +42,7 @@ def flash_panda(panda_serial: str, params: Params) -> Panda:
     raise
 
   try:
-    fw_path = get_firmware_path(panda, params)
-    fw_signature = get_expected_signature(panda, params)
+    fw_signature = get_expected_signature(panda)
     internal_panda = panda.is_internal()
 
     panda_version = "bootstub" if panda.bootstub else panda.get_version()
@@ -91,7 +51,7 @@ def flash_panda(panda_serial: str, params: Params) -> Panda:
 
     if panda.bootstub or panda_signature != fw_signature:
       cloudlog.info("Panda firmware out of date, update required")
-      panda.flash(fn=fw_path)
+      panda.flash()
       cloudlog.info("Done flashing")
 
     if panda.bootstub:
@@ -117,8 +77,8 @@ def flash_panda(panda_serial: str, params: Params) -> Panda:
     raise
 
 
-def flash_all_pandas(panda_serials: list[str], params: Params) -> list[Panda]:
-  return connect_all_pandas(panda_serials, lambda serial: flash_panda(serial, params))
+def flash_all_pandas(panda_serials: list[str]) -> list[Panda]:
+  return connect_all_pandas(panda_serials, flash_panda)
 
 
 LTE_MODEM_PATH = "/sys/bus/usb/devices/1-1.1/authorized"
@@ -225,7 +185,7 @@ def main() -> None:
 
       # Flash every panda. C3 uses an internal DOS plus a USB red panda, while
       # C3X/C4 normally have a single internal panda.
-      pandas = flash_all_pandas(panda_serials, params)
+      pandas = flash_all_pandas(panda_serials)
 
       # Ensure internal panda is present if expected
       if HARDWARE.has_internal_panda() and not pandas_include_internal(pandas):
@@ -271,7 +231,6 @@ def main() -> None:
     first_run = False
 
     # run pandad with all connected serials as arguments
-    configure_boardd_firmware_check(params)
     os.environ['MANAGER_DAEMON'] = 'pandad'
     process = subprocess.Popen(["./pandad", *panda_serials], cwd=os.path.join(BASEDIR, "openpilot/selfdrive/pandad"))
     process.wait()

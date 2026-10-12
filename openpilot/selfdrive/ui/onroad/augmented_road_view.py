@@ -7,15 +7,15 @@ from openpilot.selfdrive.ui import UI_BORDER_SIZE
 from openpilot.selfdrive.ui.carrot_param_cache import BorderParamSnapshot, TimedSnapshotCache, read_border_params
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
 from openpilot.selfdrive.ui.onroad.alert_renderer import AlertRenderer
-from openpilot.selfdrive.ui.onroad.driver_preview import DriverPreview
+from openpilot.selfdrive.ui.onroad.driver_state import DriverStateRenderer
 from openpilot.selfdrive.ui.onroad.hud_renderer import HudRenderer
 from openpilot.selfdrive.ui.onroad.model_renderer import ModelRenderer
-from openpilot.selfdrive.ui.render_diagnostics import RenderDiagnostics
 from openpilot.selfdrive.ui.onroad.cameraview import CameraView
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.text_draw import draw_text_ui_style
 from openpilot.common.transformations.camera import DEVICE_CAMERAS, DeviceCameraConfig, view_frame_from_device_frame
 from openpilot.common.transformations.orientation import rot_from_euler
+from openpilot.selfdrive.modeld.camera_calibration import CalibrationCache
 
 OpState = log.SelfdriveState.OpenpilotState
 CALIBRATED = log.LiveCalibrationData.Status.calibrated
@@ -33,7 +33,6 @@ WIDE_CAM_MAX_SPEED = 10.0  # m/s (22 mph)
 ROAD_CAM_MIN_SPEED = 15.0  # m/s (34 mph)
 INF_POINT = np.array([1000.0, 0.0, 0.0])
 
-
 class AugmentedRoadView(CameraView):
   def __init__(self, stream_type: VisionStreamType = VisionStreamType.VISION_STREAM_ROAD):
     super().__init__("camerad", stream_type)
@@ -42,6 +41,7 @@ class AugmentedRoadView(CameraView):
     self.device_camera: DeviceCameraConfig | None = None
     self.view_from_calib = view_frame_from_device_frame.copy()
     self.view_from_wide_calib = view_frame_from_device_frame.copy()
+    self._camera_calibration_cache = CalibrationCache()
 
     self._matrix_cache_key = (0, 0.0, 0.0, stream_type)
     self._cached_matrix: np.ndarray | None = None
@@ -49,10 +49,9 @@ class AugmentedRoadView(CameraView):
     self._suppress_camera_for_cluster = False
 
     self.model_renderer = ModelRenderer()
-    self._render_diagnostics = RenderDiagnostics('ui')
     self._hud_renderer = HudRenderer()
     self.alert_renderer = AlertRenderer()
-    self.driver_state_renderer = DriverPreview()
+    self.driver_state_renderer = DriverStateRenderer()
 
     # debug
     self._pm = messaging.PubMaster(['uiDebug'])
@@ -83,10 +82,7 @@ class AugmentedRoadView(CameraView):
     start_draw = time.monotonic()
     if not ui_state.started:
       return
-    timing = self._render_diagnostics
-    timing.start()
-    # Preserve uiDebug wall timers and draw order; runtimeTiming also measures
-    # thread CPU work so scheduler/GPU waits are not mistaken for render work.
+    # 구간별 계측(계측 전용) — 렌더 호출 순서는 그대로, 각 구간 전후 monotonic만 잰다.
     # scissor begin/end는 raylib 배치 flush 지점이라 특정 구간에 귀속시키지 않는다 —
     # total과 구간 합의 차이(미귀속)로 남는다. extras = carrot 테두리(+텍스트)
     cam_ms = model_ms = ds_ms = hud_ms = alert_ms = extras_ms = 0.0
@@ -116,24 +112,26 @@ class AugmentedRoadView(CameraView):
     if self._suppress_camera_for_cluster:
       rl.draw_rectangle_rec(self._content_rect, rl.BLACK)
     else:
-      # Render the base camera view
-      timing.call('camera', super()._render, rect)
+      # Render into the same inner rectangle used by the model/HUD. Passing
+      # the outer rect here makes low-resolution camera streams render smaller
+      # than their viewport because CameraView applies the transform twice
+      # against different rectangle sizes.
+      super()._render(self._content_rect)
     cam_ms = (time.monotonic() - _t) * 1000.0
 
     if not self._suppress_camera_for_cluster:
       # Draw the model overlay only with the camera view
       _t = time.monotonic()
-      timing.call('model', self.model_renderer.render, self._content_rect)
+      self.model_renderer.render(self._content_rect)
       model_ms = (time.monotonic() - _t) * 1000.0
     _t = time.monotonic()
-    timing.call('hud', self._hud_renderer.render, self._content_rect)  # includes plot when enabled
+    self._hud_renderer.render(self._content_rect)  # plot 활성 시 plot 비용도 hud 구간에 포함
     hud_ms = (time.monotonic() - _t) * 1000.0
     _t = time.monotonic()
-    timing.call('alert', self.alert_renderer.render, self._content_rect)
+    self.alert_renderer.render(self._content_rect)
     alert_ms = (time.monotonic() - _t) * 1000.0
     _t = time.monotonic()
-    timing.call('driver_state', self.driver_state_renderer.draw_onroad, self._content_rect,
-                self.alert_renderer.get_alert(ui_state.sm) is not None)
+    self.driver_state_renderer.render(self._content_rect)
     ds_ms = (time.monotonic() - _t) * 1000.0
 
     # Custom UI extension point - add custom overlays here
@@ -144,7 +142,7 @@ class AugmentedRoadView(CameraView):
 
     # Draw colored border based on driving state
     _t = time.monotonic()
-    timing.call('border', self._draw_border_carrot, rect)
+    self._draw_border_carrot(rect)
     extras_ms = (time.monotonic() - _t) * 1000.0
 
     # publish uiDebug
@@ -160,16 +158,10 @@ class AugmentedRoadView(CameraView):
     ud.plotMode = self._plot_mode
     ud.recording = gui_app.is_recording()
     self._pm.send('uiDebug', msg)
-    timing.finish()
 
   def _handle_mouse_press(self, _):
     if not self._hud_renderer.user_interacting() and self._click_callback is not None:
       self._click_callback()
-
-  def close(self):
-    if preview := getattr(self, 'driver_state_renderer', None):
-      preview.close()
-    super().close()
 
   def _handle_mouse_release(self, _):
     # We only call click callback on press if not interacting with HUD
@@ -184,7 +176,10 @@ class AugmentedRoadView(CameraView):
     rl.draw_rectangle_rounded_lines_ex(border_rect, border_roundness, 10, UI_BORDER_SIZE, border_color)
 
   def _switch_stream_if_needed(self, sm):
-    if sm['selfdriveState'].experimentalMode and WIDE_CAM in self.available_streams:
+    # The J501 has both forward cameras continuously available. Camera choice
+    # here affects display only (modeld still consumes road + wide every run),
+    # so switch by speed regardless of experimental-mode state.
+    if WIDE_CAM in self.available_streams:
       v_ego = sm['carState'].vEgo
       if v_ego < WIDE_CAM_MAX_SPEED:
         target = WIDE_CAM
@@ -236,23 +231,34 @@ class AugmentedRoadView(CameraView):
     # Get camera configuration
     device_camera = self.device_camera or DEFAULT_DEVICE_CAMERA
     is_wide_camera = self.stream_type == WIDE_CAM
-    intrinsic = device_camera.ecam.intrinsics if is_wide_camera else device_camera.fcam.intrinsics
+    camera_calibration = self._camera_calibration_cache.resolve(ui_state.params, device_camera, time.monotonic())
+    calibration_values = camera_calibration.wide if is_wide_camera else camera_calibration.road
+    intrinsic = (device_camera.ecam.intrinsics if is_wide_camera else device_camera.fcam.intrinsics).copy()
+    intrinsic[0, 0] = intrinsic[1, 1] = calibration_values.focal_length
     calibration = self.view_from_wide_calib if is_wide_camera else self.view_from_calib
-    zoom = 2.0 if is_wide_camera else 1.1
-
-    # Calculate transforms for vanishing point
-    calib_transform = intrinsic @ calibration
-    kep = calib_transform @ INF_POINT
 
     # Calculate center points and dimensions
     x, y = self._content_rect.x, self._content_rect.y
     w, h = self._content_rect.width, self._content_rect.height
     cx, cy = intrinsic[0, 2], intrinsic[1, 2]
 
-    # Calculate max allowed offsets with margins
+    # The old fixed road zoom (1.1) only happened to fit the stock 1928-wide
+    # stream. A 1344-wide IMX390 stream was consequently drawn at about
+    # 1478x836 inside a roughly 2100x1020 viewport. Compute the minimum zoom
+    # needed to cover the viewport, while retaining the stock lower bounds.
     margin = 5
-    max_x_offset = cx * zoom - w / 2 - margin
-    max_y_offset = cy * zoom - h / 2 - margin
+    frame_w = float(self.frame.width) if self.frame is not None else 2.0 * cx
+    frame_h = float(self.frame.height) if self.frame is not None else 2.0 * cy
+    fill_zoom = max((w + 2.0 * margin) / frame_w, (h + 2.0 * margin) / frame_h)
+    zoom = max(2.0 if is_wide_camera else 1.1, fill_zoom)
+
+    # Calculate transforms for vanishing point
+    calib_transform = intrinsic @ calibration
+    kep = calib_transform @ INF_POINT
+
+    # Calculate max allowed offsets with margins
+    max_x_offset = max(0.0, cx * zoom - w / 2 - margin)
+    max_y_offset = max(0.0, cy * zoom - h / 2 - margin)
 
     # Calculate and clamp offsets to prevent out-of-bounds issues
     try:
@@ -277,7 +283,8 @@ class AugmentedRoadView(CameraView):
       [0.0, zoom, (h / 2 + y - y_offset) - (cy * zoom)],
       [0.0, 0.0, 1.0]
     ])
-    self.model_renderer.set_transform(video_transform @ calib_transform)
+    model_transform = video_transform @ calib_transform
+    self.model_renderer.set_transform(model_transform)
 
     return self._cached_matrix
 

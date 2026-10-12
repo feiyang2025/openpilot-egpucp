@@ -1,1 +1,1 @@
-{"openpilot.selfdrive.modeld.modeld": {"default": {"WARP_DEV": "QCOM", "QUEUE_DEV": "QCOM"}, "usbgpu": {"WARP_DEV": "QCOM", "QUEUE_DEV": "AMD"}}, "openpilot.selfdrive.modeld.dmonitoringmodeld": {"default": {"DEV": "QCOM"}}}
+{"openpilot.selfdrive.modeld.modeld": {"default": {"WARP_DEV": "CUDA", "QUEUE_DEV": "CUDA"}, "usbgpu": {"WARP_DEV": "CUDA", "QUEUE_DEV": "CUDA"}}, "openpilot.selfdrive.modeld.dmonitoringmodeld": {"default": {"DEV": "CUDA"}}}

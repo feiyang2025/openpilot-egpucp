@@ -11,19 +11,14 @@ from openpilot.cereal import log
 import openpilot.cereal.messaging as messaging
 import openpilot.system.sentry as sentry
 from openpilot.common.utils import atomic_write
-from openpilot.common.basedir import BASEDIR
 from openpilot.common.params import Params, ParamKeyFlag
-from openpilot.common.stopping_params import get_stopping_speed
 from openpilot.common.repo_update import release_boot_lock
 from openpilot.common.text_window import TextWindow
 from openpilot.system.hardware import HARDWARE
 from openpilot.system.manager.camera_config import configure_wide_camera
-from openpilot.selfdrive.monitoring.config import configure_monitoring
 from openpilot.system.manager.helpers import unblock_stdout, write_onroad_params, save_bootlog
 from openpilot.system.manager.process import ensure_running
 from openpilot.system.manager.process_config import managed_processes
-from openpilot.system.manager.update_status import UpdateStatus
-from openpilot.system.manager.xiaoge_startup import XiaogeStartupGate
 from openpilot.system.athena.registration import register, UNREGISTERED_DONGLE_ID
 from openpilot.common.swaglog import cloudlog, add_file_handler
 from openpilot.system.version import get_build_metadata
@@ -65,11 +60,10 @@ def write_supported_cars_files() -> None:
     except Exception:
       cloudlog.exception(f"failed to write {filename} from opendbc.car.{brand}.values")
 
-def manager_init() -> UpdateStatus:
+def manager_init() -> None:
   save_bootlog()
 
   build_metadata = get_build_metadata()
-  update_status = UpdateStatus(BASEDIR)
 
   params = Params()
   params.clear_all(ParamKeyFlag.CLEAR_ON_MANAGER_START)
@@ -82,15 +76,12 @@ def manager_init() -> UpdateStatus:
   if params.get_bool("RecordFrontLock"):
     params.put_bool("RecordFront", True)
 
-  configure_monitoring(params)
-
   # set unset params to their default value
   for k in params.all_keys():
     default_value = params.get_default_value(k)
     if default_value is not None and params.get(k) is None:
       params.put(k, default_value)
 
-  get_stopping_speed(params, blocking=True)
   configure_wide_camera(params)
 
   # Create folders needed for msgq
@@ -140,8 +131,6 @@ def manager_init() -> UpdateStatus:
   for p in managed_processes.values():
     p.prepare()
 
-  return update_status
-
 
 def manager_cleanup() -> None:
   # send signals to kill all procs
@@ -154,14 +143,6 @@ def manager_cleanup() -> None:
 
   cloudlog.info("everything is dead")
 
-
-def clear_ignition_on_params(params: Params) -> None:
-  # dm2d can have a session-disable write queued in Params' async writer. Stop
-  # it first so an old-session write cannot land after the ignition reset.
-  managed_processes["dmonitoringd"].stop(block=True)
-  params.clear_all(ParamKeyFlag.CLEAR_ON_IGNITION_ON)
-
-
 def read_rss_kb(pid: int) -> int:
   try:
     with open(f"/proc/{pid}/status") as f:
@@ -172,7 +153,7 @@ def read_rss_kb(pid: int) -> int:
     pass
   return 0
 
-def manager_thread(update_status: UpdateStatus) -> None:
+def manager_thread() -> None:
   cloudlog.bind(daemon="manager")
   cloudlog.info("manager start")
   cloudlog.info({"environ": os.environ})
@@ -190,9 +171,8 @@ def manager_thread(update_status: UpdateStatus) -> None:
     ignore += ["micd", "soundd", "loggerd"]
     params.put_bool("RecordAudio", False)
 
-  sm = messaging.SubMaster(['deviceState', 'carParams', 'pandaStates', 'selfdriveState', 'modelV2', 'carState'], poll='deviceState')
+  sm = messaging.SubMaster(['deviceState', 'carParams', 'pandaStates'], poll='deviceState')
   pm = messaging.PubMaster(['managerState'])
-  xiaoge_startup = XiaogeStartupGate()
 
   write_onroad_params(False, params)
   ensure_running(managed_processes.values(), False, params=params, CP=sm['carParams'], not_run=ignore)
@@ -215,7 +195,7 @@ def manager_thread(update_status: UpdateStatus) -> None:
 
     ignition = any(ps.ignitionLine or ps.ignitionCan for ps in sm['pandaStates'] if ps.pandaType != log.PandaState.PandaType.unknown)
     if ignition and not ignition_prev:
-      clear_ignition_on_params(params)
+      params.clear_all(ParamKeyFlag.CLEAR_ON_IGNITION_ON)
 
     # update onroad params, which drives pandad's safety setter thread
     if started != started_prev:
@@ -224,9 +204,7 @@ def manager_thread(update_status: UpdateStatus) -> None:
     started_prev = started
     ignition_prev = ignition
 
-    xiaoge_ready = xiaoge_startup.update(started, sm, sm['carParams'], params.get_bool('ControlsReady'), now)
-    not_run = ignore if xiaoge_ready else [*ignore, 'xiaoge_data']
-    ensure_running(managed_processes.values(), started, params=params, CP=sm['carParams'], not_run=not_run)
+    ensure_running(managed_processes.values(), started, params=params, CP=sm['carParams'], not_run=ignore)
 
     running = ' '.join("{}{}\u001b[0m".format("\u001b[32m" if p.proc.is_alive() else "\u001b[31m", p.name)
                        for p in managed_processes.values() if p.proc)
@@ -238,8 +216,6 @@ def manager_thread(update_status: UpdateStatus) -> None:
     # send managerState
     msg = messaging.new_message('managerState', valid=True)
     msg.managerState.processes = [p.get_process_state_msg() for p in managed_processes.values()]
-    # Check in the normal-priority manager, never in the 100 Hz control loop.
-    msg.managerState.rebootRequired = update_status.update(now)
     pm.send('managerState', msg)
 
     # kick AGNOS power monitoring watchdog
@@ -263,7 +239,7 @@ def manager_thread(update_status: UpdateStatus) -> None:
 
 def main() -> None:
   try:
-    update_status = manager_init()
+    manager_init()
     write_supported_cars_files()
   finally:
     release_boot_lock()
@@ -275,7 +251,7 @@ def main() -> None:
   signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(1))
 
   try:
-    manager_thread(update_status)
+    manager_thread()
   except Exception:
     traceback.print_exc()
     sentry.capture_exception()
@@ -313,9 +289,8 @@ if __name__ == "__main__":
     # Show last 3 lines of traceback
     error = traceback.format_exc(-3)
     error = "Manager failed to start\n\n" + error
-    if os.getenv("CARROT_STARTUP_RECOVERY") != "1":
-      with TextWindow(error) as t:
-        t.wait_for_exit()
+    with TextWindow(error) as t:
+      t.wait_for_exit()
 
     raise
 

@@ -44,6 +44,7 @@ ABS_MT_SLOT = 0x2f
 ABS_MT_TRACKING_ID = 0x39
 
 BIG_UI = os.getenv("BIG", "0") == "1"
+UNDECORATED = os.getenv("UNDECORATED", "1") == "1"  # borderless (default off: keep window manageable on desktop)  # borderless: avoid GNOME title-bar offset on touch panels
 ENABLE_VSYNC = os.getenv("ENABLE_VSYNC", "0") == "1"
 SHOW_FPS = os.getenv("SHOW_FPS") == "1"
 SHOW_TOUCHES = os.getenv("SHOW_TOUCHES") == "1"
@@ -361,13 +362,6 @@ class GuiApplication:
       self._render_texture = rl.load_render_texture(self._width, self._height)
       rl.set_texture_filter(self._render_texture.texture, rl.TextureFilter.TEXTURE_FILTER_BILINEAR)
 
-  def _release_unused_render_texture(self):
-    # Only at a frame boundary: a widget can stop recording inside texture mode.
-    # Preserve targets required by scaling, burn-in visualization or CLI recording.
-    if self._render_texture is not None and not (self._record_enabled or RECORD or BURN_IN_MODE or self._scale != 1.0):
-      rl.unload_render_texture(self._render_texture)
-      self._render_texture = None
-
   def _init_ffmpeg(self, out_path: Path):
     self.close_ffmpeg()
 
@@ -378,10 +372,6 @@ class GuiApplication:
     preset = "ultrafast"
 
     fps = self._target_fps if self._target_fps > 0 else _DEFAULT_FPS
-    # Frames reach ffmpeg only every `_record_every_n` render frames, so the
-    # declared input rate must match that real capture rate; otherwise the
-    # encoded video plays back exactly `_record_every_n` times too fast.
-    capture_fps = fps / max(1, self._record_every_n)
     output_fps = fps * record_speed
 
     ffmpeg_args = [
@@ -391,7 +381,7 @@ class GuiApplication:
       "-f", "rawvideo",
       "-pix_fmt", "rgba",
       "-s", f"{self._width}x{self._height}",
-      "-r", f"{capture_fps:g}",
+      "-r", str(fps),
       "-i", "pipe:0",
       "-vf", "vflip,format=yuv420p",
       "-r", str(output_fps),
@@ -478,11 +468,21 @@ class GuiApplication:
       atexit.register(self.close)
 
       flags = rl.ConfigFlags.FLAG_MSAA_4X_HINT
+      if UNDECORATED:
+        flags |= rl.ConfigFlags.FLAG_WINDOW_UNDECORATED
       if ENABLE_VSYNC:
         flags |= rl.ConfigFlags.FLAG_VSYNC_HINT
       rl.set_config_flags(flags)
 
       rl.init_window(self._scaled_width, self._scaled_height, title)
+
+      # Borderless touch-panel UI: place below GNOME top panel (32px)
+      # so the window fits fully inside the 1024x600 screen.
+      if UNDECORATED:
+        try:
+          rl.set_window_position(0, 32)
+        except Exception:
+          pass
 
       needs_render_texture = self._scale != 1.0 or BURN_IN_MODE or RECORD
       if self._scale != 1.0:
@@ -799,10 +799,6 @@ class GuiApplication:
       rl.unload_texture(texture)
     self._textures = {}
 
-    from openpilot.system.ui.lib import native_text, text_measure
-    native_text.clear()
-    text_measure._cache.clear()
-
     for font in self._fonts.values():
       rl.unload_font(font)
     self._fonts = {}
@@ -858,12 +854,8 @@ class GuiApplication:
           yield False
           continue
 
-        self._release_unused_render_texture()
-        # Start/stop can happen during widget rendering. Pair begin/end with the
-        # target selected at frame start, never a newly allocated recording one.
-        render_texture = self._render_texture
-        if render_texture:
-          rl.begin_texture_mode(render_texture)
+        if self._render_texture:
+          rl.begin_texture_mode(self._render_texture)
           rl.clear_background(rl.BLACK)
         else:
           rl.begin_drawing()
@@ -886,13 +878,13 @@ class GuiApplication:
         if self._scale != 1.0:
           rl.rl_pop_matrix()
 
-        if render_texture:
+        if self._render_texture:
           rl.end_texture_mode()
           rl.begin_drawing()
           rl.clear_background(rl.BLACK)
           src_rect = rl.Rectangle(0, 0, float(self._scaled_width), -float(self._scaled_height))
           dst_rect = rl.Rectangle(0, 0, float(self._scaled_width), float(self._scaled_height))
-          texture = render_texture.texture
+          texture = self._render_texture.texture
           if texture:
             if BURN_IN_MODE and self._burn_in_shader:
               rl.begin_shader_mode(self._burn_in_shader)
@@ -912,12 +904,10 @@ class GuiApplication:
 
         rl.end_drawing()
 
-        if (RECORD or self._record_enabled) and render_texture is not None:
+        if RECORD or self._record_enabled:
           self._record_frame_idx += 1
-          # A saturated encoder queue cannot use another frame. Skip the costly
-          # synchronous GPU readback and copy rather than discarding it afterward.
-          if self._record_frame_idx % self._record_every_n == 0 and self._ffmpeg_queue is not None and not self._ffmpeg_queue.full():
-            image = rl.load_image_from_texture(render_texture.texture)
+          if self._record_frame_idx % self._record_every_n == 0:
+            image = rl.load_image_from_texture(self._render_texture.texture)
             data_size = image.width * image.height * 4
             data = bytes(rl.ffi.buffer(image.data, data_size))
             try:
@@ -1011,15 +1001,12 @@ class GuiApplication:
       return False
 
   def _patch_text_functions(self):
-    from openpilot.system.ui.lib import native_text
     # Wrap pyray text APIs to apply a global text size scale so our px sizes match Qt
     if not hasattr(rl, "_orig_draw_text_ex"):
       rl._orig_draw_text_ex = rl.draw_text_ex
 
     def _draw_text_ex_scaled(font, text, position, font_size, spacing, tint):
       font = font_fallback(font)
-      if native_text.try_plain_text(rl, font, text, position, font_size * FONT_SCALE, spacing, tint):
-        return
       return rl._orig_draw_text_ex(font, text, position, font_size * FONT_SCALE, spacing, tint)
 
     rl.draw_text_ex = _draw_text_ex_scaled
@@ -1163,11 +1150,11 @@ class GuiApplication:
 
   @staticmethod
   def _default_width() -> int:
-    return 2160 if GuiApplication.big_ui() else 536
+    return int(os.getenv("UI_WIDTH", "2160" if GuiApplication.big_ui() else "536"))
 
   @staticmethod
   def _default_height() -> int:
-    return 1080 if GuiApplication.big_ui() else 240
+    return int(os.getenv("UI_HEIGHT", "1080" if GuiApplication.big_ui() else "240"))
 
   @staticmethod
   def big_ui() -> bool:

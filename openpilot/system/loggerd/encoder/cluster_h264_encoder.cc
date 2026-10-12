@@ -15,7 +15,6 @@
 #include <unistd.h>
 
 #include "common/swaglog.h"
-#include "common/poll_timeout.h"
 #include "common/util.h"
 #include "system/camerad/cameras/nv12_info.h"
 #include "third_party/linux/include/v4l2-controls.h"
@@ -569,7 +568,10 @@ size_t ClusterH264Encoder::process_ready_events(int timeout_ms, bool stop_after_
 
   while (true) {
     pfd.revents = 0;
-    int ret = poll_with_timeout(&pfd, 1, timeout_ms);
+    int ret;
+    do {
+      ret = poll(&pfd, 1, timeout_ms);
+    } while (ret < 0 && errno == EINTR);
     if (ret < 0) {
       throw std::runtime_error(util::string_format("cluster H264 poll failed: %s (%d)", strerror(errno), errno));
     }

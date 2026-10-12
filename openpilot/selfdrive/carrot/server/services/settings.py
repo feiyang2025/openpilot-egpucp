@@ -4,7 +4,6 @@ from copy import deepcopy
 from typing import Any, Dict, List, Tuple
 
 from ..config import DEFAULT_SETTINGS_PATH
-from openpilot.selfdrive.carrot.cruise_gap import supported_gap_levels
 
 
 # mtime-based cache for carrot_settings.json
@@ -93,7 +92,7 @@ def group_index(settings: Dict[str, Any]) -> Tuple[Dict[str, list], Dict[str, Di
       "group": g,
       "egroup": egroup,
       "cgroup": cgroup,
-      "count": sum(1 for item in items if not item.get("detail_parent") and not item.get("search_only")),
+      "count": sum(1 for item in items if not item.get("detail_parent")),
     })
 
   return groups, by_name, groups_list
@@ -162,7 +161,7 @@ def build_menu_categories(data: Dict[str, Any], by_name: Dict[str, Dict[str, Any
         1
         for section in sections
         for name in section["items"]
-        if not by_name[name].get("detail_parent") and not by_name[name].get("search_only")
+        if not by_name[name].get("detail_parent")
       )
       groups_out.append({**_label(grp), "id": grp.get("id"), "count": count, "sections": sections})
     cats.append({**_label(cat), "id": cat.get("id"), "groups": groups_out})
@@ -204,18 +203,12 @@ def filter_settings_catalog_for_brand(
     for item in items
     if item.get("detail_parent")
   }
-  search_only_names = {
-    str(item.get("name"))
-    for items in filtered_groups.values()
-    for item in items
-    if item.get("search_only")
-  }
   filtered_groups_list = [
     {
       **group,
       "count": sum(
         1 for item in filtered_groups.get(group.get("group"), [])
-        if not item.get("detail_parent") and not item.get("search_only")
+        if not item.get("detail_parent")
       ),
     }
     for group in groups_list
@@ -236,44 +229,13 @@ def filter_settings_catalog_for_brand(
           1
           for section in visible_sections
           for name in section["items"]
-          if name not in detail_names and name not in search_only_names
+          if name not in detail_names
         )
         if group["count"]:
           visible_groups.append(group)
       category["groups"] = visible_groups
 
   return filtered_groups, filtered_groups_list, filtered_categories, hidden_names
-
-
-def current_max_gap_levels(params=None) -> int:
-  if params is None:
-    from .params import HAS_PARAMS, Params
-    if not HAS_PARAMS or Params is None:
-      return 4
-    params = Params()
-  try:
-    return supported_gap_levels(params.get_int("LongitudinalPersonalityMax"))
-  except Exception:
-    return 3
-
-
-def with_vehicle_gap_limits(cache_parts: tuple, maximum: int) -> tuple:
-  data, groups, by_name, groups_list = cache_parts
-  setting = by_name.get("CruiseGapLevels")
-  if setting is None:
-    return cache_parts
-  maximum = supported_gap_levels(maximum)
-  setting = {**setting, "max": maximum, "default": maximum,
-             "options": {locale: options[:maximum - 1] for locale, options in setting["options"].items()}}
-  # Keep the process cache neutral when vehicle identification changes.
-  def adapted(items):
-    return [setting if item.get("name") == "CruiseGapLevels" else item for item in items]
-  return (
-    {**data, "params": adapted(data["params"])},
-    {group: adapted(items) for group, items in groups.items()},
-    {**by_name, "CruiseGapLevels": setting},
-    groups_list,
-  )
 
 
 def get_settings_cached() -> Tuple[Dict[str, Any], Dict[str, list], Dict[str, Dict[str, Any]], List[Dict[str, Any]]]:
@@ -291,9 +253,9 @@ def get_settings_cached() -> Tuple[Dict[str, Any], Dict[str, list], Dict[str, Di
       "groups_list": groups_list,
       "categories": build_menu_categories(data, by_name),
     })
-  return with_vehicle_gap_limits((
+  return (
     settings_cache["data"],
     settings_cache["groups"],
     settings_cache["by_name"],
     settings_cache["groups_list"],
-  ), current_max_gap_levels())
+  )

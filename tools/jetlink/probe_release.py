@@ -1,4 +1,9 @@
-"""Before activation only: imports, pinned engine load/build and finite inference."""
+"""Before activation only: imports, pinned engine load/build and finite inference.
+
+LEGACY, not updated for protocol 3: jetlink 0.7.2 removed the Python
+`jetlink.server` package, so the `import server` check below fails. This is the
+Jetson release pipeline's pre-activation probe only.
+"""
 import json
 from pathlib import Path
 import sys

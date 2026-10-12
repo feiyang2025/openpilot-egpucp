@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
-import math
+import os
 import secrets
 import sys
 import time
@@ -50,12 +50,17 @@ FRAME_TIMEOUT = 3.0
 
 StopFn = Callable[[], bool]
 
+# openpilot logs the whole output vector as modelV2.rawPredictions when this is
+# set, from what infer_end returns. The server keeps the hidden state, so ask for
+# it on those runs, or the log would carry zeros where it goes.
+RAW_PRED_ENV = 'SEND_RAW_PRED'
+
 
 class EngineMissing(LinkError):
   """The server has no engine and this caller has no ONNX to upload.
 
   Raised in modeld, which never carries the file: the Jetson's cache was pruned,
-  re-flashed or swapped since jetlinkd recorded it ready.
+  re-flashed or swapped since a provisioning run recorded it ready.
   """
 
 
@@ -64,26 +69,13 @@ def _default_name() -> str:
   return (Path(sys.argv[0]).stem if sys.argv else '') or 'python'
 
 
-def _transport_layers(transport):
-  pending = [transport]
-  seen = set()
-  while pending:
-    current = pending.pop(0)
-    if current is None or id(current) in seen:
-      continue
-    seen.add(id(current))
-    yield current
-    for name in ('transport', 'inner', 'wrapped', '_transport', 't'):
-      nested = getattr(current, name, None)
-      if nested is not None:
-        pending.append(nested)
-
-
 class JetlinkClient:
   def __init__(self, transport: Transport, deadline: float = FRAME_TIMEOUT,
-               name: str | None = None):
+               name: str | None = None, want_hidden: bool | None = None):
     self.t = transport
     self.deadline = deadline
+    # Flag.WANT_HIDDEN on every frame; see RAW_PRED_ENV
+    self.want_hidden = bool(os.environ.get(RAW_PRED_ENV)) if want_hidden is None else want_hidden
     # Who the server logs this connection as. The nonce is per client object,
     # so two processes taking turns on one gadget, or one process reopening
     # the link, are separable in a journal whose clock is wrong anyway.
@@ -102,12 +94,6 @@ class JetlinkClient:
     self._infer_flags = 0
 
   # -- construction ---------------------------------------------------------
-
-  @classmethod
-  def open_usb(cls, **kw) -> JetlinkClient:
-    """This end is the USB host (libusb)."""
-    from jetlink.transport.usbbulk import UsbBulkTransport
-    return cls(UsbBulkTransport.open(), **kw)
 
   @classmethod
   def open_ffs(cls, mount: str = '/dev/ffs-jetlink', gadget: str | None = None,
@@ -133,41 +119,44 @@ class JetlinkClient:
     return cls(FfsTransport.borrowed(mount, udc, bounce=bounce, owner_gadget=owner_gadget), **kw)
 
   @classmethod
+  def open_loan(cls, loan, **kw) -> JetlinkClient:
+    """Over what the comma's gadget owner lent (jetlink.comma.lending.Loan):
+    the phone's dial when it lent one, else the endpoint files."""
+    if loan.sock is not None:
+      return cls.open_socket(loan.sock, **kw)
+    return cls.open_borrowed_ffs(loan.mount, loan.udc, bounce=loan.bounce, **kw)
+
+  @classmethod
   def open_tcp(cls, host: str, port: int = 5599, **kw) -> JetlinkClient:
     from jetlink.transport.tcp import TcpTransport
     return cls(TcpTransport.connect(host, port), **kw)
+
+  @classmethod
+  def open_listen(cls, address: str, timeout: float | None = None, **kw) -> JetlinkClient:
+    """Wait for one peer to dial `address`, '[HOST:]PORT' (every interface by
+    default), and run the session over that connection, as the comma takes a
+    phone's dial (docs/transport.md). For the bench and parity scripts."""
+    from jetlink.transport.tcp import TcpTransport
+    host, _, port = address.rpartition(':')
+    if not port.isdigit():
+      raise ValueError(f'listen on [HOST:]PORT, not {address!r}')
+    transport, peer = TcpTransport.listen_once(host or '0.0.0.0', int(port), timeout)
+    log.info('peer dialed in from %s:%d', peer[0], peer[1])
+    return cls(transport, **kw)
+
+  @classmethod
+  def open_socket(cls, sock, **kw) -> JetlinkClient:
+    """Over a socket somebody else connected: a phone that dialed the comma
+    over the cable's network interface, accepted by the gadget owner and
+    handed to the borrower. The same session as open_tcp from here on."""
+    from jetlink.transport.tcp import TcpTransport
+    return cls(TcpTransport(sock), **kw)
 
   # -- plumbing -------------------------------------------------------------
 
   def _next_seq(self) -> int:
     self.seq = (self.seq + 1) & 0xFFFFFFFF
     return self.seq
-
-  def _protocol_version(self) -> int:
-    for transport in _transport_layers(self.t):
-      version = getattr(transport, 'protocol_version', None)
-      if version is not None:
-        try:
-          return P.validate_version(version)
-        except ValueError as e:
-          raise LinkError(str(e)) from e
-    return P.VERSION
-
-  def _link_info(self) -> dict:
-    for transport in _transport_layers(self.t):
-      info = getattr(transport, 'link_info', None)
-      if not callable(info):
-        continue
-      try:
-        link = info()
-      except (OSError, AttributeError, ValueError) as e:
-        log.warning("could not read Jetlink transport metadata: %s", e)
-        continue
-      if link:
-        if not isinstance(link, dict):
-          raise LinkError("transport link_info() must return a dictionary")
-        return link
-    return {}
 
   def _dispatch(self, msg: Message) -> None:
     """Handle the messages the server may send at any time."""
@@ -211,28 +200,19 @@ class JetlinkClient:
   def hello(self, timeout: float = 5.0) -> dict:
     """Introduce this client. The server starts its session over on a hello,
     so this is also how a new owner of the gadget takes over one the server
-    never saw end; see Session._greet."""
+    never saw end; see Session.greet in JetlinkServer."""
     seq = self._next_seq()
-    version = self._protocol_version()
     client = {'nonce': self.nonce, 'name': self.name}
-    if version == 3:
-      link = self._link_info()
-      if link:
-        client['link'] = link
-    self.t.send_json(P.Msg.HELLO_REQ, seq, {'client': client})
-    response = json.loads(bytes(self._expect(P.Msg.HELLO_RESP, seq, timeout).payload))
-    if not isinstance(response, dict):
-      raise LinkError("hello response is not an object")
-    selected = response.get('protocol')
-    if type(selected) is not int:
-      raise LinkError(f"server selected invalid protocol value {selected!r}")
     try:
-      selected = P.validate_version(selected)
-    except ValueError as e:
-      raise LinkError(str(e)) from e
-    if selected != version:
-      raise LinkError(f"server selected protocol {selected!r}, transport speaks protocol {version}")
-    return response
+      link = self.t.link_info()
+    except Exception:
+      link = {}   # never worth a failed hello
+    if link:
+      # Which link this is and how fast: the server shows it (USB 3, USB 2,
+      # TCP), and only this end always knows. See Transport.link_info.
+      client['link'] = link
+    self.t.send_json(P.Msg.HELLO_REQ, seq, {'client': client})
+    return json.loads(bytes(self._expect(P.Msg.HELLO_RESP, seq, timeout).payload))
 
   def state(self, timeout: float = 2.0) -> dict:
     seq = self._next_seq()
@@ -270,13 +250,7 @@ class JetlinkClient:
     `onnx_path` None means the caller cannot upload (modeld) and a missing
     engine is EngineMissing. `progress(stage, frac, msg)` has stage in
     upload/patch/parse/build/load. `should_stop` is polled during long waits.
-    A zero `nbytes` asks the server to use its cached or resident engine and
-    never supplies an upload size.
     """
-    if type(nbytes) is not int or nbytes < 0:
-      raise LinkError("nbytes must be a non-negative integer")
-    if type(frame_skip) is not int or frame_skip <= 0:
-      raise LinkError("frame_skip must be a positive integer")
     self.progress_cb = progress
     self._should_stop = should_stop or (lambda: False)
     self.spec = None
@@ -285,41 +259,27 @@ class JetlinkClient:
     seq = self._next_seq()
     self.t.send_json(P.Msg.ENGINE_REQ, seq, {'sha256': sha256, 'nbytes': nbytes, 'frame_skip': frame_skip})
     resp = json.loads(bytes(self._expect(P.Msg.ENGINE_RESP, seq, 60.0).payload))
-    if not isinstance(resp, dict):
-      raise LinkError("engine response is not an object")
     self._engine_state = resp
-    log.info("server engine state: %s (%s)", resp.get('state', 'unknown'), resp.get('detail', ''))
+    log.info("server engine state: %s (%s)", resp['state'], resp.get('detail', ''))
 
     if resp['state'] == 'need_upload':
-      if nbytes == 0:
-        raise EngineMissing(f"server has no cached engine for {sha256[:16]} ({resp.get('detail', '')})")
       if onnx_path is None:
         raise EngineMissing(f"server has no engine for {sha256[:16]} ({resp.get('detail', '')})")
       self._upload(Path(onnx_path), nbytes, int(resp.get('chunk') or CHUNK))
 
-    self._await_ready(build_timeout)
-    spec = self._engine_spec(sha256, frame_skip, expected_nbytes=nbytes if nbytes else None)
-    self.spec = spec
-    return spec
-
-  def _engine_spec(self, sha256: str, frame_skip: int,
-                   expected_nbytes: int | None = None) -> ModelSpec:
-    state = self._engine_state or {}
-    raw_spec = state.get('spec')
-    if not isinstance(raw_spec, dict):
-      raise LinkError("server reported ready without a model spec")
     try:
-      spec = ModelSpec.from_dict(raw_spec)
-    except (KeyError, TypeError, ValueError) as e:
-      raise LinkError(f"server returned an invalid model spec: {e}") from e
+      self._await_ready(build_timeout)
+    except EngineMissing:
+      # need_upload came later, once the job holding the device (a preload
+      # of another model) was done. A caller with the file sends it now.
+      if onnx_path is None:
+        raise
+      self._upload(Path(onnx_path), nbytes, int(self._engine_state.get('chunk') or CHUNK))
+      self._await_ready(build_timeout)
+    spec = ModelSpec.from_dict(self._engine_state['spec'])
     if spec.sha256 != sha256:
       raise LinkError(f"server answered for {spec.sha256[:16]}, we asked for {sha256[:16]}")
-    if type(spec.nbytes) is not int or spec.nbytes <= 0:
-      raise LinkError(f"server returned invalid model size {spec.nbytes!r}")
-    if type(spec.frame_skip) is not int or spec.frame_skip != frame_skip:
-      raise LinkError(f"server returned frame_skip {spec.frame_skip!r}, requested {frame_skip}")
-    if expected_nbytes is not None and spec.nbytes != expected_nbytes:
-      raise LinkError(f"server returned nbytes {spec.nbytes}, requested {expected_nbytes}")
+    self.spec = spec
     return spec
 
   def _stopped(self) -> None:
@@ -357,6 +317,11 @@ class JetlinkClient:
         return
       if st == 'failed':
         raise LinkError(f"engine build failed: {self._engine_state.get('detail')}")
+      if st == 'need_upload':
+        # pushed when the device came free: without this the wait ran to
+        # build_timeout, a whole drive for provisioning's 1800 s
+        sha = str(self._engine_state.get('sha256'))
+        raise EngineMissing(f"server has no engine for {sha[:16]} ({self._engine_state.get('detail', '')})")
       if time.monotonic() > end:
         raise LinkTimeout(f"engine not ready after {timeout:.0f}s (state={st})")
       self._stopped()
@@ -378,17 +343,11 @@ class JetlinkClient:
       raise LinkError("ensure_engine() first")
     if self.dead:
       raise LinkError("link previously failed")
-    version = self._protocol_version()
-    if self.spec.stateful and version == 2:
-      raise LinkError("stateful models require protocol 3")
     warped = _as_bytes(warped, self.spec.warped_nbytes, 'warped')
     packed = _as_bytes(packed, self.spec.packed_nbytes, 'packed')
-    if version == 3:
-      packed = _protocol3_packed(self.spec, packed)
     seq = self._next_seq()
-    flags = (P.Flag.RESET_QUEUES if reset else 0) | (P.Flag.WANT_STATE if want_state else 0)
-    if version == 3:
-      flags |= P.Flag.WANT_HIDDEN
+    flags = ((P.Flag.RESET_QUEUES if reset else 0) | (P.Flag.WANT_STATE if want_state else 0)
+             | (P.Flag.WANT_HIDDEN if self.want_hidden else 0))
     try:
       self._infer_started = time.monotonic()
       self._infer_frame_id = frame_id
@@ -429,22 +388,21 @@ class JetlinkClient:
     if fid != self._infer_frame_id:
       self.dead = True
       raise LinkError(f'inference response frame {fid}, expected {self._infer_frame_id}')
-    end = P.INFER_RESP_SIZE + self.spec.output_nbytes
+    whole = bool(self._infer_flags & P.Flag.WANT_HIDDEN)
+    n = self.spec.output_nelem if whole else self.spec.reply_nelem
+    end = P.INFER_RESP_SIZE + n * 4
     if msg.payload.nbytes < end:
       self.dead = True
       raise LinkError('inference response is missing model outputs')
     if msg.payload.nbytes > end:
-      if not (self._infer_flags & P.Flag.WANT_STATE):
+      # piggybacked telemetry, when asked for; anything else is outputs laid
+      # out some other way (hidden_state left in by a server that says
+      # protocol 3, or a slice the two ends resolve differently): every float
+      # after it would be misread
+      state = _telemetry(msg.payload[end:]) if self._infer_flags & P.Flag.WANT_STATE else None
+      if state is None:
         self.dead = True
         raise LinkError(f'inference response is {msg.payload.nbytes} bytes, expected {end}')
-      try:
-        state = json.loads(bytes(msg.payload[end:]))
-      except ValueError as e:
-        self.dead = True
-        raise LinkError('inference response has invalid telemetry') from e
-      if not isinstance(state, dict):
-        self.dead = True
-        raise LinkError('inference response telemetry is not an object')
       self.last_state = state
     receive = getattr(self.t, 'last_receive', None)
     if receive is not None and time.monotonic() - self._infer_started > 0.05:
@@ -452,17 +410,14 @@ class JetlinkClient:
                   'server gpu %.1f queue %.1f total %.1f ms', fid,
                   receive['prepare'] * 1e3, receive['read_wait'] * 1e3, receive['handoff'] * 1e3,
                   gpu_us / 1e3, queue_us / 1e3, total_us / 1e3)
-    # copy: the payload is a view into the transport's reusable receive buffer.
-    output = np.frombuffer(msg.payload, np.float32, self.spec.output_nelem, P.INFER_RESP_SIZE).copy()
-    if not np.all(np.isfinite(output)):
-      self.dead = True
-      raise LinkError('inference response contains non-finite model outputs')
-    return output
+    return _whole_output(self.spec, np.frombuffer(msg.payload, np.float32, n, P.INFER_RESP_SIZE), whole)
 
   def infer(self, warped: np.ndarray, packed: np.ndarray, frame_id: int = 0,
             reset: bool = False, deadline: float | None = None,
             want_state: bool = False) -> np.ndarray:
-    """One frame. Returns the model output as float32, shaped (n,).
+    """One frame. Returns the model output as float32, shaped (n,), laid out
+    as the spec's output_slices say; hidden_state reads as zeros unless
+    `want_hidden`, since it stays on the server.
 
     `warped` is (2, 6, H, W) uint8 off openpilot's warp, `packed` the float32
     packed_npy_inputs. Either may be any buffer, so a tinygrad Tensor.data()
@@ -487,7 +442,41 @@ class JetlinkClient:
     return self.t.release_endpoints()
 
   def close(self) -> None:
+    # a closed client is as dead as a failed one: whoever still holds it must
+    # open a new one rather than reuse a closed socket or endpoint file
+    self.dead = True
     self.t.close()
+
+
+def _telemetry(tail) -> dict | None:
+  """A WANT_STATE reply's telemetry: the JSON object after the outputs. None
+  for anything else, floats included, which is a reply laid out another way."""
+  raw = bytes(tail)
+  if raw[:1] != b'{':
+    return None
+  try:
+    state = json.loads(raw)
+  except ValueError:
+    return None
+  return state if isinstance(state, dict) else None
+
+
+def _whole_output(spec: ModelSpec, reply: np.ndarray, whole: bool) -> np.ndarray:
+  """The output vector, from a reply that may leave hidden_state out.
+
+  Always a new array: `reply` views the transport's reusable receive buffer.
+  The full length keeps the spec's output_slices valid, so the caller slices
+  as it did when the whole vector crossed the link.
+  """
+  hidden = spec.hidden_range
+  if whole or hidden is None:
+    return reply.copy()
+  start, stop = hidden
+  out = np.empty(spec.output_nelem, np.float32)
+  out[:start] = reply[:start]
+  out[start:stop] = 0
+  out[stop:] = reply[start:]
+  return out
 
 
 def _as_bytes(buf, expect: int, name: str) -> memoryview:
@@ -503,21 +492,3 @@ def _as_bytes(buf, expect: int, name: str) -> memoryview:
   if mv.nbytes != expect:
     raise LinkError(f"{name} is {mv.nbytes} bytes, expected {expect}")
   return mv
-
-
-def _protocol3_packed(spec: ModelSpec, packed: memoryview) -> memoryview:
-  """Drop the legacy caller-owned prev_feat tail; protocol 3 keeps it server-side."""
-  fields = list(spec.packed_shapes.items())
-  if spec.stateful:
-    if any(name == 'prev_feat' for name, _ in fields):
-      raise LinkError("stateful protocol 3 packed layout must not contain prev_feat")
-    if packed.nbytes != spec.packed_nbytes:
-      raise LinkError("protocol 3 stateful packed layout does not match its spec")
-    return packed
-  if not fields or fields[-1][0] != 'prev_feat':
-    raise LinkError("protocol 3 requires prev_feat to be the last packed field")
-  scalar_nelem = sum(math.prod(shape) for _, shape in fields[:-1])
-  legacy_nelem = scalar_nelem + math.prod(fields[-1][1])
-  if legacy_nelem * 4 != spec.packed_nbytes or packed.nbytes != legacy_nelem * 4:
-    raise LinkError("protocol 3 packed layout does not match the legacy spec")
-  return packed[:scalar_nelem * 4]

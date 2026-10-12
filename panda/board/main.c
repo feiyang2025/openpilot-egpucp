@@ -37,11 +37,6 @@ static bool check_started(void) {
   return started;
 }
 
-static bool check_started_ignition_only(void) {
-  bool started = current_board->check_ignition() || ignition_can;
-  return started;
-}
-
 void debug_ring_callback(uart_ring *ring) {
   char rcv;
   while (get_char(ring, &rcv)) {
@@ -67,30 +62,6 @@ void debug_ring_callback(uart_ring *ring) {
 
 // this is the only way to leave silent mode
 void set_safety_mode(uint16_t mode, uint16_t param) {
-  const uint32_t transition_start = microsecond_timer_get();
-  bool preserve_can = false;
-  bool transition_critical = false;
-  #ifdef STM32H7
-  // A normal, live diagnostic-to-Hyundai handoff changes safety policy and
-  // relay ownership, not CAN timing or routing. Keep known-good controllers
-  // running instead of busy-waiting through six INIT cycles inside SPI RX.
-  ENTER_CRITICAL();
-  if ((current_safety_mode == SAFETY_ELM327) && (current_safety_param != 0U) &&
-      ((mode == SAFETY_HYUNDAI) || (mode == SAFETY_HYUNDAI_LEGACY) || (mode == SAFETY_HYUNDAI_CANFD)) &&
-      (can_silent == ALL_CAN_LIVE) && !can_loopback &&
-      (power_save_status == POWER_SAVE_STATUS_DISABLED) &&
-      current_board->harness_config->has_harness &&
-      (harness.status != HARNESS_STATUS_NC) &&
-      (applied_can_mode == CAN_MODE_NORMAL) && (applied_can_harness_status == harness.status)) {
-    preserve_can = can_preserve_configuration();
-  }
-  if (preserve_can) {
-    transition_critical = true;
-    can_clear_safety_transition_queues();
-  } else {
-    EXIT_CRITICAL();
-  }
-  #endif
   uint16_t mode_copy = mode;
   int err = set_safety_hooks(mode_copy, param);
   if (err == -1) {
@@ -99,7 +70,6 @@ void set_safety_mode(uint16_t mode, uint16_t param) {
     err = set_safety_hooks(mode_copy, 0U);
     // TERMINAL ERROR: we can't continue if SILENT safety mode isn't succesfully set
     assert_fatal(err == 0, "Error: Failed setting SILENT mode. Hanging\n");
-    preserve_can = false;
   }
   safety_tx_blocked = 0;
   safety_rx_invalid = 0;
@@ -108,14 +78,14 @@ void set_safety_mode(uint16_t mode, uint16_t param) {
     case SAFETY_SILENT:
       set_intercept_relay(false, false);
       if (current_board->harness_config->has_harness) {
-        can_set_mode(CAN_MODE_NORMAL);
+        current_board->set_can_mode(CAN_MODE_NORMAL);
       }
       can_silent = ALL_CAN_SILENT;
       break;
     case SAFETY_NOOUTPUT:
       set_intercept_relay(false, false);
       if (current_board->harness_config->has_harness) {
-        can_set_mode(CAN_MODE_NORMAL);
+        current_board->set_can_mode(CAN_MODE_NORMAL);
       }
       can_silent = ALL_CAN_LIVE;
       break;
@@ -128,9 +98,9 @@ void set_safety_mode(uint16_t mode, uint16_t param) {
         // TODO: rewrite using hardware queues rather than fifo to cancel specific messages
         can_clear_send(CANIF_FROM_CAN_NUM(1), 1);
         if (param == 0U) {
-          can_set_mode(CAN_MODE_OBD_CAN2);
+          current_board->set_can_mode(CAN_MODE_OBD_CAN2);
         } else {
-          can_set_mode(CAN_MODE_NORMAL);
+          current_board->set_can_mode(CAN_MODE_NORMAL);
         }
       }
       can_silent = ALL_CAN_LIVE;
@@ -139,22 +109,13 @@ void set_safety_mode(uint16_t mode, uint16_t param) {
       set_intercept_relay(true, false);
       heartbeat_counter = 0U;
       heartbeat_lost = false;
-      if (current_board->harness_config->has_harness && !preserve_can) {
-        can_set_mode(CAN_MODE_NORMAL);
+      if (current_board->harness_config->has_harness) {
+        current_board->set_can_mode(CAN_MODE_NORMAL);
       }
       can_silent = ALL_CAN_LIVE;
       break;
   }
-  if (transition_critical) {
-    EXIT_CRITICAL();
-  }
-  if (!preserve_can) {
-    can_init_all();
-  }
-  const uint32_t transition_us = get_ts_elapsed(microsecond_timer_get(), transition_start);
-  print("safety_can_transition: mode="); puth(mode_copy);
-  print(" preserve="); puth(preserve_can ? 1U : 0U);
-  print(" us="); puth(transition_us); print("\n");
+  can_init_all();
 }
 
 bool is_car_safety_mode(uint16_t mode) {
@@ -238,7 +199,7 @@ static void tick_handler(void) {
       const bool recent_heartbeat = heartbeat_counter == 0U;
 
       // tick drivers at 1Hz
-      bootkick_tick(check_started_ignition_only(), recent_heartbeat, wake_on_can);
+      bootkick_tick(check_started(), recent_heartbeat);
 
       // increase heartbeat counter and cap it at the uint32 limit
       if (heartbeat_counter < UINT32_MAX) {
@@ -357,7 +318,7 @@ int main(void) {
 
   // init board
   current_board->init();
-  can_set_mode(CAN_MODE_NORMAL);
+  current_board->set_can_mode(CAN_MODE_NORMAL);
   if (current_board->harness_config->has_harness) {
     harness_init();
   }

@@ -1,4 +1,9 @@
-﻿"""Bounded host read-ahead so USB display input overlaps synchronous GPU inference."""
+﻿"""Bounded host read-ahead so USB display input overlaps synchronous GPU inference.
+
+LEGACY, not updated for protocol 3: it reads through
+`jetlink.transport.usbbulk`, which jetlink 0.7.2 removed (the host side is
+Swift's UsbfsPipes now).
+"""
 import queue
 import threading
 

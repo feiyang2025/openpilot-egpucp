@@ -247,7 +247,6 @@ SpectraCamera::SpectraCamera(SpectraMaster *master, const CameraConfig &config)
 }
 
 SpectraCamera::~SpectraCamera() {
-  frame_wait.reset();
   if (open) {
     camera_close();
   }
@@ -1043,11 +1042,6 @@ void SpectraCamera::camera_map_bufs() {
 
 bool SpectraCamera::openSensor() {
   sensor_fd = open_v4l_by_name_and_index("cam-sensor-driver", cc.camera_num);
-  if (sensor_fd < 0 && cc.stream_type == VISION_STREAM_DRIVER) {
-    LOGE("driver sensor node unavailable; continuing with interaction-based driver monitoring");
-    enabled = false;
-    return false;
-  }
   assert(sensor_fd >= 0);
   LOGD("opened sensor for %d", cc.camera_num);
 
@@ -1415,7 +1409,7 @@ bool SpectraCamera::handle_camera_event(const cam_req_mgr_message *event_data) {
 
   uint64_t request_id = event_data->u.frame_msg.request_id;  // ID from the camera request manager
   uint64_t frame_id_raw = event_data->u.frame_msg.frame_id;  // raw as opposed to our re-indexed frame ID
-  uint64_t timestamp = event_data->u.frame_msg.timestamp;    // BOOT_TS from the kernel SOF handling path
+  uint64_t timestamp = event_data->u.frame_msg.timestamp;    // timestamped in the kernel's SOF IRQ callback
   //LOGD("handle cam %d ts %lu req id %lu frame id %lu", cc.camera_num, timestamp, request_id, frame_id_raw);
 
   // if there's a lag, some more frames could have already come in before
@@ -1423,17 +1417,6 @@ bool SpectraCamera::handle_camera_event(const cam_req_mgr_message *event_data) {
   if (timestamp < last_requeue_ts) {
     LOGD("skipping frame: ts before requeue / cam %d ts %lu req id %lu frame id %lu", cc.camera_num, timestamp, request_id, frame_id_raw);
     return false;
-  }
-
-  const uint64_t received = nanos_since_boot();
-  const auto timing = event_timing.observe(timestamp, received);
-  if (timing.report) {
-    LOGW("camera SOF timing: camera %d raw_id %lu request %lu sof_boot_ns %lu received_ns %lu "
-         "sof_delta_ms %.3f event_age_ms %.3f sof_status %u last_valid_raw %lu last_valid_request %lu "
-         "last_requeue_ns %lu suppressed %lu",
-         cc.camera_num, frame_id_raw, request_id, timestamp, received,
-         timing.sof_delta_ns * 1e-6, timing.event_age_ns * 1e-6, event_data->u.frame_msg.sof_status,
-         frame_id_raw_last, request_id_last, last_requeue_ts, timing.suppressed);
   }
 
   if (stress_test("skipping SOF event")) {
@@ -1451,26 +1434,8 @@ bool SpectraCamera::handle_camera_event(const cam_req_mgr_message *event_data) {
   frame_id_raw_last = frame_id_raw;
   request_id_last = request_id;
 
-  auto wait = frameWaitTask(request_id);
-  if (cc.stream_type == VISION_STREAM_DRIVER) {
-    if (!frame_wait) frame_wait = std::make_unique<AsyncFrameWait>();
-    pending_request = request_id;
-    pending_frame = frame_id_raw;
-    pending_timestamp = timestamp;
-    frame_wait->submit(std::move(wait));
-    return false;
-  }
-  return finishFrame(request_id, frame_id_raw, timestamp, wait());
-}
-
-bool SpectraCamera::complete_frame_wait() {
-  const auto ready = frame_wait->take();
-  if (!ready.has_value()) return false;
-  return finishFrame(pending_request, pending_frame, pending_timestamp, *ready);
-}
-
-bool SpectraCamera::finishFrame(uint64_t request_id, uint64_t frame_id_raw, uint64_t timestamp, bool ready) {
-  if (!ready) {
+  // Wait until frame's fully read out and processed
+  if (!waitForFrameReady(request_id)) {
     // Reset queue on sync failure to prevent frame tearing
     LOGE("camera %d sync failure %ld %ld ", cc.camera_num, request_id, frame_id_raw);
     clearAndRequeue(request_id + 1);
@@ -1525,42 +1490,36 @@ void SpectraCamera::clearAndRequeue(uint64_t from_request_id) {
   skip_expected = true;
 }
 
-std::function<bool()> SpectraCamera::frameWaitTask(uint64_t request_id) {
+bool SpectraCamera::waitForFrameReady(uint64_t request_id) {
   int buf_idx = request_id % ife_buf_depth;
   assert(sync_objs_ife[buf_idx]);
 
-  // Evaluate stress-test state on the owner thread too; the worker only waits.
-  const bool stress_sleep = stress_test("sync sleep time");
-  const int ife_timeout = stress_test("IFE sync") ? 1 : 100;
-  const int bps_timeout = stress_test("BPS sync") ? 1 : 50;
-  const int ife_sync = sync_objs_ife[buf_idx], bps_sync = sync_objs_bps[buf_idx];
-  return [this, stress_sleep, ife_timeout, bps_timeout, ife_sync, bps_sync] {
-    if (stress_sleep) {
-      util::sleep_for(350);
-      return false;
-    }
-    auto waitForSync = [&](uint32_t sync_obj, int timeout_ms, const char *sync_type) {
-      double st = millis_since_boot();
-      struct cam_sync_wait sync_wait = {};
-      sync_wait.sync_obj = sync_obj;
-      sync_wait.timeout_ms = timeout_ms;
-      bool ret = do_sync_control(m->cam_sync_fd, CAM_SYNC_WAIT, &sync_wait, sizeof(sync_wait)) == 0;
-      double et = millis_since_boot();
-      if (!ret) LOGE("camera %d %s failed after %.2fms", cc.camera_num, sync_type, et-st);
-      return ret;
-    };
+  if (stress_test("sync sleep time")) {
+    util::sleep_for(350);
+    return false;
+  }
 
-    // wait for frame from IFE
-    // - in RAW_OUTPUT mode, this time is just the frame readout from the sensor
-    // - in IFE_PROCESSED mode, this time also includes image processing (~1ms)
-    bool success = waitForSync(ife_sync, ife_timeout, "IFE sync");
-    if (success && bps_sync) {
-      // BPS is typically 7ms
-      success = waitForSync(bps_sync, bps_timeout, "BPS sync");
-    }
-
-    return success;
+  auto waitForSync = [&](uint32_t sync_obj, int timeout_ms, const char *sync_type) {
+    double st = millis_since_boot();
+    struct cam_sync_wait sync_wait = {};
+    sync_wait.sync_obj = sync_obj;
+    sync_wait.timeout_ms = stress_test(sync_type) ? 1 : timeout_ms;
+    bool ret = do_sync_control(m->cam_sync_fd, CAM_SYNC_WAIT, &sync_wait, sizeof(sync_wait)) == 0;
+    double et = millis_since_boot();
+    if (!ret) LOGE("camera %d %s failed after %.2fms", cc.camera_num, sync_type, et-st);
+    return ret;
   };
+
+  // wait for frame from IFE
+  // - in RAW_OUTPUT mode, this time is just the frame readout from the sensor
+  // - in IFE_PROCESSED mode, this time also includes image processing (~1ms)
+  bool success = waitForSync(sync_objs_ife[buf_idx], 100, "IFE sync");
+  if (success && sync_objs_bps[buf_idx]) {
+    // BPS is typically 7ms
+    success = waitForSync(sync_objs_bps[buf_idx], 50, "BPS sync");
+  }
+
+  return success;
 }
 
 bool SpectraCamera::processFrame(int buf_idx, uint64_t request_id, uint64_t frame_id_raw, uint64_t timestamp) {

@@ -8,7 +8,6 @@ import time
 import numpy as np
 
 from openpilot.selfdrive.modeld.generic_model_runtime import GenericModelRuntime, input_view
-from openpilot.selfdrive.modeld.precompiled_artifact import compile_warp, load_warp, prepare_jit
 
 
 def use_local_warp(device_type: str) -> bool:
@@ -109,7 +108,7 @@ class LocalWarpRuntime(GenericModelRuntime):
   """
   def __init__(self, jits, width, height, runtime_dir, frame_info):
     from tinygrad import Context
-    from examples.openpilot.compile_warp import NV12Frame
+    from examples.openpilot.compile_warp import NV12Frame, compile_warp
 
     super().__init__(jits, width, height, runtime_dir, frame_info)
     self.camera_size, self.frame_info = (width, height), frame_info
@@ -117,7 +116,8 @@ class LocalWarpRuntime(GenericModelRuntime):
     cache = runtime_dir / f'warp-qcom-preupload-v1-{width}x{height}.pkl'
     with Context(DEV='QCOM'):
       if cache.is_file():
-        self.run_warp = load_warp(cache)
+        with cache.open('rb') as f:
+          warp = pickle.load(f)
       else:
         warp = compile_warp(NV12Frame(width, height, *frame_info[:3], self.frame_size),
                             (512, 256), layout='yuv420', frames=2, benchmark_runs=1)
@@ -125,7 +125,7 @@ class LocalWarpRuntime(GenericModelRuntime):
         with temporary.open('wb') as f:
           pickle.dump(warp, f)
         os.replace(temporary, cache)
-        self.run_warp = prepare_jit(warp['run'])
+    self.run_warp = warp['run']
     self.upload_bytes = self.frames_offset + int(np.prod(self.specs['new_img'][0]))
 
   def bind_shared(self, packed):
@@ -190,20 +190,15 @@ class LocalWarpRuntime(GenericModelRuntime):
       self.raw[:] = 0
 
   def run(self):
-    progress = getattr(self, 'progress', lambda stage: None)
     started, cpu_started = time.monotonic(), time.thread_time()
-    progress('local_prepare')
     images = self.prepare_images()
     np.copyto(self.compact[:self.frames_offset], self.raw[:self.frames_offset])
     np.copyto(self.compact[self.frames_offset:], images.reshape(-1))
     prepared, cpu_prepared = time.monotonic(), time.thread_time()
-    progress('input_upload')
     self.device_buffer.copy_from(self.host)
     uploaded, cpu_uploaded = time.monotonic(), time.thread_time()
-    progress('model_call')
     self.run_model(output_buffers=self.outputs, **self.queues)
     dispatched, cpu_dispatched = time.monotonic(), time.thread_time()
-    progress('output_read')
     result = self.outputs['outputs'].numpy().reshape(-1)
     finished, cpu_finished = time.monotonic(), time.thread_time()
     self.last_timings = {

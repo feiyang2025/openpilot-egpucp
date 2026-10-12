@@ -84,7 +84,6 @@ class HyundaiSafetyFlags(IntFlag):
   FCEV_GAS = 256
   ALT_LIMITS_2 = 512
   ESCC = 1024
-  CANFD_CLUSTER_DIRECT_TX = 2048
 
 
 class HyundaiFlags(IntFlag):
@@ -139,7 +138,6 @@ class HyundaiFlags(IntFlag):
   FCEV = 2 ** 25
 
   ALT_LIMITS_2 = 2 ** 26
-  CANFD_CLUSTER_DIRECT_TX = 2 ** 27
 
   CC_ONLY_CAR = 2 ** 31
 
@@ -375,13 +373,6 @@ class CAR(Platforms):
   HYUNDAI_STARIA_4TH_GEN = HyundaiCanFDPlatformConfig(
     [HyundaiCarDocs("Hyundai Staria 2023", "All", car_parts=CarParts.common([CarHarness.hyundai_k]))],
     CarSpecs(mass=2205, wheelbase=3.273, steerRatio=11.94),  # https://www.hyundai.com/content/dam/hyundai/au/en/models/staria-load/premium-pip-update-2023/spec-sheet/STARIA_Load_Spec-Table_March_2023_v3.1.pdf
-  )
-  HYUNDAI_STARIA_EV = HyundaiCanFDPlatformConfig(
-    [HyundaiCarDocs("Hyundai Staria EV 2026", car_parts=CarParts.common([CarHarness.hyundai_k]))],
-    # Korean Lounge 7/11-seat curb weight and wheelbase; see docs/staria_ev_registration.md.
-    # Steering ratio remains the existing Staria baseline pending EV-specific measurement.
-    HYUNDAI_STARIA_4TH_GEN.specs.override(mass=2590, wheelbase=3.275),
-    flags=HyundaiFlags.EV,
   )
   HYUNDAI_TUCSON = HyundaiPlatformConfig(
     [
@@ -1041,8 +1032,7 @@ CAN_GEARS = {
   # which message has the gear. hybrid and EV use ELECT_GEAR
   "use_cluster_gears": CAR.with_flags(HyundaiFlags.CLUSTER_GEARS),
   "use_tcu_gears": CAR.with_flags(HyundaiFlags.TCU_GEARS),
-  # K7 PE also needs camera-side MDPS feedback to avoid LKAS/FCA faults during external steering.
-  "send_mdps12": {CAR.GENESIS_G90, CAR.GENESIS_G90_2019, CAR.KIA_K9, CAR.KIA_K7, CAR.KIA_K7_PE},
+  "send_mdps12": {CAR.GENESIS_G90, CAR.GENESIS_G90_2019, CAR.KIA_K9, CAR.KIA_K7},
 }
 
 CANFD_CAR = CAR.with_flags(HyundaiFlags.CANFD)

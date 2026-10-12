@@ -1,10 +1,9 @@
 import asyncio
 import os
+import subprocess
 from typing import Any
 
 from aiohttp import web
-
-from openpilot.common.reboot import spawn_reboot
 
 from ..live_runtime.broker import RealtimeBroker
 from ..live_runtime.normalize import to_transport_safe
@@ -191,7 +190,7 @@ async def api_reboot(request: web.Request) -> web.Response:
       Params().put_bool("DoReboot", True)
     else:
       # Params-less development fallback only.
-      spawn_reboot()
+      subprocess.Popen(["sudo", "reboot"])
     return web.json_response({"ok": True})
   except Exception as e:
     return web.json_response({"ok": False, "error": str(e)}, status=500)

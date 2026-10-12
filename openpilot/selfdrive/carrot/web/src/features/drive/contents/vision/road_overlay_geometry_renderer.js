@@ -76,7 +76,7 @@ export function createRoadOverlayGeometryRenderer(options = {}) {
   const getCachedGradient = options.getCachedGradient;
   const geometry = options.geometry || {};
   const pathZOffset = finiteNumber(options.pathZOffset, 1.22);
-  const maxDrawDistance = finiteNumber(options.maxDrawDistance, 100);
+  const maxDrawDistance = finiteNumber(options.maxDrawDistance, 180);
 
   if (
     !context

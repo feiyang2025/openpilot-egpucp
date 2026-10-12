@@ -146,9 +146,6 @@ class CarInterface(CarInterfaceBase):
         ret.safetyConfigs[-1].safetyParam |= HyundaiSafetyFlags.CANFD_ALT_BUTTONS.value
       if ret.flags & HyundaiFlags.CANFD_CAMERA_SCC:
         ret.safetyConfigs[-1].safetyParam |= HyundaiSafetyFlags.CAMERA_SCC.value
-        if params.get_bool("HyundaiCanfdClusterDirectTx"):
-          ret.flags |= HyundaiFlags.CANFD_CLUSTER_DIRECT_TX.value
-          ret.safetyConfigs[-1].safetyParam |= HyundaiSafetyFlags.CANFD_CLUSTER_DIRECT_TX.value
 
     else:
       # Shared configuration for non CAN-FD cars
@@ -216,14 +213,6 @@ class CarInterface(CarInterfaceBase):
       print(f"$$$OenpilotLongitudinalControl = True, CAMERA_SCC({ret.flags & HyundaiFlags.CAMERA_SCC.value}) or RadarTracks{enable_radar_tracks}")
     else:
       print(f"$$$OenpilotLongitudinalControl = {alpha_long}")
-
-    # carrot: SP_ENHANCED_SCC 只在 bus0 能看到 0x2AB 且 EnableEscc=1 时置位。ESCC 的用途就是
-    # 给 OP 纵向提供原车雷达目标并保留原车 AEB，所以 ESCC 一有效就直接打开 OP 纵向，
-    # 与 EnableRadarTracks>=1 / CAMERA_SCC 强制开纵向的做法一致。
-    # 否则原车纵向下 ESCC 会让 carstate 跳过 SCC11/SCC12，巡航状态读不出来，UI 提示无法开启智能巡航。
-    if ret.spFlags & HyundaiFlagsSP.SP_ENHANCED_SCC:
-      ret.openpilotLongitudinalControl = True
-      print("$$$ESCC: force openpilot longitudinal control on")
 
     #ret.radarUnavailable = False  # TODO: canfd... carrot, hyundai cars have radar
 

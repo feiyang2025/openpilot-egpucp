@@ -11,7 +11,7 @@ has CONFIG_USB_F_FS built in, while a host needs no kernel driver at all, which
 an L4T rootfs stripped of the gadget modules does not have. See
 docs/transport.md.
 
-Bring-up (scripts/setup_gadget.sh does all of this):
+Bring-up (scripts/comma/jetlink-root.sh gadget does all of this):
     configfs gadget -> functions/ffs.jetlink -> mount -t functionfs
     write descriptors + strings to ep0 -> ep1 (OUT) and ep2 (IN) appear
     echo <udc> > UDC
@@ -28,7 +28,7 @@ import time
 from collections import deque
 
 from jetlink import protocol as P
-from jetlink.transport.base import LinkError, LinkTimeout, StreamTransport, take
+from jetlink.transport.base import UDC_SYSFS, LinkError, LinkTimeout, StreamTransport, take, udc_speed, usb_link_info
 from jetlink.transport.priority import background_thread, widen_affinity
 from jetlink.transport.watchdog import WriteWatchdog
 
@@ -49,12 +49,11 @@ USB_ENDPOINT_XFER_BULK = 0x02
 EP_OUT = 0x01  # host -> device
 EP_IN = 0x82   # device -> host
 
-SS_MAX_PACKET = 1024
 # FunctionFS kmallocs a contiguous buffer per read: order-5 and order-6 failures
 # in ffs_epfile_read_iter stalled replies 100-300 ms, and order-2 does not fail.
 # Do not go smaller to dodge the rare slow success: one page per read is ~19
 # syscalls for a 74 KB reply and cost ~6 ms a frame.
-READ_CHUNK = 16 * SS_MAX_PACKET
+READ_CHUNK = 16 * P.USB_MAX_PACKET
 # How much the reader may queue before it stops. Only bounds memory if the
 # consumer stalls: inference never needs more than one response.
 MAX_QUEUED = 8 << 20
@@ -80,7 +79,10 @@ EP_OPEN_TIMEOUT = 10.0
 # drive. Unbinding the UDC dequeues it, the writev returns ESHUTDOWN, and the
 # caller retries. A real write is ~3.6 ms.
 WRITE_TIMEOUT = 15.0
-UDC_SYSFS = '/sys/class/udc'
+# where the comma's gadget lives: jetlink-root.sh gadget builds it there and
+# mounts its FunctionFS instance here
+GADGET = '/sys/kernel/config/usb_gadget/jetlink'
+MOUNT = '/dev/ffs-jetlink'
 # How long close() waits for the reader thread after unbinding, which is what
 # wakes it. A read the kernel will not complete is left to die with the process.
 READER_JOIN_TIMEOUT = 1.0
@@ -98,7 +100,7 @@ _IO_SIGNALS = signal.valid_signals()
 
 def _interface_desc(n_endpoints: int = 2, i_interface: int = 1) -> bytes:
   return struct.pack('<BBBBBBBBB', 9, USB_DT_INTERFACE, 0, 0, n_endpoints,
-                     0xFF, 0xFF, 0xFF, i_interface)
+                     *P.USB_VENDOR_CLASS, i_interface)
 
 
 def _endpoint_desc(addr: int, max_packet: int) -> bytes:
@@ -118,8 +120,8 @@ def build_descriptors() -> bytes:
   fs = _interface_desc() + _endpoint_desc(EP_OUT, 64) + _endpoint_desc(EP_IN, 64)
   hs = _interface_desc() + _endpoint_desc(EP_OUT, 512) + _endpoint_desc(EP_IN, 512)
   ss = (_interface_desc()
-        + _endpoint_desc(EP_OUT, SS_MAX_PACKET) + _ss_companion()
-        + _endpoint_desc(EP_IN, SS_MAX_PACKET) + _ss_companion())
+        + _endpoint_desc(EP_OUT, P.USB_MAX_PACKET) + _ss_companion()
+        + _endpoint_desc(EP_IN, P.USB_MAX_PACKET) + _ss_companion())
 
   # struct usb_functionfs_descs_head_v2: magic, length, flags, then ALL the
   # per-speed counts together (one __le32 per flag set, in flag order), and only
@@ -148,11 +150,11 @@ class FfsTransport(StreamTransport):
   # dwc3 resends a TRB about once in 400 frames. A message that fits one writev
   # is replayed whole and the receiver drops it by seq; split across two writes
   # the replay lands mid-stream and the link is lost. The largest inference
-  # request is 475 KB padded, and only uploads, which sha256 covers, are bigger.
-  write_chunk = 512 * SS_MAX_PACKET
+  # request is 400 KB padded, and only uploads, which sha256 covers, are bigger.
+  write_chunk = 512 * P.USB_MAX_PACKET
   tx_align = P.GADGET_TX_ALIGN
 
-  def __init__(self, mount: str = '/dev/ffs-jetlink', gadget: str | None = None,
+  def __init__(self, mount: str = MOUNT, gadget: str | None = None,
                udc: str | None = None):
     self._prepare(mount, gadget)
     try:
@@ -161,13 +163,16 @@ class FfsTransport(StreamTransport):
       os.write(self.ep0, build_strings())
       if gadget is not None:
         # Bind last: a FunctionFS gadget cannot attach until its descriptors
-        # are written, which is why setup_gadget.sh leaves UDC empty.
+        # are written, which is why jetlink-root.sh leaves UDC empty.
         self.bind(udc)
       # ep1/ep2 exist now, but opening one before a host enables it costs the
       # gadget until the next reboot; see _ensure_epfiles.
     except BaseException:
       self.close()   # otherwise a failed bring-up leaks the descriptors it did open
       raise
+
+  def link_info(self) -> dict:
+    return usb_link_info('usb', udc_speed(self.bound_udc))
 
   @classmethod
   def borrowed(cls, mount: str, udc: str, bounce=None, owner_gadget: str | None = None) -> FfsTransport:
@@ -176,8 +181,9 @@ class FfsTransport(StreamTransport):
     That process holds ep0 and the UDC bind for its whole life, so the gadget
     does not leave the bus when the link changes hands: this end only opens the
     endpoint files and moves bytes, and nothing here writes descriptors, binds
-    or unbinds. The endpoint files take a second open happily; ep0 does not,
-    which is why the owner keeps it.
+    or unbinds. The endpoint files open again once nothing is reading them (a
+    read a dead link left queued keeps them busy: see _open_after_bounce); ep0
+    never does, which is why the owner keeps it.
 
     The ep0 rule is unchanged and `udc` is what keeps it: the endpoints are
     still opened only once that controller reads configured. `bounce` is how a
@@ -198,9 +204,10 @@ class FfsTransport(StreamTransport):
     return t
 
   def _prepare(self, mount: str, gadget: str | None) -> None:
-    # This end only receives replies: an INFER_RESP is ~74 KB with telemetry and
-    # padding, and the upload goes the other way. 256 KB is a 3x margin the
-    # memory-tight comma can spare, and RxBuffer grows past it on demand.
+    # This end only receives replies: an INFER_RESP is 8 KB, or 74 KB when
+    # WANT_HIDDEN asks for the whole output, and the upload goes the other way.
+    # 256 KB leaves margin the memory-tight comma can spare, and RxBuffer grows
+    # past it on demand.
     super().__init__(rx_size=256 << 10)
     self.mount = mount
     self.gadget = gadget
@@ -284,17 +291,44 @@ class FfsTransport(StreamTransport):
       if self.ep_out >= 0:
         return
       deadline = time.monotonic() + EP_OPEN_TIMEOUT
-      while not self._configured():
-        if self._closing:
-          raise LinkError("gadget closing")
-        if time.monotonic() >= deadline:
-          raise LinkTimeout(f"no host configured the gadget within {EP_OPEN_TIMEOUT:.0f}s")
-        time.sleep(0.02)
-      self.ep_out = os.open(os.path.join(self.mount, 'ep1'), os.O_RDWR)
+      self._wait_configured(deadline)
+      try:
+        self.ep_out = os.open(os.path.join(self.mount, 'ep1'), os.O_RDWR)
+      except OSError as e:
+        if e.errno != errno.EBUSY or self._bounce is None:
+          raise
+        self.ep_out = self._open_after_bounce(deadline)
       self.ep_in = os.open(os.path.join(self.mount, 'ep2'), os.O_RDWR)
       self._had_host = True
       self._reader = threading.Thread(target=self._read_loop, name='jetlink-ffs-read', daemon=True)
       self._reader.start()
+
+  def _wait_configured(self, deadline: float) -> None:
+    while not self._configured():
+      if self._closing:
+        raise LinkError("gadget closing")
+      if time.monotonic() >= deadline:
+        raise LinkTimeout(f"no host configured the gadget within {EP_OPEN_TIMEOUT:.0f}s")
+      time.sleep(0.02)
+
+  def _open_after_bounce(self, deadline: float) -> int:
+    """ep1 answered EBUSY: a transport this process closed after its link died
+    left a read queued on it, and FunctionFS keeps that read, and the endpoint
+    with it, until an unbind completes it. Seen when a Jetson's server
+    restarted mid-drive: some rejoins met EBUSY until the drive ended. The
+    unbind is the owner's, so a borrower asks for one, then opens once the
+    host has the gadget back and the stale read has let go."""
+    log.warning("jetlink: ep1 is held by a read the last link left queued, asking the owner to bounce the gadget")
+    if not self._bounce():
+      raise LinkError("ep1 is busy and the owner would not bounce the gadget")
+    while True:
+      self._wait_configured(deadline)
+      try:
+        return os.open(os.path.join(self.mount, 'ep1'), os.O_RDWR)
+      except OSError as e:
+        if e.errno != errno.EBUSY or time.monotonic() >= deadline:
+          raise
+      time.sleep(0.05)
 
   def release_endpoints(self) -> bool:
     """Put the endpoint files down, keeping ep0 and the descriptors.
@@ -402,7 +436,7 @@ class FfsTransport(StreamTransport):
     worked at boot can fail an hour in, which is what a 1.7 GB model does to a
     comma. Slow beats broken, and both directions need it.
     """
-    floor = (self.packet_size or SS_MAX_PACKET) * 16
+    floor = (self.packet_size or P.USB_MAX_PACKET) * 16
     current = getattr(self, attr)
     if current <= floor:
       return False
@@ -508,12 +542,8 @@ class FfsTransport(StreamTransport):
     # As in _write: an interrupted read drops the packets it already took. This
     # thread handles no signals, so mask them for its whole life.
     signal.pthread_sigmask(signal.SIG_BLOCK, _IO_SIGNALS)
-    try:
-      self._widen_affinity()
-      self._raise_reader_priority()
-    except OSError as exc:
-      self._fail(f"gadget reader setup failed: {exc}")
-      return
+    self._widen_affinity()
+    self._raise_reader_priority()
     # Fill the pool up front: recycling alone leaves a gap while a reply's
     # chunks arrive and the consumer is a scheduling beat behind, and an
     # allocation there reclaims under memory pressure (24 ms, over budget).

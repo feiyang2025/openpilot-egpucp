@@ -152,11 +152,6 @@ enum class EventName_91f1992a1f77fb03: uint16_t {
   AUDIO_TURN,
   RADAR_CUTIN,
   RADAR_STATIONARY_LEAD,
-  UPDATE_REBOOT_REQUIRED,
-  DRIVER_MONITOR_FALLBACK,
-  SYSTEM_READY,
-  IMPACT_DETECTED,
-  IMPACT_DASHCAM_REBOOT,
 };
 CAPNP_DECLARE_ENUM(EventName, 91f1992a1f77fb03);
 CAPNP_DECLARE_SCHEMA(d692e23d1a247d99);
@@ -204,7 +199,6 @@ CAPNP_DECLARE_ENUM(Encoding, ce7b9bb221c070c2);
 CAPNP_DECLARE_SCHEMA(9d291d7813ba4a88);
 CAPNP_DECLARE_SCHEMA(a2b29a69d44529a1);
 CAPNP_DECLARE_SCHEMA(a43429bd2bfc24fc);
-CAPNP_DECLARE_SCHEMA(e0f20a4d3a1d6c50);
 CAPNP_DECLARE_SCHEMA(e49b3ce8f7f48d0d);
 enum class SensorSource_e49b3ce8f7f48d0d: uint16_t {
   ANDROID,
@@ -221,7 +215,7 @@ enum class SensorSource_e49b3ce8f7f48d0d: uint16_t {
   MMC5603NJ,
 };
 CAPNP_DECLARE_ENUM(SensorSource, e49b3ce8f7f48d0d);
-CAPNP_DECLARE_SCHEMA(86b3c1ac495e88ab);
+CAPNP_DECLARE_SCHEMA(ff7e68c79d9754cb);
 CAPNP_DECLARE_SCHEMA(e946524859add50e);
 CAPNP_DECLARE_SCHEMA(d3ff79f25c734863);
 enum class SensorSource_d3ff79f25c734863: uint16_t {
@@ -939,25 +933,9 @@ struct SensorEventData::SensorVec {
   class Reader;
   class Builder;
   class Pipeline;
-  struct Deprecated;
 
   struct _capnpPrivate {
     CAPNP_DECLARE_STRUCT_HEADER(a43429bd2bfc24fc, 1, 1)
-    #if !CAPNP_LITE
-    static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
-    #endif  // !CAPNP_LITE
-  };
-};
-
-struct SensorEventData::SensorVec::Deprecated {
-  Deprecated() = delete;
-
-  class Reader;
-  class Builder;
-  class Pipeline;
-
-  struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(e0f20a4d3a1d6c50, 1, 1)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -972,7 +950,7 @@ struct SensorEventData::Deprecated {
   class Pipeline;
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(86b3c1ac495e88ab, 4, 1)
+    CAPNP_DECLARE_STRUCT_HEADER(ff7e68c79d9754cb, 4, 1)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -1933,7 +1911,7 @@ struct ProcLog::Process {
   class Pipeline;
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(b0b85613f19e6d28, 13, 3)
+    CAPNP_DECLARE_STRUCT_HEADER(b0b85613f19e6d28, 12, 3)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -2586,7 +2564,7 @@ struct DriverMonitoringState {
   struct CalibrationState;
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(a0df507d7df1052d, 5, 3)
+    CAPNP_DECLARE_STRUCT_HEADER(a0df507d7df1052d, 2, 3)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -2851,7 +2829,7 @@ struct ManagerState {
   struct ProcessState;
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(cf7154b31a69635b, 1, 1)
+    CAPNP_DECLARE_STRUCT_HEADER(cf7154b31a69635b, 0, 1)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -3265,7 +3243,6 @@ struct Event {
     DRIVER_MONITORING_STATE,
     YOUTUBE_ROAD_ENCODE_DATA,
     YOUTUBE_ROAD_ENCODE_IDX,
-    CUSTOM_RESERVED_RAW_DATA1,
   };
 
   struct _capnpPrivate {
@@ -4719,7 +4696,11 @@ public:
 #endif  // !CAPNP_LITE
 
   inline Which which() const;
-  inline typename Deprecated::Reader getDeprecated() const;
+  inline  ::int32_t getVersion() const;
+
+  inline  ::int32_t getSensor() const;
+
+  inline  ::int32_t getType() const;
 
   inline  ::int64_t getTimestamp() const;
 
@@ -4744,6 +4725,8 @@ public:
   inline bool isPressure() const;
   inline bool hasPressure() const;
   inline  ::cereal::SensorEventData::SensorVec::Reader getPressure() const;
+
+  inline typename Deprecated::Reader getDeprecated() const;
 
   inline bool isMagneticUncalibrated() const;
   inline bool hasMagneticUncalibrated() const;
@@ -4791,8 +4774,14 @@ public:
 #endif  // !CAPNP_LITE
 
   inline Which which();
-  inline typename Deprecated::Builder getDeprecated();
-  inline typename Deprecated::Builder initDeprecated();
+  inline  ::int32_t getVersion();
+  inline void setVersion( ::int32_t value);
+
+  inline  ::int32_t getSensor();
+  inline void setSensor( ::int32_t value);
+
+  inline  ::int32_t getType();
+  inline void setType( ::int32_t value);
 
   inline  ::int64_t getTimestamp();
   inline void setTimestamp( ::int64_t value);
@@ -4839,6 +4828,9 @@ public:
   inline  ::cereal::SensorEventData::SensorVec::Builder initPressure();
   inline void adoptPressure(::capnp::Orphan< ::cereal::SensorEventData::SensorVec>&& value);
   inline ::capnp::Orphan< ::cereal::SensorEventData::SensorVec> disownPressure();
+
+  inline typename Deprecated::Builder getDeprecated();
+  inline typename Deprecated::Builder initDeprecated();
 
   inline bool isMagneticUncalibrated();
   inline bool hasMagneticUncalibrated();
@@ -4915,7 +4907,7 @@ public:
   inline bool hasV() const;
   inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Reader getV() const;
 
-  inline typename Deprecated::Reader getDeprecated() const;
+  inline  ::int8_t getStatus() const;
 
 private:
   ::capnp::_::StructReader _reader;
@@ -4953,8 +4945,8 @@ public:
   inline void adoptV(::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>&& value);
   inline ::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>> disownV();
 
-  inline typename Deprecated::Builder getDeprecated();
-  inline typename Deprecated::Builder initDeprecated();
+  inline  ::int8_t getStatus();
+  inline void setStatus( ::int8_t value);
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -4969,83 +4961,6 @@ private:
 class SensorEventData::SensorVec::Pipeline {
 public:
   typedef SensorVec Pipelines;
-
-  inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
-  inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
-      : _typeless(kj::mv(typeless)) {}
-
-  inline typename Deprecated::Pipeline getDeprecated();
-private:
-  ::capnp::AnyPointer::Pipeline _typeless;
-  friend class ::capnp::PipelineHook;
-  template <typename, ::capnp::Kind>
-  friend struct ::capnp::ToDynamic_;
-};
-#endif  // !CAPNP_LITE
-
-class SensorEventData::SensorVec::Deprecated::Reader {
-public:
-  typedef Deprecated Reads;
-
-  Reader() = default;
-  inline explicit Reader(::capnp::_::StructReader base): _reader(base) {}
-
-  inline ::capnp::MessageSize totalSize() const {
-    return _reader.totalSize().asPublic();
-  }
-
-#if !CAPNP_LITE
-  inline ::kj::StringTree toString() const {
-    return ::capnp::_::structString(_reader, *_capnpPrivate::brand());
-  }
-#endif  // !CAPNP_LITE
-
-  inline  ::int8_t getStatus() const;
-
-private:
-  ::capnp::_::StructReader _reader;
-  template <typename, ::capnp::Kind>
-  friend struct ::capnp::ToDynamic_;
-  template <typename, ::capnp::Kind>
-  friend struct ::capnp::_::PointerHelpers;
-  template <typename, ::capnp::Kind>
-  friend struct ::capnp::List;
-  friend class ::capnp::MessageBuilder;
-  friend class ::capnp::Orphanage;
-};
-
-class SensorEventData::SensorVec::Deprecated::Builder {
-public:
-  typedef Deprecated Builds;
-
-  Builder() = delete;  // Deleted to discourage incorrect usage.
-                       // You can explicitly initialize to nullptr instead.
-  inline Builder(decltype(nullptr)) {}
-  inline explicit Builder(::capnp::_::StructBuilder base): _builder(base) {}
-  inline operator Reader() const { return Reader(_builder.asReader()); }
-  inline Reader asReader() const { return *this; }
-
-  inline ::capnp::MessageSize totalSize() const { return asReader().totalSize(); }
-#if !CAPNP_LITE
-  inline ::kj::StringTree toString() const { return asReader().toString(); }
-#endif  // !CAPNP_LITE
-
-  inline  ::int8_t getStatus();
-  inline void setStatus( ::int8_t value);
-
-private:
-  ::capnp::_::StructBuilder _builder;
-  template <typename, ::capnp::Kind>
-  friend struct ::capnp::ToDynamic_;
-  friend class ::capnp::Orphanage;
-  template <typename, ::capnp::Kind>
-  friend struct ::capnp::_::PointerHelpers;
-};
-
-#if !CAPNP_LITE
-class SensorEventData::SensorVec::Deprecated::Pipeline {
-public:
-  typedef Deprecated Pipelines;
 
   inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
   inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
@@ -5076,12 +4991,6 @@ public:
   }
 #endif  // !CAPNP_LITE
 
-  inline  ::int32_t getVersion() const;
-
-  inline  ::int32_t getSensor() const;
-
-  inline  ::int32_t getType() const;
-
   inline bool getUncalibrated() const;
 
 private:
@@ -5111,15 +5020,6 @@ public:
 #if !CAPNP_LITE
   inline ::kj::StringTree toString() const { return asReader().toString(); }
 #endif  // !CAPNP_LITE
-
-  inline  ::int32_t getVersion();
-  inline void setVersion( ::int32_t value);
-
-  inline  ::int32_t getSensor();
-  inline void setSensor( ::int32_t value);
-
-  inline  ::int32_t getType();
-  inline void setType( ::int32_t value);
 
   inline bool getUncalibrated();
   inline void setUncalibrated(bool value);
@@ -6316,8 +6216,6 @@ public:
 
   inline bool getControlsAllowedRESERVED2() const;
 
-  inline bool getWakeOnCan() const;
-
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -6461,9 +6359,6 @@ public:
 
   inline bool getControlsAllowedRESERVED2();
   inline void setControlsAllowedRESERVED2(bool value);
-
-  inline bool getWakeOnCan();
-  inline void setWakeOnCan(bool value);
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -11363,10 +11258,6 @@ public:
 
   inline float getTrafficStopModelLeadOffset() const;
 
-  inline float getCruiseCoastingTarget() const;
-
-  inline  ::uint8_t getCruiseCoastingPercent() const;
-
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -11521,12 +11412,6 @@ public:
 
   inline float getTrafficStopModelLeadOffset();
   inline void setTrafficStopModelLeadOffset(float value);
-
-  inline float getCruiseCoastingTarget();
-  inline void setCruiseCoastingTarget(float value);
-
-  inline  ::uint8_t getCruiseCoastingPercent();
-  inline void setCruiseCoastingPercent( ::uint8_t value);
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -13387,8 +13272,6 @@ public:
 
   inline  ::uint64_t getMemPssShmem() const;
 
-  inline  ::uint64_t getMemPssMonoTime() const;
-
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -13489,9 +13372,6 @@ public:
 
   inline  ::uint64_t getMemPssShmem();
   inline void setMemPssShmem( ::uint64_t value);
-
-  inline  ::uint64_t getMemPssMonoTime();
-  inline void setMemPssMonoTime( ::uint64_t value);
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -18836,26 +18716,6 @@ public:
 
   inline bool getNoResponseForceDecel() const;
 
-  inline bool getCameraUnavailable() const;
-
-  inline bool getDm2Experimental() const;
-
-  inline float getDm2StrictTimeRemaining() const;
-
-  inline float getDm2WheelTimeoutFactor() const;
-
-  inline float getDm2ForwardAttentionScore() const;
-
-  inline bool getDm2ForwardRecovery() const;
-
-  inline float getDm2InteractionCredit() const;
-
-  inline float getDm2VisionTimeoutFactor() const;
-
-  inline float getDm2InteractionGraceRemaining() const;
-
-  inline bool getDm2Disabled() const;
-
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -18940,36 +18800,6 @@ public:
 
   inline bool getNoResponseForceDecel();
   inline void setNoResponseForceDecel(bool value);
-
-  inline bool getCameraUnavailable();
-  inline void setCameraUnavailable(bool value);
-
-  inline bool getDm2Experimental();
-  inline void setDm2Experimental(bool value);
-
-  inline float getDm2StrictTimeRemaining();
-  inline void setDm2StrictTimeRemaining(float value);
-
-  inline float getDm2WheelTimeoutFactor();
-  inline void setDm2WheelTimeoutFactor(float value);
-
-  inline float getDm2ForwardAttentionScore();
-  inline void setDm2ForwardAttentionScore(float value);
-
-  inline bool getDm2ForwardRecovery();
-  inline void setDm2ForwardRecovery(bool value);
-
-  inline float getDm2InteractionCredit();
-  inline void setDm2InteractionCredit(float value);
-
-  inline float getDm2VisionTimeoutFactor();
-  inline void setDm2VisionTimeoutFactor(float value);
-
-  inline float getDm2InteractionGraceRemaining();
-  inline void setDm2InteractionGraceRemaining(float value);
-
-  inline bool getDm2Disabled();
-  inline void setDm2Disabled(bool value);
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -19146,8 +18976,6 @@ public:
 
   inline bool getPhone() const;
 
-  inline bool getSleep() const;
-
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -19184,9 +19012,6 @@ public:
 
   inline bool getPhone();
   inline void setPhone(bool value);
-
-  inline bool getSleep();
-  inline void setSleep(bool value);
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -20963,8 +20788,6 @@ public:
   inline bool hasProcesses() const;
   inline  ::capnp::List< ::cereal::ManagerState::ProcessState,  ::capnp::Kind::STRUCT>::Reader getProcesses() const;
 
-  inline bool getRebootRequired() const;
-
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -20999,9 +20822,6 @@ public:
   inline  ::capnp::List< ::cereal::ManagerState::ProcessState,  ::capnp::Kind::STRUCT>::Builder initProcesses(unsigned int size);
   inline void adoptProcesses(::capnp::Orphan< ::capnp::List< ::cereal::ManagerState::ProcessState,  ::capnp::Kind::STRUCT>>&& value);
   inline ::capnp::Orphan< ::capnp::List< ::cereal::ManagerState::ProcessState,  ::capnp::Kind::STRUCT>> disownProcesses();
-
-  inline bool getRebootRequired();
-  inline void setRebootRequired(bool value);
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -23189,10 +23009,6 @@ public:
   inline bool hasYoutubeRoadEncodeIdx() const;
   inline  ::cereal::EncodeIndex::Reader getYoutubeRoadEncodeIdx() const;
 
-  inline bool isCustomReservedRawData1() const;
-  inline bool hasCustomReservedRawData1() const;
-  inline  ::capnp::Data::Reader getCustomReservedRawData1() const;
-
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -24443,14 +24259,6 @@ public:
   inline  ::cereal::EncodeIndex::Builder initYoutubeRoadEncodeIdx();
   inline void adoptYoutubeRoadEncodeIdx(::capnp::Orphan< ::cereal::EncodeIndex>&& value);
   inline ::capnp::Orphan< ::cereal::EncodeIndex> disownYoutubeRoadEncodeIdx();
-
-  inline bool isCustomReservedRawData1();
-  inline bool hasCustomReservedRawData1();
-  inline  ::capnp::Data::Builder getCustomReservedRawData1();
-  inline void setCustomReservedRawData1( ::capnp::Data::Reader value);
-  inline  ::capnp::Data::Builder initCustomReservedRawData1(unsigned int size);
-  inline void adoptCustomReservedRawData1(::capnp::Orphan< ::capnp::Data>&& value);
-  inline ::capnp::Orphan< ::capnp::Data> disownCustomReservedRawData1();
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -26573,24 +26381,48 @@ inline  ::cereal::SensorEventData::Which SensorEventData::Builder::which() {
       ::capnp::bounded<6>() * ::capnp::ELEMENTS);
 }
 
-inline typename SensorEventData::Deprecated::Reader SensorEventData::Reader::getDeprecated() const {
-  return typename SensorEventData::Deprecated::Reader(_reader);
+inline  ::int32_t SensorEventData::Reader::getVersion() const {
+  return _reader.getDataField< ::int32_t>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
 }
-inline typename SensorEventData::Deprecated::Builder SensorEventData::Builder::getDeprecated() {
-  return typename SensorEventData::Deprecated::Builder(_builder);
+
+inline  ::int32_t SensorEventData::Builder::getVersion() {
+  return _builder.getDataField< ::int32_t>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
 }
-#if !CAPNP_LITE
-inline typename SensorEventData::Deprecated::Pipeline SensorEventData::Pipeline::getDeprecated() {
-  return typename SensorEventData::Deprecated::Pipeline(_typeless.noop());
+inline void SensorEventData::Builder::setVersion( ::int32_t value) {
+  _builder.setDataField< ::int32_t>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS, value);
 }
-#endif  // !CAPNP_LITE
-inline typename SensorEventData::Deprecated::Builder SensorEventData::Builder::initDeprecated() {
-  _builder.setDataField< ::uint32_t>(::capnp::bounded<0>() * ::capnp::ELEMENTS, 0);
-  _builder.setDataField< ::uint32_t>(::capnp::bounded<1>() * ::capnp::ELEMENTS, 0);
-  _builder.setDataField< ::uint32_t>(::capnp::bounded<2>() * ::capnp::ELEMENTS, 0);
-  _builder.setDataField<bool>(::capnp::bounded<192>() * ::capnp::ELEMENTS, 0);
-  return typename SensorEventData::Deprecated::Builder(_builder);
+
+inline  ::int32_t SensorEventData::Reader::getSensor() const {
+  return _reader.getDataField< ::int32_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
 }
+
+inline  ::int32_t SensorEventData::Builder::getSensor() {
+  return _builder.getDataField< ::int32_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
+}
+inline void SensorEventData::Builder::setSensor( ::int32_t value) {
+  _builder.setDataField< ::int32_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::int32_t SensorEventData::Reader::getType() const {
+  return _reader.getDataField< ::int32_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+
+inline  ::int32_t SensorEventData::Builder::getType() {
+  return _builder.getDataField< ::int32_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+inline void SensorEventData::Builder::setType( ::int32_t value) {
+  _builder.setDataField< ::int32_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS, value);
+}
+
 inline  ::int64_t SensorEventData::Reader::getTimestamp() const {
   return _reader.getDataField< ::int64_t>(
       ::capnp::bounded<2>() * ::capnp::ELEMENTS);
@@ -26889,6 +26721,21 @@ inline ::capnp::Orphan< ::cereal::SensorEventData::SensorVec> SensorEventData::B
       ::capnp::bounded<0>() * ::capnp::POINTERS));
 }
 
+inline typename SensorEventData::Deprecated::Reader SensorEventData::Reader::getDeprecated() const {
+  return typename SensorEventData::Deprecated::Reader(_reader);
+}
+inline typename SensorEventData::Deprecated::Builder SensorEventData::Builder::getDeprecated() {
+  return typename SensorEventData::Deprecated::Builder(_builder);
+}
+#if !CAPNP_LITE
+inline typename SensorEventData::Deprecated::Pipeline SensorEventData::Pipeline::getDeprecated() {
+  return typename SensorEventData::Deprecated::Pipeline(_typeless.noop());
+}
+#endif  // !CAPNP_LITE
+inline typename SensorEventData::Deprecated::Builder SensorEventData::Builder::initDeprecated() {
+  _builder.setDataField<bool>(::capnp::bounded<192>() * ::capnp::ELEMENTS, 0);
+  return typename SensorEventData::Deprecated::Builder(_builder);
+}
 inline bool SensorEventData::Reader::isMagneticUncalibrated() const {
   return which() == SensorEventData::MAGNETIC_UNCALIBRATED;
 }
@@ -27113,75 +26960,18 @@ inline ::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>> SensorE
       ::capnp::bounded<0>() * ::capnp::POINTERS));
 }
 
-inline typename SensorEventData::SensorVec::Deprecated::Reader SensorEventData::SensorVec::Reader::getDeprecated() const {
-  return typename SensorEventData::SensorVec::Deprecated::Reader(_reader);
-}
-inline typename SensorEventData::SensorVec::Deprecated::Builder SensorEventData::SensorVec::Builder::getDeprecated() {
-  return typename SensorEventData::SensorVec::Deprecated::Builder(_builder);
-}
-#if !CAPNP_LITE
-inline typename SensorEventData::SensorVec::Deprecated::Pipeline SensorEventData::SensorVec::Pipeline::getDeprecated() {
-  return typename SensorEventData::SensorVec::Deprecated::Pipeline(_typeless.noop());
-}
-#endif  // !CAPNP_LITE
-inline typename SensorEventData::SensorVec::Deprecated::Builder SensorEventData::SensorVec::Builder::initDeprecated() {
-  _builder.setDataField< ::uint8_t>(::capnp::bounded<0>() * ::capnp::ELEMENTS, 0);
-  return typename SensorEventData::SensorVec::Deprecated::Builder(_builder);
-}
-inline  ::int8_t SensorEventData::SensorVec::Deprecated::Reader::getStatus() const {
+inline  ::int8_t SensorEventData::SensorVec::Reader::getStatus() const {
   return _reader.getDataField< ::int8_t>(
       ::capnp::bounded<0>() * ::capnp::ELEMENTS);
 }
 
-inline  ::int8_t SensorEventData::SensorVec::Deprecated::Builder::getStatus() {
+inline  ::int8_t SensorEventData::SensorVec::Builder::getStatus() {
   return _builder.getDataField< ::int8_t>(
       ::capnp::bounded<0>() * ::capnp::ELEMENTS);
 }
-inline void SensorEventData::SensorVec::Deprecated::Builder::setStatus( ::int8_t value) {
+inline void SensorEventData::SensorVec::Builder::setStatus( ::int8_t value) {
   _builder.setDataField< ::int8_t>(
       ::capnp::bounded<0>() * ::capnp::ELEMENTS, value);
-}
-
-inline  ::int32_t SensorEventData::Deprecated::Reader::getVersion() const {
-  return _reader.getDataField< ::int32_t>(
-      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
-}
-
-inline  ::int32_t SensorEventData::Deprecated::Builder::getVersion() {
-  return _builder.getDataField< ::int32_t>(
-      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
-}
-inline void SensorEventData::Deprecated::Builder::setVersion( ::int32_t value) {
-  _builder.setDataField< ::int32_t>(
-      ::capnp::bounded<0>() * ::capnp::ELEMENTS, value);
-}
-
-inline  ::int32_t SensorEventData::Deprecated::Reader::getSensor() const {
-  return _reader.getDataField< ::int32_t>(
-      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
-}
-
-inline  ::int32_t SensorEventData::Deprecated::Builder::getSensor() {
-  return _builder.getDataField< ::int32_t>(
-      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
-}
-inline void SensorEventData::Deprecated::Builder::setSensor( ::int32_t value) {
-  _builder.setDataField< ::int32_t>(
-      ::capnp::bounded<1>() * ::capnp::ELEMENTS, value);
-}
-
-inline  ::int32_t SensorEventData::Deprecated::Reader::getType() const {
-  return _reader.getDataField< ::int32_t>(
-      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
-}
-
-inline  ::int32_t SensorEventData::Deprecated::Builder::getType() {
-  return _builder.getDataField< ::int32_t>(
-      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
-}
-inline void SensorEventData::Deprecated::Builder::setType( ::int32_t value) {
-  _builder.setDataField< ::int32_t>(
-      ::capnp::bounded<2>() * ::capnp::ELEMENTS, value);
 }
 
 inline bool SensorEventData::Deprecated::Reader::getUncalibrated() const {
@@ -29331,20 +29121,6 @@ inline bool PandaState::Builder::getControlsAllowedRESERVED2() {
 inline void PandaState::Builder::setControlsAllowedRESERVED2(bool value) {
   _builder.setDataField<bool>(
       ::capnp::bounded<482>() * ::capnp::ELEMENTS, value);
-}
-
-inline bool PandaState::Reader::getWakeOnCan() const {
-  return _reader.getDataField<bool>(
-      ::capnp::bounded<483>() * ::capnp::ELEMENTS);
-}
-
-inline bool PandaState::Builder::getWakeOnCan() {
-  return _builder.getDataField<bool>(
-      ::capnp::bounded<483>() * ::capnp::ELEMENTS);
-}
-inline void PandaState::Builder::setWakeOnCan(bool value) {
-  _builder.setDataField<bool>(
-      ::capnp::bounded<483>() * ::capnp::ELEMENTS, value);
 }
 
 inline bool PandaState::PandaCanState::Reader::getBusOff() const {
@@ -37247,34 +37023,6 @@ inline void LongitudinalPlan::Builder::setTrafficStopModelLeadOffset(float value
       ::capnp::bounded<40>() * ::capnp::ELEMENTS, value);
 }
 
-inline float LongitudinalPlan::Reader::getCruiseCoastingTarget() const {
-  return _reader.getDataField<float>(
-      ::capnp::bounded<41>() * ::capnp::ELEMENTS);
-}
-
-inline float LongitudinalPlan::Builder::getCruiseCoastingTarget() {
-  return _builder.getDataField<float>(
-      ::capnp::bounded<41>() * ::capnp::ELEMENTS);
-}
-inline void LongitudinalPlan::Builder::setCruiseCoastingTarget(float value) {
-  _builder.setDataField<float>(
-      ::capnp::bounded<41>() * ::capnp::ELEMENTS, value);
-}
-
-inline  ::uint8_t LongitudinalPlan::Reader::getCruiseCoastingPercent() const {
-  return _reader.getDataField< ::uint8_t>(
-      ::capnp::bounded<83>() * ::capnp::ELEMENTS);
-}
-
-inline  ::uint8_t LongitudinalPlan::Builder::getCruiseCoastingPercent() {
-  return _builder.getDataField< ::uint8_t>(
-      ::capnp::bounded<83>() * ::capnp::ELEMENTS);
-}
-inline void LongitudinalPlan::Builder::setCruiseCoastingPercent( ::uint8_t value) {
-  _builder.setDataField< ::uint8_t>(
-      ::capnp::bounded<83>() * ::capnp::ELEMENTS, value);
-}
-
 inline bool LongitudinalPlan::Deprecated::Reader::getLateralValid() const {
   return _reader.getDataField<bool>(
       ::capnp::bounded<0>() * ::capnp::ELEMENTS);
@@ -40582,20 +40330,6 @@ inline  ::uint64_t ProcLog::Process::Builder::getMemPssShmem() {
 inline void ProcLog::Process::Builder::setMemPssShmem( ::uint64_t value) {
   _builder.setDataField< ::uint64_t>(
       ::capnp::bounded<11>() * ::capnp::ELEMENTS, value);
-}
-
-inline  ::uint64_t ProcLog::Process::Reader::getMemPssMonoTime() const {
-  return _reader.getDataField< ::uint64_t>(
-      ::capnp::bounded<12>() * ::capnp::ELEMENTS);
-}
-
-inline  ::uint64_t ProcLog::Process::Builder::getMemPssMonoTime() {
-  return _builder.getDataField< ::uint64_t>(
-      ::capnp::bounded<12>() * ::capnp::ELEMENTS);
-}
-inline void ProcLog::Process::Builder::setMemPssMonoTime( ::uint64_t value) {
-  _builder.setDataField< ::uint64_t>(
-      ::capnp::bounded<12>() * ::capnp::ELEMENTS, value);
 }
 
 inline  ::int64_t ProcLog::CPUTimes::Reader::getCpuNum() const {
@@ -48600,146 +48334,6 @@ inline void DriverMonitoringState::Builder::setNoResponseForceDecel(bool value) 
       ::capnp::bounded<4>() * ::capnp::ELEMENTS, value);
 }
 
-inline bool DriverMonitoringState::Reader::getCameraUnavailable() const {
-  return _reader.getDataField<bool>(
-      ::capnp::bounded<5>() * ::capnp::ELEMENTS);
-}
-
-inline bool DriverMonitoringState::Builder::getCameraUnavailable() {
-  return _builder.getDataField<bool>(
-      ::capnp::bounded<5>() * ::capnp::ELEMENTS);
-}
-inline void DriverMonitoringState::Builder::setCameraUnavailable(bool value) {
-  _builder.setDataField<bool>(
-      ::capnp::bounded<5>() * ::capnp::ELEMENTS, value);
-}
-
-inline bool DriverMonitoringState::Reader::getDm2Experimental() const {
-  return _reader.getDataField<bool>(
-      ::capnp::bounded<6>() * ::capnp::ELEMENTS);
-}
-
-inline bool DriverMonitoringState::Builder::getDm2Experimental() {
-  return _builder.getDataField<bool>(
-      ::capnp::bounded<6>() * ::capnp::ELEMENTS);
-}
-inline void DriverMonitoringState::Builder::setDm2Experimental(bool value) {
-  _builder.setDataField<bool>(
-      ::capnp::bounded<6>() * ::capnp::ELEMENTS, value);
-}
-
-inline float DriverMonitoringState::Reader::getDm2StrictTimeRemaining() const {
-  return _reader.getDataField<float>(
-      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
-}
-
-inline float DriverMonitoringState::Builder::getDm2StrictTimeRemaining() {
-  return _builder.getDataField<float>(
-      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
-}
-inline void DriverMonitoringState::Builder::setDm2StrictTimeRemaining(float value) {
-  _builder.setDataField<float>(
-      ::capnp::bounded<3>() * ::capnp::ELEMENTS, value);
-}
-
-inline float DriverMonitoringState::Reader::getDm2WheelTimeoutFactor() const {
-  return _reader.getDataField<float>(
-      ::capnp::bounded<4>() * ::capnp::ELEMENTS, 1065353216u);
-}
-
-inline float DriverMonitoringState::Builder::getDm2WheelTimeoutFactor() {
-  return _builder.getDataField<float>(
-      ::capnp::bounded<4>() * ::capnp::ELEMENTS, 1065353216u);
-}
-inline void DriverMonitoringState::Builder::setDm2WheelTimeoutFactor(float value) {
-  _builder.setDataField<float>(
-      ::capnp::bounded<4>() * ::capnp::ELEMENTS, value, 1065353216u);
-}
-
-inline float DriverMonitoringState::Reader::getDm2ForwardAttentionScore() const {
-  return _reader.getDataField<float>(
-      ::capnp::bounded<5>() * ::capnp::ELEMENTS);
-}
-
-inline float DriverMonitoringState::Builder::getDm2ForwardAttentionScore() {
-  return _builder.getDataField<float>(
-      ::capnp::bounded<5>() * ::capnp::ELEMENTS);
-}
-inline void DriverMonitoringState::Builder::setDm2ForwardAttentionScore(float value) {
-  _builder.setDataField<float>(
-      ::capnp::bounded<5>() * ::capnp::ELEMENTS, value);
-}
-
-inline bool DriverMonitoringState::Reader::getDm2ForwardRecovery() const {
-  return _reader.getDataField<bool>(
-      ::capnp::bounded<7>() * ::capnp::ELEMENTS);
-}
-
-inline bool DriverMonitoringState::Builder::getDm2ForwardRecovery() {
-  return _builder.getDataField<bool>(
-      ::capnp::bounded<7>() * ::capnp::ELEMENTS);
-}
-inline void DriverMonitoringState::Builder::setDm2ForwardRecovery(bool value) {
-  _builder.setDataField<bool>(
-      ::capnp::bounded<7>() * ::capnp::ELEMENTS, value);
-}
-
-inline float DriverMonitoringState::Reader::getDm2InteractionCredit() const {
-  return _reader.getDataField<float>(
-      ::capnp::bounded<6>() * ::capnp::ELEMENTS);
-}
-
-inline float DriverMonitoringState::Builder::getDm2InteractionCredit() {
-  return _builder.getDataField<float>(
-      ::capnp::bounded<6>() * ::capnp::ELEMENTS);
-}
-inline void DriverMonitoringState::Builder::setDm2InteractionCredit(float value) {
-  _builder.setDataField<float>(
-      ::capnp::bounded<6>() * ::capnp::ELEMENTS, value);
-}
-
-inline float DriverMonitoringState::Reader::getDm2VisionTimeoutFactor() const {
-  return _reader.getDataField<float>(
-      ::capnp::bounded<7>() * ::capnp::ELEMENTS, 1065353216u);
-}
-
-inline float DriverMonitoringState::Builder::getDm2VisionTimeoutFactor() {
-  return _builder.getDataField<float>(
-      ::capnp::bounded<7>() * ::capnp::ELEMENTS, 1065353216u);
-}
-inline void DriverMonitoringState::Builder::setDm2VisionTimeoutFactor(float value) {
-  _builder.setDataField<float>(
-      ::capnp::bounded<7>() * ::capnp::ELEMENTS, value, 1065353216u);
-}
-
-inline float DriverMonitoringState::Reader::getDm2InteractionGraceRemaining() const {
-  return _reader.getDataField<float>(
-      ::capnp::bounded<8>() * ::capnp::ELEMENTS);
-}
-
-inline float DriverMonitoringState::Builder::getDm2InteractionGraceRemaining() {
-  return _builder.getDataField<float>(
-      ::capnp::bounded<8>() * ::capnp::ELEMENTS);
-}
-inline void DriverMonitoringState::Builder::setDm2InteractionGraceRemaining(float value) {
-  _builder.setDataField<float>(
-      ::capnp::bounded<8>() * ::capnp::ELEMENTS, value);
-}
-
-inline bool DriverMonitoringState::Reader::getDm2Disabled() const {
-  return _reader.getDataField<bool>(
-      ::capnp::bounded<80>() * ::capnp::ELEMENTS);
-}
-
-inline bool DriverMonitoringState::Builder::getDm2Disabled() {
-  return _builder.getDataField<bool>(
-      ::capnp::bounded<80>() * ::capnp::ELEMENTS);
-}
-inline void DriverMonitoringState::Builder::setDm2Disabled(bool value) {
-  _builder.setDataField<bool>(
-      ::capnp::bounded<80>() * ::capnp::ELEMENTS, value);
-}
-
 inline  ::int8_t DriverMonitoringState::VisionPolicyState::Reader::getAwarenessPercent() const {
   return _reader.getDataField< ::int8_t>(
       ::capnp::bounded<0>() * ::capnp::ELEMENTS);
@@ -48942,20 +48536,6 @@ inline bool DriverMonitoringState::VisionPolicyState::DistractedTypes::Builder::
 inline void DriverMonitoringState::VisionPolicyState::DistractedTypes::Builder::setPhone(bool value) {
   _builder.setDataField<bool>(
       ::capnp::bounded<2>() * ::capnp::ELEMENTS, value);
-}
-
-inline bool DriverMonitoringState::VisionPolicyState::DistractedTypes::Reader::getSleep() const {
-  return _reader.getDataField<bool>(
-      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
-}
-
-inline bool DriverMonitoringState::VisionPolicyState::DistractedTypes::Builder::getSleep() {
-  return _builder.getDataField<bool>(
-      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
-}
-inline void DriverMonitoringState::VisionPolicyState::DistractedTypes::Builder::setSleep(bool value) {
-  _builder.setDataField<bool>(
-      ::capnp::bounded<3>() * ::capnp::ELEMENTS, value);
 }
 
 inline float DriverMonitoringState::VisionPolicyState::Pose::Reader::getPitch() const {
@@ -51237,20 +50817,6 @@ inline void ManagerState::Builder::adoptProcesses(
 inline ::capnp::Orphan< ::capnp::List< ::cereal::ManagerState::ProcessState,  ::capnp::Kind::STRUCT>> ManagerState::Builder::disownProcesses() {
   return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::ManagerState::ProcessState,  ::capnp::Kind::STRUCT>>::disown(_builder.getPointerField(
       ::capnp::bounded<0>() * ::capnp::POINTERS));
-}
-
-inline bool ManagerState::Reader::getRebootRequired() const {
-  return _reader.getDataField<bool>(
-      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
-}
-
-inline bool ManagerState::Builder::getRebootRequired() {
-  return _builder.getDataField<bool>(
-      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
-}
-inline void ManagerState::Builder::setRebootRequired(bool value) {
-  _builder.setDataField<bool>(
-      ::capnp::bounded<0>() * ::capnp::ELEMENTS, value);
 }
 
 inline bool ManagerState::ProcessState::Reader::hasName() const {
@@ -60716,60 +60282,6 @@ inline ::capnp::Orphan< ::cereal::EncodeIndex> Event::Builder::disownYoutubeRoad
   KJ_IREQUIRE((which() == Event::YOUTUBE_ROAD_ENCODE_IDX),
               "Must check which() before get()ing a union member.");
   return ::capnp::_::PointerHelpers< ::cereal::EncodeIndex>::disown(_builder.getPointerField(
-      ::capnp::bounded<0>() * ::capnp::POINTERS));
-}
-
-inline bool Event::Reader::isCustomReservedRawData1() const {
-  return which() == Event::CUSTOM_RESERVED_RAW_DATA1;
-}
-inline bool Event::Builder::isCustomReservedRawData1() {
-  return which() == Event::CUSTOM_RESERVED_RAW_DATA1;
-}
-inline bool Event::Reader::hasCustomReservedRawData1() const {
-  if (which() != Event::CUSTOM_RESERVED_RAW_DATA1) return false;
-  return !_reader.getPointerField(
-      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
-}
-inline bool Event::Builder::hasCustomReservedRawData1() {
-  if (which() != Event::CUSTOM_RESERVED_RAW_DATA1) return false;
-  return !_builder.getPointerField(
-      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
-}
-inline  ::capnp::Data::Reader Event::Reader::getCustomReservedRawData1() const {
-  KJ_IREQUIRE((which() == Event::CUSTOM_RESERVED_RAW_DATA1),
-              "Must check which() before get()ing a union member.");
-  return ::capnp::_::PointerHelpers< ::capnp::Data>::get(_reader.getPointerField(
-      ::capnp::bounded<0>() * ::capnp::POINTERS));
-}
-inline  ::capnp::Data::Builder Event::Builder::getCustomReservedRawData1() {
-  KJ_IREQUIRE((which() == Event::CUSTOM_RESERVED_RAW_DATA1),
-              "Must check which() before get()ing a union member.");
-  return ::capnp::_::PointerHelpers< ::capnp::Data>::get(_builder.getPointerField(
-      ::capnp::bounded<0>() * ::capnp::POINTERS));
-}
-inline void Event::Builder::setCustomReservedRawData1( ::capnp::Data::Reader value) {
-  _builder.setDataField<Event::Which>(
-      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::CUSTOM_RESERVED_RAW_DATA1);
-  ::capnp::_::PointerHelpers< ::capnp::Data>::set(_builder.getPointerField(
-      ::capnp::bounded<0>() * ::capnp::POINTERS), value);
-}
-inline  ::capnp::Data::Builder Event::Builder::initCustomReservedRawData1(unsigned int size) {
-  _builder.setDataField<Event::Which>(
-      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::CUSTOM_RESERVED_RAW_DATA1);
-  return ::capnp::_::PointerHelpers< ::capnp::Data>::init(_builder.getPointerField(
-      ::capnp::bounded<0>() * ::capnp::POINTERS), size);
-}
-inline void Event::Builder::adoptCustomReservedRawData1(
-    ::capnp::Orphan< ::capnp::Data>&& value) {
-  _builder.setDataField<Event::Which>(
-      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::CUSTOM_RESERVED_RAW_DATA1);
-  ::capnp::_::PointerHelpers< ::capnp::Data>::adopt(_builder.getPointerField(
-      ::capnp::bounded<0>() * ::capnp::POINTERS), kj::mv(value));
-}
-inline ::capnp::Orphan< ::capnp::Data> Event::Builder::disownCustomReservedRawData1() {
-  KJ_IREQUIRE((which() == Event::CUSTOM_RESERVED_RAW_DATA1),
-              "Must check which() before get()ing a union member.");
-  return ::capnp::_::PointerHelpers< ::capnp::Data>::disown(_builder.getPointerField(
       ::capnp::bounded<0>() * ::capnp::POINTERS));
 }
 

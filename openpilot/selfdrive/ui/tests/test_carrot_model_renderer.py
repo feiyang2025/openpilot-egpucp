@@ -1,4 +1,3 @@
-import json
 from types import SimpleNamespace
 
 import numpy as np
@@ -6,23 +5,11 @@ import pytest
 
 from openpilot.selfdrive.ui.onroad import model_renderer
 
-SOURCE_NOW = 10_000_000_000
-
 
 class FakeSubMaster(dict):
   def __init__(self, **messages):
     super().__init__(messages)
     self.valid = dict.fromkeys(messages, True)
-
-
-def source_payload(*, left_oem=False, left_vision=False, right_oem=False, right_vision=False):
-  return json.dumps({
-    "type": "xiaogeBlindspotSources",
-    "version": 1,
-    "receivedMonoTimeNanos": SOURCE_NOW,
-    "left": {"oem": left_oem, "vision": left_vision},
-    "right": {"oem": right_oem, "vision": right_vision},
-  }).encode()
 
 
 def blind_spot_messages(
@@ -107,20 +94,17 @@ def test_blind_spot_inactive_skips_barrier_update():
   assert updates == []
 
 
-def test_blind_spot_does_not_require_radar_for_confirmed_warning():
+def test_blind_spot_invalid_input_skips_barrier_update():
   renderer = object.__new__(model_renderer.ModelRenderer)
-  renderer._carrot_lane_barrier_vertices = [np.ones((4, 2), dtype=np.float32), np.ones((4, 2), dtype=np.float32)]
   car_state, radar_state, meta = blind_spot_messages(left_blindspot=True)
   sm = FakeSubMaster(modelV2=SimpleNamespace(meta=meta), carState=car_state, radarState=radar_state)
   sm.valid["radarState"] = False
   updates = []
   renderer._update_blind_spot_barriers_carrot = lambda *args, **kwargs: updates.append((args, kwargs))
-  renderer._draw_blind_spot_segments_carrot = lambda *_args: None
 
   renderer._draw_blind_spot_carrot(sm)
 
-  assert len(updates) == 1
-  assert updates[0][1] == {"update_left": True, "update_right": False}
+  assert updates == []
 
 
 def test_blind_spot_updates_only_active_side():
@@ -140,76 +124,6 @@ def test_blind_spot_updates_only_active_side():
   assert draws[0][0] is renderer._carrot_lane_barrier_vertices[0]
 
 
-@pytest.mark.parametrize(
-  "messages,sources,expected_rgb",
-  [
-    (blind_spot_messages(left_blindspot=True), source_payload(left_oem=True), (255, 215, 0)),
-    (blind_spot_messages(left_blindspot=True), source_payload(left_vision=True), (64, 156, 255)),
-    (blind_spot_messages(left_blindspot=True), source_payload(left_oem=True, left_vision=True), (255, 128, 128)),
-  ],
-)
-def test_blind_spot_wall_color_reflects_detection_source(monkeypatch, messages, sources, expected_rgb):
-  monkeypatch.setattr(model_renderer.time, "monotonic_ns", lambda: SOURCE_NOW)
-  renderer = object.__new__(model_renderer.ModelRenderer)
-  renderer._carrot_lane_barrier_vertices = [np.ones((4, 2), dtype=np.float32), np.ones((4, 2), dtype=np.float32)]
-  car_state, radar_state, meta = messages
-  sm = FakeSubMaster(modelV2=SimpleNamespace(meta=meta), carState=car_state, radarState=radar_state,
-                     customReservedRawData1=sources)
-  draws = []
-  renderer._update_blind_spot_barriers_carrot = lambda *_args, **_kwargs: None
-  renderer._draw_blind_spot_segments_carrot = lambda _points, color: draws.append((color.r, color.g, color.b))
-
-  renderer._draw_blind_spot_carrot(sm)
-
-  assert draws == [expected_rgb]
-
-
-def test_blind_spot_wall_colors_are_independent_by_side(monkeypatch):
-  monkeypatch.setattr(model_renderer.time, "monotonic_ns", lambda: SOURCE_NOW)
-  renderer = object.__new__(model_renderer.ModelRenderer)
-  renderer._carrot_lane_barrier_vertices = [np.zeros((4, 2), dtype=np.float32), np.ones((4, 2), dtype=np.float32)]
-  car_state, radar_state, meta = blind_spot_messages(
-    left_blindspot=True, right_blindspot=True,
-  )
-  sm = FakeSubMaster(
-    modelV2=SimpleNamespace(meta=meta), carState=car_state, radarState=radar_state,
-    customReservedRawData1=source_payload(left_vision=True, right_oem=True, right_vision=True),
-  )
-  draws = []
-  renderer._update_blind_spot_barriers_carrot = lambda *_args, **_kwargs: None
-  renderer._draw_blind_spot_segments_carrot = lambda points, color: draws.append(
-    (points, (color.r, color.g, color.b))
-  )
-
-  renderer._draw_blind_spot_carrot(sm)
-
-  assert draws == [
-    (renderer._carrot_lane_barrier_vertices[0], (64, 156, 255)),
-    (renderer._carrot_lane_barrier_vertices[1], (255, 128, 128)),
-  ]
-
-
-def test_blind_spot_wall_color_prefers_carstate_source_fields_over_stale_packet(monkeypatch):
-  monkeypatch.setattr(model_renderer.time, "monotonic_ns", lambda: SOURCE_NOW)
-  renderer = object.__new__(model_renderer.ModelRenderer)
-  renderer._carrot_lane_barrier_vertices = [np.ones((4, 2), dtype=np.float32), np.ones((4, 2), dtype=np.float32)]
-  car_state, radar_state, meta = blind_spot_messages(left_blindspot=True)
-  car_state.leftBlindspotOem = True
-  car_state.leftBlindspotOnnx = True
-  car_state.blindspotSplitSourcesValid = True
-  stale_sources = source_payload(left_oem=False, left_vision=False)
-  sm = FakeSubMaster(modelV2=SimpleNamespace(meta=meta), carState=car_state, radarState=radar_state,
-                     customReservedRawData1=stale_sources)
-  sm.valid["customReservedRawData1"] = False
-  draws = []
-  renderer._update_blind_spot_barriers_carrot = lambda *_args, **_kwargs: None
-  renderer._draw_blind_spot_segments_carrot = lambda _points, color: draws.append((color.r, color.g, color.b))
-
-  renderer._draw_blind_spot_carrot(sm)
-
-  assert draws == [(255, 128, 128)]
-
-
 class FakeParams:
   def __init__(self):
     self.values = {
@@ -220,7 +134,6 @@ class FakeParams:
       "ShowPathModeLane": 14,
       "ShowPathColorLane": 20,
       "ShowPathColorCruiseOff": 19,
-      "CarrotTireTrajectory": 1,
     }
     self.calls = []
 
@@ -236,16 +149,16 @@ def test_carrot_params_refresh_is_throttled(monkeypatch):
   renderer._carrot_params_next_refresh_time = 0.0
 
   renderer._refresh_carrot_params(0.0)
-  assert len(params.calls) == len(params.values)
+  assert len(params.calls) == 7
   assert renderer._carrot_show_path_mode_normal == 9
 
   params.values["ShowPathMode"] = 13
   renderer._refresh_carrot_params(0.999)
-  assert len(params.calls) == len(params.values)
+  assert len(params.calls) == 7
   assert renderer._carrot_show_path_mode_normal == 9
 
   renderer._refresh_carrot_params(1.0)
-  assert len(params.calls) == 2 * len(params.values)
+  assert len(params.calls) == 14
   assert renderer._carrot_show_path_mode_normal == 13
 
 

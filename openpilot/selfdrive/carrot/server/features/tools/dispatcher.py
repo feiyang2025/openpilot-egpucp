@@ -24,7 +24,6 @@ from typing import Any, Dict, List, Optional, Tuple
 from aiohttp import web
 
 from openpilot.common.async_process import prepare_repo, run_locked_thread
-from openpilot.common.reboot import spawn_reboot
 from openpilot.common.repo_update import RepoBusyError, child_lock_kwargs, repo_lock
 from openpilot.system.hardware import HARDWARE
 
@@ -62,8 +61,6 @@ def capture_tmux_log_sync() -> Tuple[int, str]:
   os.makedirs(os.path.dirname(TMUX_LOG_PATH), exist_ok=True)
   with open(TMUX_LOG_PATH, "w", encoding="utf-8") as f:
     f.write(proc.stdout or "")
-  from openpilot.common.egpu_diagnostics import append_report
-  append_report(TMUX_LOG_PATH)
   return 0, ""
 
 
@@ -300,27 +297,38 @@ async def _run_tool_job(job: Dict[str, Any]) -> None:
       if rc_config:
         jobs.finish(job, ok=False, result=jobs.result_from_log(job, rc_config))
         return
-      jobs.progress(job, message="git reset --hard", current=1, total=2)
-      jobs.append(job, "$ git reset --hard\n")
-      rc_reset = await jobs.stream_exec(job, ["git", "reset", "--hard"], cwd=repo_dir, timeout=120)
-      if rc_reset != 0:
-        jobs.finish(job, ok=False, result=jobs.result_from_log(job, rc_reset))
+      # 安全更新:直接运行 update_preserve_local.sh
+      # (checkpoint 本地改动 + fetch + -X ours 合并保留本地,与命令行行为一致)
+      jobs.progress(job, message="update_preserve_local.sh (保留本地改动)", current=1, total=1)
+      jobs.append(job, "\n$ ./tools/update_preserve_local.sh\n")
+      script = os.path.join(repo_dir, "tools", "update_preserve_local.sh")
+      if not os.path.isfile(script):
+        jobs.finish(job, ok=False, result=jobs.result_from_log(job, 1))
         return
-
-      rc_before, before_out = await jobs.capture_exec(["git", "rev-parse", "HEAD"], cwd=repo_dir, timeout=10)
-      before_head = before_out.strip() if rc_before == 0 else ""
-      jobs.append(job, "\n$ git pull\n")
-      jobs.progress(job, message="git pull", current=2, total=2)
-      rc = await jobs.stream_exec(job, ["git", "merge", "--ff-only", target_head], cwd=repo_dir, timeout=180)
-      rc_after, after_out = await jobs.capture_exec(["git", "rev-parse", "HEAD"], cwd=repo_dir, timeout=10)
-      after_head = after_out.strip() if rc_after == 0 else ""
+      rc = await jobs.stream_exec(job, ["bash", script, repo_dir], cwd=repo_dir, timeout=600)
       clear_git_status_cache()
       if rc == 0:
         clear_recovered_git_ref_error()
-      if rc == 0 and did_git_pull_update(job.get("log") or ""):
         write_git_pull_time()
-      update_summary = await _build_git_update_summary_async(repo_dir, before_head, after_head, job.get("log") or "") if rc == 0 else None
-      result = jobs.result_from_log(job, rc, update_summary=update_summary, summary_key="git_result_pull_done") if update_summary else jobs.result_from_log(job, rc)
+      result = jobs.result_from_log(job, rc)
+      jobs.finish(job, ok=rc == 0, result=result)
+      return
+
+    if action == "git_preserve_pull":
+      # 与命令行 ./tools/update_preserve_local.sh 完全一致:
+      # 备份分支 + checkpoint 本地改动 + fetch + -X ours 合并(保留本地)。
+      # 脚本默认会自动取当前分支,只需传 repo 路径。
+      jobs.progress(job, message="update_preserve_local.sh (保留本地改动)", current=1, total=1)
+      jobs.append(job, "$ ./tools/update_preserve_local.sh\n")
+      script = os.path.join(repo_dir, "tools", "update_preserve_local.sh")
+      if not os.path.isfile(script):
+        jobs.finish(job, ok=False, result=jobs.result_from_log(job, 1))
+        return
+      rc = await jobs.stream_exec(job, ["bash", script, repo_dir], cwd=repo_dir, timeout=600)
+      clear_git_status_cache()
+      if rc == 0:
+        clear_recovered_git_ref_error()
+      result = jobs.result_from_log(job, rc)
       jobs.finish(job, ok=rc == 0, result=result)
       return
 
@@ -776,18 +784,18 @@ async def _run_tool_job(job: Dict[str, Any]) -> None:
           jobs.append(job, f"error removing {f}: {e}")
       jobs.finish(job, ok=True, result={"ok": True, "out": "calibration reset"})
       await asyncio.sleep(1)
-      spawn_reboot()
+      subprocess.Popen(["sudo", "reboot"])
       return
 
     if action == "reboot":
       jobs.progress(job, message="request reboot", current=1, total=1)
-      spawn_reboot()
+      subprocess.Popen(["sudo", "reboot"])
       jobs.finish(job, ok=True, result={"ok": True, "out": "reboot requested"})
       return
 
     if action == "rebuild_all":
       jobs.progress(job, message="rebuild all", current=1, total=1)
-      cmd = "cd /data/openpilot && scons -c && rm -rf prebuilt && python3 -m openpilot.common.reboot"
+      cmd = "cd /data/openpilot && scons -c && rm -rf prebuilt && sudo reboot"
       subprocess.Popen(["bash", "-lc", cmd])
       jobs.finish(job, ok=True, result={"ok": True, "out": "rebuild_all requested (clean + remove prebuilt + reboot)"})
       return
@@ -899,21 +907,17 @@ async def _dispatch_sync(request: web.Request, body: Dict[str, Any]) -> web.Resp
       clear_git_status_cache()
       if rc_config != 0:
         return web.json_response({"ok": False, "rc": rc_config, "out": out_config})
-      rc_before, before_out = run(["git", "rev-parse", "HEAD"], cwd=REPO_DIR)
-      before_head = before_out.strip() if rc_before == 0 else ""
-      rc, out = run(["git", "merge", "--ff-only", target_head], cwd=REPO_DIR)
+      # 安全更新:调用 update_preserve_local.sh(checkpoint 本地改动 + -X ours 合并)
+      script = os.path.join(REPO_DIR, "tools", "update_preserve_local.sh")
+      if not os.path.isfile(script):
+        return web.json_response({"ok": False, "rc": 1, "out": "update_preserve_local.sh not found"})
+      rc, out = run(["bash", script, REPO_DIR], cwd=REPO_DIR)
       out = (out_config + "\n" + out).strip()
-      rc_after, after_out = run(["git", "rev-parse", "HEAD"], cwd=REPO_DIR)
-      after_head = after_out.strip() if rc_after == 0 else ""
       clear_git_status_cache()
       if rc == 0:
         clear_recovered_git_ref_error()
-      if rc == 0 and did_git_pull_update(out):
         write_git_pull_time()
-      update_summary = _build_git_update_summary_sync(REPO_DIR, before_head, after_head, out) if rc == 0 else None
       payload = {"ok": rc == 0, "rc": rc, "out": out, "summary_key": "git_result_pull_done"}
-      if update_summary:
-        payload["update_summary"] = update_summary
       return web.json_response(payload)
 
     if action == "git_sync":
@@ -1238,15 +1242,15 @@ async def _dispatch_sync(request: web.Request, body: Dict[str, Any]) -> web.Resp
           pass
         except Exception as e:
           out_msg.append(f"error removing {f}: {e}")
-      spawn_reboot(delay=1.0)
+      subprocess.Popen(["bash", "-lc", "sleep 1 && sudo reboot"])
       return web.json_response({"ok": True, "out": "\n".join(out_msg) or "calibration reset"})
 
     if action == "reboot":
-      spawn_reboot()
+      subprocess.Popen(["sudo", "reboot"])
       return web.json_response({"ok": True, "out": "reboot requested"})
 
     if action == "rebuild_all":
-      cmd = "cd /data/openpilot && scons -c && rm -rf prebuilt && python3 -m openpilot.common.reboot"
+      cmd = "cd /data/openpilot && scons -c && rm -rf prebuilt && sudo reboot"
       subprocess.Popen(["bash", "-lc", cmd])
       return web.json_response({"ok": True, "out": "rebuild_all requested (clean + remove prebuilt + reboot)"})
 

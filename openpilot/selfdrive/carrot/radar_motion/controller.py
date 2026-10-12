@@ -8,7 +8,6 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
-from openpilot.selfdrive.carrot.radar_motion.lead_dynamics import LEAD_ACCEL_TAU_S, LeadAccelTau
 from openpilot.selfdrive.carrot.radar_motion.lead_selection import (
   DPathLeadCandidate,
   DPathStationaryPrimaryHandoffTracker,
@@ -67,6 +66,12 @@ RADAR_MOTION_MAX_TIME_SKEW_S = 0.15
 # The 0x235/0x180/0x430 object stream is one radar cycle old when emitted.
 # Keep this separate from the vehicle's front-radar delay.
 CORNER_RADAR_MEASUREMENT_DELAY_S = 0.05
+LEAD_ACCEL_TAU_S = 1.5
+LEAD_ACCEL_FILTER_TAU_S = 0.45
+LEAD_ACCEL_DT_S = 0.05
+LEAD_ACCEL_FILTER_ALPHA = (
+  LEAD_ACCEL_DT_S / (LEAD_ACCEL_FILTER_TAU_S + LEAD_ACCEL_DT_S)
+)
 STATIONARY_SHADOW_CORNER_MIN_DREL_GATE_M = 7.0
 STATIONARY_SHADOW_CORNER_MAX_DREL_GATE_M = 12.0
 STATIONARY_SHADOW_CORNER_DREL_GATE_FRACTION = 0.15
@@ -414,10 +419,10 @@ class DPathRadarOutput:
 
 
 class RadarLeadDynamics:
-  """Keep acceleration persistence with the physical kinematics identity."""
+  """Mirror conventional radard's per-track aLeadTau and raw jLead output."""
 
   def __init__(self) -> None:
-    self._a_lead_tau: dict[tuple[str, int], LeadAccelTau] = {}
+    self._a_lead_tau: dict[tuple[str, int], float] = {}
 
   @staticmethod
   def _identity(point: RadarPointSnapshot) -> tuple[str, int]:
@@ -434,23 +439,30 @@ class RadarLeadDynamics:
   def update(
     self,
     points: tuple[RadarPointSnapshot, ...],
-    sample_time_s: float,
   ) -> None:
     active: set[tuple[str, int]] = set()
     for point in points:
       identity = point.source, point.track_id
       active.add(identity)
-      if identity not in self._a_lead_tau:
-        self._a_lead_tau[identity] = LeadAccelTau()
-      self._a_lead_tau[identity].update(point.a_lead, point.j_lead, sample_time_s, measured=point.measured)
+      a_lead_tau = self._a_lead_tau.get(identity, LEAD_ACCEL_TAU_S)
+      if (
+        abs(point.a_lead) < 0.5
+        and abs(point.j_lead) < 0.5
+      ):
+        a_lead_tau = LEAD_ACCEL_TAU_S
+      else:
+        a_lead_tau *= 1.0 - LEAD_ACCEL_FILTER_ALPHA
+      self._a_lead_tau[identity] = a_lead_tau
 
     for identity in tuple(self._a_lead_tau):
       if identity not in active:
         del self._a_lead_tau[identity]
 
   def a_lead_tau(self, point: RadarPointSnapshot) -> float:
-    state = self._a_lead_tau.get(self._identity(point))
-    return state.tau if state is not None else LEAD_ACCEL_TAU_S
+    return self._a_lead_tau.get(
+      self._identity(point),
+      LEAD_ACCEL_TAU_S,
+    )
 
 
 class DPathRadarController:
@@ -478,7 +490,7 @@ class DPathRadarController:
     self.motion_sensor = "corner" if prefer_corner_radar else "front"
     self.cut_in_sensitivity = max(0, min(5, int(cut_in_sensitivity)))
     self._reset_motion_pipeline()
-    self.primary_cut_out_predictor = RadarMotionPredictor(cut_out_only=True)
+    self.primary_cut_out_predictor = RadarMotionPredictor()
     self.trajectory_cutout = TrajectoryCutOutTracker()
     self.front_kinematic_associator = FrontRadarKinematicAssociator()
     self.lead_two_tracker = DPathLeadTwoTracker()
@@ -810,7 +822,7 @@ class DPathRadarController:
       self.stationary_shadow_tracker.reset()
       self.stationary_primary_handoff_tracker.reset()
       self.scc_lead_two_tracker.reset()
-      self.primary_cut_out_predictor = RadarMotionPredictor(cut_out_only=True)
+      self.primary_cut_out_predictor = RadarMotionPredictor()
       self.trajectory_cutout.reset()
       self.lead_dynamics.reset()
       self.trajectory_cutin.reset()
@@ -827,7 +839,7 @@ class DPathRadarController:
       v_ego,
       radar_to_model_time_s,
     )
-    self.lead_dynamics.update(points, time_s - radar_to_model_time_s)
+    self.lead_dynamics.update(points)
     front_kinematic_matches = self.front_kinematic_associator.update(points)
 
     # This is intentionally first: model lead zero identifies leadOne with
@@ -842,9 +854,9 @@ class DPathRadarController:
       yaw_rate_rad_s=yaw_rate_rad_s,
     )
     vision = self.primary_matcher.vision_fallback
-    if self.enable_radar_tracks in (-1, 0):
-      # SCC-only modes use the OEM-selected longitudinal object. Its lateral
-      # field may be fixed at zero or unreliable, so it cannot gate selection.
+    if self.enable_radar_tracks == -1:
+      # -1 is the legacy unconditional SCC mode. It intentionally does not
+      # require a vision match and ignores SCC lateral position entirely.
       primary_match = unconditional_scc_match(points)
       self._reset_stationary_vision_range_mismatch()
       self._moving_range_last_point = None
@@ -1044,10 +1056,7 @@ class DPathRadarController:
       # A withdrawn entry or side pass cannot retain a full lead role. Keep the independently
       # gated, bounded low-speed pre-deceleration path above available when
       # substantial inward motion still warrants a precaution.
-      if (
-        estimate.entry_withdrawn or estimate.passing_before_overlap
-        or estimate.parallel_drift or estimate.rear_pass or estimate.stationary_pair_alias
-      ):
+      if estimate.entry_withdrawn or estimate.passing_before_overlap or estimate.parallel_drift or estimate.rear_pass:
         if active_identity == identity:
           self.lead_two_tracker.reset()
         continue

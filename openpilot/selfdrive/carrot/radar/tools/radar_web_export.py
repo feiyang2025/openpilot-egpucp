@@ -9,7 +9,6 @@ import math
 from pathlib import Path
 
 from openpilot.selfdrive.carrot.radar.tools import radar_validation_replay as replay
-from openpilot.selfdrive.carrot.radar_motion.native import BACKEND as MOTION_BACKEND
 
 
 SCHEMA_VERSION = 1
@@ -17,16 +16,14 @@ SCHEMA_VERSION = 1
 
 def source_version() -> str:
   digest = hashlib.sha256()
-  digest.update(f"motion_backend={MOTION_BACKEND}".encode())
   roots = (replay.CARROT_ROOT / "radar_motion", replay.CARROT_ROOT / "cluster",
            replay.REPO_ROOT / "openpilot/selfdrive/controls/lib")
-  files = {Path(__file__), Path(replay.__file__), *replay._radar_input_sources()}
+  files = {Path(__file__), Path(replay.__file__)}
   for root in roots:
     files.update(root.glob("*.py"))
-    files.update(root.glob("*.pyx"))
   files.update((replay.REPO_ROOT / "openpilot/cereal").glob("*.capnp"))
   for path in (replay.REPO_ROOT / "opendbc_repo/opendbc").rglob("*"):
-    if path.suffix in {".py", ".pyx", ".capnp", ".dbc"}:
+    if path.suffix in {".py", ".capnp", ".dbc"}:
       files.add(path)
   for path in sorted(files):
     digest.update(path.relative_to(replay.REPO_ROOT).as_posix().encode())
@@ -48,12 +45,7 @@ def export_frames(frames, *, sensor="auto", sensitivity=replay.VALIDATION_DEFAUL
   if not frames:
     raise ValueError("No radar replay frames were found in this log")
   selected_sensor = replay.preferred_radar_motion_sensor(frames) if sensor == "auto" else sensor
-  # Source selection controls the motion sensor, not the vehicle's SCC/front
-  # policy. Historical logs without settings retain the analysis default.
-  recorded_mode = frames[0].recorded_radar_track_mode
-  enable_radar_tracks = recorded_mode if recorded_mode is not None else 2
   selector = replay.ProductionDPathSelector(frames, motion_sensor=selected_sensor,
-                                          enable_radar_tracks=enable_radar_tracks,
                                           cut_in_sensitivity=sensitivity)
   output = []
   selections = []
@@ -84,7 +76,7 @@ def export_frames(frames, *, sensor="auto", sensitivity=replay.VALIDATION_DEFAUL
     "engine": selector.name,
     "sensor": selected_sensor,
     "sensitivity": sensitivity,
-    "enableRadarTracks": enable_radar_tracks,
+    "enableRadarTracks": 2,
     "radarToCamera": replay.RADAR_TO_CAMERA,
     "videoAligned": all(frame.video_time_s is not None for frame in frames),
     "frames": output,
@@ -98,11 +90,8 @@ def main():
   parser.add_argument("output", type=Path)
   parser.add_argument("--sensor", choices=("auto", "front", "corner"), default="auto")
   parser.add_argument("--sensitivity", type=int, choices=range(6), default=replay.VALIDATION_DEFAULT_SENSITIVITY)
-  parser.add_argument("--radar-track-flip", choices=("recorded", "normal", "flipped"), default="recorded")
   args = parser.parse_args()
-  flip = {"recorded": None, "normal": False, "flipped": True}[args.radar_track_flip]
-  payload = export_frames(replay.load_frames(args.log, radar_track_flip=flip), sensor=args.sensor, sensitivity=args.sensitivity)
-  payload["radarTrackFlip"] = args.radar_track_flip
+  payload = export_frames(replay.load_frames(args.log), sensor=args.sensor, sensitivity=args.sensitivity)
   payload["sourceLog"] = args.log.name
   args.output.write_text(json.dumps(payload, separators=(",", ":"), allow_nan=False), encoding="utf-8")
 

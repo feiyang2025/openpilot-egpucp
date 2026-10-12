@@ -306,23 +306,16 @@ class HudRenderer(Widget):
   def _draw_egpu_badge(self, rect: rl.Rectangle) -> None:
     # Keep runtime state visible while the shared USB hub re-enumerates; a
     # transient missing sysfs sample must not hide loading or failure details.
-    if not (getattr(ui_state, 'jetlink_badge', None) or getattr(ui_state, 'usbgpu_delivery_badge', None) or
-            ui_state.usbgpu_present or ui_state.usbgpu_active or
+    if not (ui_state.usbgpu_present or ui_state.usbgpu_active or
             ui_state.usbgpu_loading or ui_state.usbgpu_startup_failed):
       return
 
     state = usbgpu_badge_state(ui_state.usbgpu_compiled, ui_state.usbgpu_loading,
                                ui_state.usbgpu_active, ui_state.usbgpu_startup_failed,
                                ui_state.usbgpu_compile_pending)
-    text = "eGPU REBOOT" if state == "compile_pending" else "eGPU ERROR" if state == "error" else "eGPU"
-    if (getattr(ui_state, "usbgpu_delivery_badge", None) and
-        not (ui_state.usbgpu_active or ui_state.usbgpu_loading or ui_state.usbgpu_startup_failed)):
-      text, state = ui_state.usbgpu_delivery_badge
-    if getattr(ui_state, 'jetlink_badge', None) and not ui_state.usbgpu_active:
-      text, state = ui_state.jetlink_badge
-    font = gui_app.font(FontWeight.DISPLAY) if not text.isascii() else self._font_semi_bold
+    text = "eGPU REBOOT" if state == "compile_pending" else "eGPU"
     font_size = 22
-    text_size = measure_text_cached(font, text, font_size)
+    text_size = measure_text_cached(self._font_semi_bold, text, font_size)
     pad_x, pad_y = 10, 5
     badge_w = text_size.x + pad_x * 2
     badge = rl.Rectangle(
@@ -342,7 +335,7 @@ class HudRenderer(Widget):
     rl.draw_rectangle_rounded(badge, 0.35, 8, rl.Color(0, 0, 0, 150))
     rl.draw_rectangle_rounded_lines_ex(badge, 0.35, 8, 2, color)
     rl.draw_text_ex(
-      font,
+      self._font_semi_bold,
       text,
       rl.Vector2(badge.x + pad_x, badge.y + pad_y),
       font_size,

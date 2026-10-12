@@ -50,7 +50,7 @@ else:
 tg_devices = { # which device to put jit inputs to at runtime
   'openpilot.selfdrive.modeld.modeld': {
     'default': {'WARP_DEV': tg_backend, 'QUEUE_DEV': tg_backend},
-    'usbgpu': {'WARP_DEV': tg_backend, 'QUEUE_DEV': 'AMD'}
+    'usbgpu': {'WARP_DEV': tg_backend, 'QUEUE_DEV': tg_backend}
   },
   'openpilot.selfdrive.modeld.dmonitoringmodeld': {
     'default': {'DEV': tg_backend}
@@ -62,8 +62,13 @@ tg_devices = { # which device to put jit inputs to at runtime
 # re-enumeration in that instant would omit the target entirely.
 USBGPU = os.getenv('BUILD_USB_GPU_MODEL') == '1'
 if USBGPU:
-  usbgpu_tg_flags = f'DEBUG=2 DEV=USB+AMD:LLVM WARP_DEV={tg_backend} FLOAT16=1 JIT_BATCH_SIZE=0 GMMU=0 TC_OPT=2'
-  # the USB+AMD GPU takes an exclusive flock; serialize all targets that touch it
+  # Local-GPU mode (Jetson AGX Orin): compile the optional big model for
+  # the integrated CUDA GPU, not for an external USB AMD GPU.
+  # TC_OPT=2 was tested on this device but the compiler exited with SIGBUS;
+  # keep the stable CUDA configuration until a separate low-memory build path
+  # is available.
+  usbgpu_tg_flags = f'DEV={tg_backend} FLOAT16=1 JIT_BATCH_SIZE=0'
+  # the optional big-model target may run concurrently with the regular build
   usbgpu_lock = File("models/.usb_gpu.lock").abspath
 
 def write_tg_devices(target, source, env):
@@ -99,11 +104,22 @@ model_builds.append((False, modeld_pkl_path(False), get_existing_chunks(regular_
 if USBGPU:
   big_manifest = active_manifest()
   big_onnx = active_model_path()
-  if big_manifest is not None and not big_manifest.precompiled_only and big_onnx is not None:
+  if big_manifest is not None and big_onnx is not None:
     model_builds.append((True, modeld_pkl_path(True, big_manifest.sha256), [str(big_onnx)], str(big_onnx), usbgpu_tg_flags))
 
 for usbgpu, pkl_path, driving_onnx_deps, driving_onnx, cmd_flags in model_builds:
   target_pkl_path = File(pkl_path).abspath
+  # stateful/generic artifacts are plain pickles without a chunkmanifest; if one
+  # is already on disk, treat it as up to date and skip the (old-protocol) build.
+  if os.path.isfile(pkl_path) and os.path.getsize(pkl_path) > 0:
+    try:
+      with open(pkl_path, 'rb') as _f:
+        _hdr = _f.read(2)
+      if _hdr.startswith(b'\x80'):
+        # plain pickle (protocol marker): stateful/generic artifact, no chunking
+        continue
+    except Exception:
+      pass
   camera_res_args = ' '.join(f'{cw}x{ch}' for cw, ch in CAMERA_CONFIGS)
   # CPU 7 is isolated with isolcpus on AGNOS, so explicitly pin the model
   # compiler there instead of competing with the normal build workload.

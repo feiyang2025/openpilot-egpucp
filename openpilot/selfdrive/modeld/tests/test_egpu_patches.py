@@ -90,10 +90,10 @@ def test_a_pinned_precompiled_delivery_is_not_substituted(monkeypatch, tmp_path)
   missing (or rejected) used to be answered with the chunked artifact: the page said one
   delivery while the car drove the other. This patch is what makes the answer reflect the pin.
   """
-  from openpilot.selfdrive.modeld import big_model, chunked_model, helpers, precompiled_model
+  from openpilot.selfdrive.modeld import chunked_model, helpers, precompiled_model
 
   model = types.SimpleNamespace(sha256="a" * 64, precompiled_only=False)
-  monkeypatch.setattr(big_model, "selected_manifest", lambda: model)
+  monkeypatch.setattr(helpers, "active_manifest", lambda: model)
   # Restore whatever the module held before this test, patch or not.
   monkeypatch.setattr(helpers, "active_usbgpu_compiled_path", helpers.active_usbgpu_compiled_path)
   monkeypatch.setattr(helpers, "usbgpu_compile_pending", helpers.usbgpu_compile_pending)
@@ -134,7 +134,7 @@ def test_a_pinned_chunked_delivery_beats_an_installed_precompiled_package(monkey
   nothing creates it for a chunked pin. So the pin used to be ignored whenever a precompiled
   package happened to be installed, which is the common case after a first download.
   """
-  from openpilot.selfdrive.modeld import big_model, chunked_model, helpers, precompiled_model
+  from openpilot.selfdrive.modeld import chunked_model, helpers, precompiled_model
 
   monkeypatch.setattr(helpers, "active_usbgpu_compiled_path", helpers.active_usbgpu_compiled_path)
   monkeypatch.setattr(helpers, "usbgpu_compile_pending", helpers.usbgpu_compile_pending)
@@ -143,7 +143,7 @@ def test_a_pinned_chunked_delivery_beats_an_installed_precompiled_package(monkey
   assert egpu_patches.patch_model_delivery(helpers) is False  # idempotent
 
   model = types.SimpleNamespace(sha256="b" * 64, precompiled_only=False)
-  monkeypatch.setattr(big_model, "selected_manifest", lambda: model)
+  monkeypatch.setattr(helpers, "active_manifest", lambda: model)
   monkeypatch.setattr(chunked_model, "read_model_source", lambda *_args, **_kwargs: "chunked")
 
   precompiled_pkl = tmp_path / "precompiled" / "model.pkl"
@@ -173,7 +173,7 @@ def test_a_pinned_chunked_delivery_beats_an_installed_precompiled_package(monkey
 
   # A precompiled-only model has no chunked set, so every pin keeps upstream's answer.
   only_pkl = types.SimpleNamespace(sha256="c" * 64, precompiled_only=True)
-  monkeypatch.setattr(big_model, "selected_manifest", lambda: only_pkl)
+  monkeypatch.setattr(helpers, "active_manifest", lambda: only_pkl)
   monkeypatch.setattr(chunked_model, "read_model_source", lambda *_args, **_kwargs: "chunked")
   assert helpers.active_usbgpu_compiled_path() == precompiled_pkl
 

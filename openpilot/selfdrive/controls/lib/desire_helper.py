@@ -1,7 +1,6 @@
 from openpilot.cereal import log
 from openpilot.common.realtime import DT_MDL
 from openpilot.common.params import Params
-from openpilot.selfdrive.carrot.bluetooth.model import CommandReader
 
 from openpilot.selfdrive.controls.lib.desire_lib.constants import (
   LaneChangeState, LaneChangeDirection, TurnDirection,
@@ -16,7 +15,6 @@ from openpilot.selfdrive.controls.lib.desire_lib.maneuver_classifier import clas
 class DesireHelper:
   def __init__(self):
     self.params = Params()
-    self.bluetooth_commands = CommandReader('lane')
     self.frame = 0
 
     # FSM core
@@ -103,16 +101,12 @@ class DesireHelper:
       enabled = False
     return st, changed, enabled
 
-  def _update_atc_blinker(self, carrotMan, driver_blinker_state, remote=None):
+  def _update_atc_blinker(self, carrotMan, driver_blinker_state):
     atc_type = carrotMan.atcType
     atc_blinker_state = BLINKER_NONE
 
     # 유지 카운트는 DesireHelper에서 관리
     if self.carrot_lane_change_count > 0:
-      atc_blinker_state = self.carrot_blinker_state
-    elif remote in ('laneLeft', 'laneRight'):
-      self.carrot_lane_change_count = int(0.2 / DT_MDL)
-      self.carrot_blinker_state = BLINKER_LEFT if remote == 'laneLeft' else BLINKER_RIGHT
       atc_blinker_state = self.carrot_blinker_state
     elif carrotMan.carrotCmdIndex != self.carrot_cmd_index_last and carrotMan.carrotCmd == "LANECHANGE":
       self.carrot_cmd_index_last = carrotMan.carrotCmdIndex
@@ -242,9 +236,7 @@ class DesireHelper:
 
     # blinkers
     driver_st, driver_changed, driver_enabled = self._update_driver_blinker(carstate)
-    remote = self.bluetooth_commands.read(allowed=(lateral_active and carstate.canValid and
-      not below_lane_change_speed and not trailer_maneuver_blocked))
-    atc_st, atc_enabled = self._update_atc_blinker(carrotMan, driver_st, remote)
+    atc_st, atc_enabled = self._update_atc_blinker(carrotMan, driver_st)
 
     desire_enabled = driver_enabled or atc_enabled
     blinker_state = driver_st if driver_enabled else atc_st
@@ -255,19 +247,10 @@ class DesireHelper:
       atc_enabled and
       self.atc_type in ("fork left", "fork right", "atc left", "atc right")
     )
-    # fork left(左岔道/左侧匝道出口) 不再强制人工：
-    #   旧白名单含 "fork left"，而 driver_enabled 只认车辆 CAN 的真实转向灯
-    #   (carState.leftBlinker/rightBlinker)。本车的外挂转向灯由控制板直接点亮灯泡、
-    #   不进 CAN，所以 App 主导的左岔道变道 driver_enabled 恒为 False →
-    #   atc_lane_change_manual_only 恒为 True → start_gate 内层只剩"方向盘扭矩"一条路，
-    #   表现为"命令已发、CP 一直停在 Prepare"(实车 2026-09-29 07:56 连续 8 轮超时)。
-    #   放开后左岔道走 auto_lane_change_trigger(auto)，
-    #   几何/线型/BSD 这些安全前提仍然照旧拦截(lane_change_available)。
-    #   "atc left"(路口左转弯) 风险更高，仍保留人工确认。
     atc_lane_change_manual_only = (
       atc_enabled and
       not driver_enabled and
-      self.atc_type in ("atc left",)
+      self.atc_type in ("fork left", "atc left")
     )
     atc_lane_change_only = atc_lane_change_requested and not driver_enabled
     # Do not treat a blocked->available retry as permission to cross solid/unknown lines.

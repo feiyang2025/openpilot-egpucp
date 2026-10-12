@@ -29,16 +29,3 @@ test("explicit model display name takes priority", () => {
 test("unknown models keep the localized generic title", () => {
   assert.equal(modelDisplayTitle({ model_id: "unknown-model" }, "eGPU 빅모델"), "eGPU 빅모델");
 });
-
-test("Cinque v2 model gets a distinct friendly eGPU title", () => {
-  const status = { model_id: "comma-pr38823-cinque-v2-37bfa141-09d080f3" };
-  assert.equal(modelDisplayName(status), "Cinque v2");
-  assert.equal(modelDisplayTitle(status, "eGPU big model"), "Cinque v2 · eGPU");
-  assert.equal(modelDisplayName({ model_id: "comma-pr38771-cinque-terre-68b5f8e4-e8d82173" }), "Cinque Terre");
-});
-
-test("Cinque v3 has its own eGPU title", () => {
-  assert.equal(modelDisplayName({ model_id: "comma-pr38932-cinque-v3-892fc3a1-e758b96d" }), "Cinque v3");
-  assert.equal(modelDisplayName({ model_id: "comma-pr39047-mdm-v1-bea3fd4f-4fe66440" }), "Mountain Dew v1");
-  assert.equal(modelDisplayName({ model_id: "comma-pr39047-mdm-v1-4bfb5340-e20cde17" }), "Mountain Dew v1 (870a4823)");
-});

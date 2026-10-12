@@ -254,7 +254,7 @@ class LaneStreamServer:
         # 本进程通常和 camerad 同时启动，camerad 可能还没就绪，
         # 所以这里必须一直重试，不能试几次就放弃。
         if vipc_client is None:
-          client = VisionIpcClient("camerad", VisionStreamType.VISION_STREAM_ROAD, False)
+          client = VisionIpcClient("camerad", VisionStreamType.VISION_STREAM_DRIVER, False)
           if client.connect(False):
             vipc_client = client
             retries = 0

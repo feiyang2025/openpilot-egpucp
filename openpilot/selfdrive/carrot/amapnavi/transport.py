@@ -193,16 +193,6 @@ class UdpTransport:
                   self.shared_data.left_lane = max(0, int(json_obj.get("left_lane")))
                 if "right_lane" in json_obj:
                   self.shared_data.right_lane = max(0, int(json_obj.get("right_lane")))
-                # 临匝道"临时屏蔽激光来源"：App 与实线放宽同条件下发(见 calcLidarSuppress)。
-                #   缺省字段 = 不屏蔽(旧版 App 兼容)；不发 0 即恢复。
-                if "sup_lidar_l" in json_obj:
-                  self.shared_data.suppress_lidar_l = int(json_obj.get("sup_lidar_l")) != 0
-                if "sup_lidar_r" in json_obj:
-                  self.shared_data.suppress_lidar_r = int(json_obj.get("sup_lidar_r")) != 0
-                # App 侧线型判据是否有效(检测开关是否开着 / 检测是否停摆)
-                #   心跳会让通道一直在线，没有这个字段就无法区分"在线"与"有判据"
-                if "lane_valid" in json_obj:
-                  self.shared_data.lane_publish_valid = int(json_obj.get("lane_valid")) != 0
               self._sendto(sock, self.message_provider("broadcast_lane").encode('utf-8'), addr)
             elif 'echo_cmd' in json_obj:
               self._handle_echo(sock, json_obj, addr)
@@ -217,9 +207,6 @@ class UdpTransport:
         except socket.timeout:
           self.shared_data.left_lane = 0
           self.shared_data.right_lane = 0
-          # 断连兜底：激光屏蔽标志必须一起复位，否则 App 掉线后激光保护会永久失效
-          self.shared_data.suppress_lidar_l = False
-          self.shared_data.suppress_lidar_r = False
           self.lane_online = False
           continue
         except Exception as e:

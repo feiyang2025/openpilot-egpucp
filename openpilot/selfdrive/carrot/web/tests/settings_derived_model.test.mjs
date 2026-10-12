@@ -29,7 +29,6 @@ const CATALOG = Object.freeze({
     SPEED: [
       { name: "ApplyModelSpeed", title: "모델 주행속도", etitle: "Model speed", __section: { ko: "제한속도", en: "Speed limit" } },
       { name: "CruiseSpeed1", title: "크루즈속도1", etitle: "Cruise speed 1" },
-      { name: "DriverMonitoringEnabled", title: "운전자 감시 사용", etitle: "Enable driver monitoring", search_only: true },
     ],
     STEER: [
       { name: "SteerActuatorDelay", title: "조향 지연", etitle: "Steer delay" },
@@ -39,13 +38,13 @@ const CATALOG = Object.freeze({
 });
 
 const PROFILES = Object.freeze([
-  { id: "p1", name: "고속도로", values: { SteerActuatorDelay: 30, ApplyModelSpeed: 0, DriverMonitoringEnabled: 0 } },
+  { id: "p1", name: "고속도로", values: { SteerActuatorDelay: 30, ApplyModelSpeed: 0 } },
 ]);
 
 function createModel(overrides = {}) {
   return createSettingsDerivedModel({
     catalog: CATALOG,
-    favorites: ["ApplyModelSpeed", "DriverMonitoringEnabled", "Missing"],
+    favorites: ["ApplyModelSpeed", "Missing"],
     profiles: PROFILES,
     language: "ko",
     labels: { favorites: "즐겨찾기", profiles: "프로필" },
@@ -137,7 +136,6 @@ test("getItemEntriesForGroup dispatches between favorites, profiles and plain gr
   );
   assert.equal(model.getItemEntriesForGroup(model.profileGroup("p1")).length, 2);
   assert.equal(model.getItemEntriesForGroup("SPEED").length, 2);
-  assert.equal(model.getItemEntriesForGroup("SPEED").some((entry) => entry.item.search_only), false);
   assert.deepEqual(model.getItemEntriesForGroup("NOPE"), []);
 });
 
@@ -170,34 +168,17 @@ test("search entries cover catalog items and profile items with a lowercase hays
   const model = createModel();
   const entries = model.buildSearchEntries({ carrot: "당근파일럿", profile: "프로필" });
 
-  assert.equal(entries.length, 7, "detail children and search-only controls are indexed");
+  assert.equal(entries.length, 5, "detail children stay inside the parent screen");
   const carrot = entries.find((entry) => entry.source === "carrot" && entry.name === "ApplyModelSpeed");
   assert.equal(carrot.groupLabel, "속도제어");
   assert.equal(carrot.title, "모델 주행속도");
-  assert.equal(carrot.detailParent, "");
   assert.equal(carrot.haystack, carrot.haystack.toLowerCase());
-
-  const parent = entries.find((entry) => entry.name === "SteerActuatorDelay");
-  const child = entries.find((entry) => entry.name === "OnnxLaneThreshold");
-  assert.equal(parent.detailParent, "");
-  assert.equal(child.detailParent, "SteerActuatorDelay");
-  assert.equal(child.group, "STEER");
-  assert.match(child.haystack, /조향 지연/, "the parent title is searchable from the child");
 
   const profile = entries.find((entry) => entry.source === "profile");
   assert.equal(profile.profileId, "p1");
   assert.equal(profile.group, model.profileGroup("p1"));
   assert.equal(profile.originalGroup, "SPEED");
   assert.equal(profile.contextLabel.startsWith("고속도로 / "), true);
-  const searchOnly = entries.find((entry) => entry.name === "DriverMonitoringEnabled");
-  assert.equal(searchOnly.source, "carrot");
-  assert.equal(searchOnly.detailParent, "");
-  assert.equal(searchOnly.searchOnly, true);
-  assert.equal(carrot.searchOnly, false);
-  assert.deepEqual(
-    model.searchItemEntries("driver monitoring").entries.map((entry) => entry.item.name),
-    ["DriverMonitoringEnabled"],
-  );
 });
 
 test("the memo reuses the model until an input identity changes", () => {

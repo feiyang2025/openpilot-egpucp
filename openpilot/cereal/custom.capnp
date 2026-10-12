@@ -260,14 +260,6 @@ struct AmapNavi @0xda96579883444c35 {
 	blindCombinedR @28 :Bool;   # 综合盲区(右)
 	blindCarR @29 :Bool;        # 车身盲区(右)
 	laneBlindR @30 :Bool;       # 右侧实线
-	# ---- 归一化后交给 card.py 合并的贡献值（来源经 nav_params「盲区合并来源」菜单筛选）----
-	# 盲区：已筛选并并成每侧一个 bool（carState/desire_helper 每侧只吃一个）
-	xiaogeBlindL @31 :Bool;
-	xiaogeBlindR @32 :Bool;
-	# 虚实线：已归一为 -1 未知 / 0 虚线 / 1 实线
-	xiaogeLineValid @33 :Bool;
-	xiaogeLeftLine @34 :Int32;
-	xiaogeRightLine @35 :Int32;
 }
 
 struct CustomReserved4 @0x80ae746ee2596b11 {

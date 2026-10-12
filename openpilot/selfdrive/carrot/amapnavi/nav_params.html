@@ -164,12 +164,6 @@
             box-shadow: none;
         }
 
-        /* 数字输入框允许键盘直接输入，聚焦时给出可编辑提示 */
-        input[type="number"].param-input:focus {
-            border: 1px solid #4CAF50;
-            background: #2d2d2d;
-        }
-
         .param-input::-webkit-outer-spin-button,
         .param-input::-webkit-inner-spin-button {
             -webkit-appearance: none;
@@ -185,35 +179,6 @@
             color: white;
             font-size: 13px;
             min-width: 120px;
-        }
-
-        /* 多选控件（如「xiaoge 盲区合并来源」） */
-        .param-multiselect {
-            flex: 1;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px 14px;
-            padding: 6px 8px;
-            border: 1px solid #555;
-            border-radius: 4px;
-            background: #2d2d2d;
-        }
-
-        .param-check {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            font-size: 13px;
-            color: #e0e0e0;
-            white-space: nowrap;
-            cursor: pointer;
-        }
-
-        .param-checkbox {
-            width: 16px;
-            height: 16px;
-            accent-color: #4CAF50;
-            cursor: pointer;
         }
 
         .param-number-controls {
@@ -355,9 +320,6 @@
             cursor: pointer;
             font-size: 12px;
             margin-left: 6px;
-            /* Applied to <a class="expand-btn"> too: the carrot-web shortcut below
-               is an anchor, which would otherwise inherit the default underline. */
-            text-decoration: none;
         }
 
         .expand-btn:first-child {
@@ -455,9 +417,6 @@
             >
             <button class="expand-btn" id="expand-all-btn">展开参数</button>
             <button class="expand-btn" id="collapse-all-btn" style="display:none;">折叠所有参数</button>
-            <!-- Carrot web (port 7000) is served on the same device: the href is filled
-                 in from location.hostname so it works whatever the device address is. -->
-            <a class="expand-btn" id="navCarrotWeb" href="#" title="打开 carrot 设置页">carrot 设置页</a>
         </div>
 
         <div class="params-container" id="params-container">
@@ -491,18 +450,6 @@
                 options: [
                     { value: 0, text: "不禁用原车盲区" },
                     { value: 1, text: "禁用原车盲区" }
-                ],
-                category: "公共参数设置"
-            },
-            "EnableCruiseStateShow": {
-                chineseName: "显示巡航小蓝灯(1)",
-                defaultValue: 1,
-                description: "0:不显示,1:显示",
-                inputRange: [0, 1],
-                uiType: "select",
-                options: [
-                    { value: 0, text: "不显示巡航状态" },
-                    { value: 1, text: "显示巡航状态" }
                 ],
                 category: "公共参数设置"
             },
@@ -838,21 +785,6 @@
                 uiType: "number",
                 category: "原车前侧盲区"
             },
-            "XiaogeBlindSources": {
-                chineseName: "盲区合并来源",
-                defaultValue: 95,
-                description: "选择哪些外挂盲区源并入 carState（供变道判断）。可多选，保存值为各位之和，默认 95（全选）",
-                uiType: "multiselect",
-                options: [
-                    { value: 1,  text: "摄像头盲区" },
-                    { value: 2,  text: "激光雷达-侧方" },
-                    { value: 4,  text: "激光雷达-前角" },
-                    { value: 8,  text: "激光雷达-后角" },
-                    { value: 16, text: "车身盲区" },
-                    { value: 64, text: "原车前雷达前侧" }
-                ],
-                category: "盲区合并来源"
-            },
         };
 
         var categoryColors = {
@@ -864,7 +796,6 @@
             "ATC参数": "#009688",
             "速度参数": "#FF9800",
             "原车前侧盲区": "#00BCD4",
-            "盲区合并来源": "#795548",
         };
 
         var NavParamsData = {};
@@ -1040,21 +971,9 @@
                     '<button type="button" class="number-btn" onclick="adjustNumber(\'' + key + '\', -' + config.step + ')">-</button>' +
                     '<input type="number" class="param-input" id="' + key + '" ' +
                            'value="' + value + '" min="' + config.inputRange[0] + '" ' +
-                           'max="' + config.inputRange[1] + '" step="' + config.step + '" ' +
-                           'onfocus="this.select()">' +
+                           'max="' + config.inputRange[1] + '" step="' + config.step + '" readonly>' +
                     '<button type="button" class="number-btn" onclick="adjustNumber(\'' + key + '\', ' + config.step + ')">+</button>' +
                 '</div>';
-            } else if (config.uiType === 'multiselect') {
-                var maskValue = parseInt(value, 10) || 0;
-                var boxes = '';
-                for (var m = 0; m < config.options.length; m++) {
-                    var mopt = config.options[m];
-                    var checked = (maskValue & mopt.value) ? ' checked' : '';
-                    boxes += '<label class="param-check">' +
-                        '<input type="checkbox" class="param-checkbox" data-bit="' + mopt.value + '"' + checked + '> ' +
-                        mopt.text + '</label>';
-                }
-                return '<div class="param-multiselect" id="' + key + '">' + boxes + '</div>';
             } else {
                 return '<input type="text" class="param-input" id="' + key + '" value="' + value + '" readonly>';
             }
@@ -1064,11 +983,6 @@
             var inputs = document.querySelectorAll('.param-input');
             for (var i = 0; i < inputs.length; i++) {
                 var input = inputs[i];
-
-                // 数字输入框允许直接键盘输入（含粘贴/拖入），仅把非 number 的输入框设为只读
-                if (input.type === 'number') {
-                    continue;
-                }
 
                 input.addEventListener('keydown', function(e) {
                     e.preventDefault();
@@ -1276,18 +1190,6 @@
                             value = parseInt(element.value, 10);
                         } else if (paramConfig[key].uiType === 'number') {
                             value = parseFloat(element.value);
-                            // 允许直接键盘输入后，用户可能清空字段，避免把 NaN 发给服务端
-                            if (isNaN(value)) {
-                                value = (NavParamsData[key] !== undefined) ? NavParamsData[key] : paramConfig[key].defaultValue;
-                            }
-                        } else if (paramConfig[key].uiType === 'multiselect') {
-                            var mboxes = element.querySelectorAll('input[type="checkbox"]');
-                            value = 0;
-                            for (var b = 0; b < mboxes.length; b++) {
-                                if (mboxes[b].checked) {
-                                    value |= parseInt(mboxes[b].getAttribute('data-bit'), 10);
-                                }
-                            }
                         } else {
                             value = element.value;
                         }
@@ -1523,11 +1425,6 @@
             };
             xhr.send(JSON.stringify(data));
         }
-
-        // carrot web (7000) lives on the same device: build the link from the current
-        // hostname so it keeps working when the device address changes.
-        const navCarrotWeb = document.getElementById('navCarrotWeb');
-        if (navCarrotWeb) navCarrotWeb.href = "http://" + window.location.hostname + ":7000/";
 
         // 页面加载完成后初始化
         if (document.readyState === 'loading') {

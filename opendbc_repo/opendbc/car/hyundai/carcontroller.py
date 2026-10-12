@@ -6,9 +6,6 @@ from opendbc.car import Bus, DT_CTRL, apply_driver_steer_torque_limits, common_f
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.hyundai import hyundaicanfd, hyundaican
 from opendbc.car.hyundai.carstate import CarState
-from opendbc.car.hyundai.stopping import CanfdStopping
-from opendbc.car.hyundai.steering_handover import SteeringHandover
-from opendbc.car.carlog import carlog
 from opendbc.car.hyundai.hyundaicanfd import CanBus
 from opendbc.car.hyundai.values import HyundaiFlags, Buttons, CarControllerParams, CAR, CAN_GEARS, HyundaiExtFlags, HyundaiFlagsSP
 from opendbc.car.interfaces import CarControllerBase
@@ -185,9 +182,6 @@ class CarController(CarControllerBase):
 
     self.accel_last = 0
     self.accel_value_last = 0.0
-    self.display_lead_lateral = hyundaicanfd.DisplayLeadLateralFilter()
-    self.canfd_stopping = (CanfdStopping()
-                           if CP.flags & HyundaiFlags.CANFD and CP.openpilotLongitudinalControl else None)
     self.apply_torque_last = 0
     self.car_fingerprint = CP.carFingerprint
     self.last_button_frame = 0
@@ -211,7 +205,6 @@ class CarController(CarControllerBase):
     self.button_spam3 = 1
 
     self.apply_angle_last = 0
-    self.steering_template_ready = False
     self.lkas_max_torque = 0
     self.angle_max_torque = 250
     self.steering_pressed_prev = False
@@ -223,10 +216,6 @@ class CarController(CarControllerBase):
     self.driver_torque_filtered = 0.0
     self.driver_torque_filtered_prev = 0.0
     self.pre_override_frames = 0
-
-    self.steer_handover = SteeringHandover()
-    self.handover_model_frame = None
-    self.handover_model_time = 0
 
     self.lkas11_active = False
 
@@ -244,17 +233,6 @@ class CarController(CarControllerBase):
     self.steerDeltaDownOrg = self.steerDeltaDown = self.steerDeltaDownLC = self.params.STEER_DELTA_DOWN
 
   def update(self, CC, CS, now_nanos):
-
-    if not self.steering_template_ready and self.CP.flags & HyundaiFlags.CANFD and self.CP.flags & HyundaiFlags.CAMERA_SCC:
-      template = CS.lfa_alt if self.CP.flags & HyundaiFlags.ANGLE_CONTROL else CS.lfa
-      self.steering_template_ready = template is not None
-      if not self.steering_template_ready and CC.latActive:
-        # Do not run an invisible steering ramp while camera TX discovery is
-        # pending. Inactive handling below tracks the wheel and clears torque
-        # and handover history, so the first emitted command starts bounded.
-        CC = CC.as_builder()
-        CC.latActive = False
-        CC = CC.as_reader()
 
     if self.frame % 50 == 0:
       params = Params()
@@ -456,33 +434,6 @@ class CarController(CarControllerBase):
 
     self.steering_pressed_prev = CS.out.steeringPressed if CC.latActive else False
 
-    # Keep legacy history independent, but let an active handover select total
-    # authority. A legacy max() would bypass its error-dependent recovery rate.
-    steering_authority = self.lkas_max_torque
-    if angle_control:
-      model = CS.modelV2
-      if model is not None and model.frameId != self.handover_model_frame:
-        self.handover_model_frame = model.frameId
-        self.handover_model_time = now_nanos
-      model_valid = (model is not None and 0 <= now_nanos - self.handover_model_time <= 150_000_000 and
-                     len(model.position.yStd) > 10 and np.isfinite(model.position.yStd[10]) and
-                     0 <= model.position.yStd[10] <= 0.3)
-      previous_handover_state = self.steer_handover.state
-      steering_authority = self.steer_handover.update(
-        # Combined convergence/release recovery is standard for angle control.
-        mode=3, now=now_nanos * 1e-9, baseline=self.lkas_max_torque,
-        minimum=self.params.ANGLE_MIN_TORQUE, maximum=self.angle_max_torque,
-        driver=driver_torque, threshold=torque_threshold, pressed=CS.out.steeringPressed,
-        target_error=actuators.steeringAngleDeg - CS.out.steeringAngleDeg,
-        command_error=apply_angle - CS.out.steeringAngleDeg, speed=CS.out.vEgoRaw,
-        wheelbase=self.CP.wheelbase, steer_ratio=self.CP.steerRatio, active=CC.latActive,
-        valid=bool(CS.out.canValid and not CS.out.steerFaultTemporary and not CS.out.steerFaultPermanent and model_valid),
-      )
-      if self.frame % 100 == 0 or previous_handover_state != self.steer_handover.state:
-        carlog.info("SteeringHandover mode=3 state=%s effort=%.3f error=%.3f legacy=%.1f cap=%.1f",
-                    self.steer_handover.state, self.steer_handover.effort or 0.0,
-                    self.steer_handover.error, self.lkas_max_torque, steering_authority)
-
     self.apply_angle_last = apply_angle
 
     # Hold torque with induced temporary fault when cutting the actuation bit
@@ -547,9 +498,9 @@ class CarController(CarControllerBase):
       hda2_long = hda2 and self.CP.openpilotLongitudinalControl
       # steering control
       if camera_scc:
-        can_sends.extend(hyundaicanfd.create_steering_messages_camera_scc(self.frame, self.packer, self.CP, self.CAN, CC, apply_steer_req, apply_torque, CS, apply_angle, steering_authority, angle_control))
+        can_sends.extend(hyundaicanfd.create_steering_messages_camera_scc(self.frame, self.packer, self.CP, self.CAN, CC, apply_steer_req, apply_torque, CS, apply_angle, self.lkas_max_torque, angle_control))
       else:
-        can_sends.extend(hyundaicanfd.create_steering_messages(self.packer, self.CP, self.CAN, CC.enabled, apply_steer_req, apply_torque, apply_angle, steering_authority, angle_control))
+        can_sends.extend(hyundaicanfd.create_steering_messages(self.packer, self.CP, self.CAN, CC.enabled, apply_steer_req, apply_torque, apply_angle, self.lkas_max_torque, angle_control))
 
       # prevent LFA from activating on HDA2 by sending "no lane lines detected" to ADAS ECU
       if self.frame % 5 == 0 and hda2 and not camera_scc:
@@ -557,14 +508,7 @@ class CarController(CarControllerBase):
 
       # LFA and HDA icons
       if self.frame % 5 == 0 and (not hda2 or hda2_long or camera_scc):
-        can_sends.extend(hyundaicanfd.create_lfahda_cluster(
-          self.packer, CS, self.CAN, CC.longActive, CC.latActive,
-          suppress_camera_auto_disengage=bool(camera_scc and self.car_fingerprint in (
-            CAR.GENESIS_GV70_1ST_GEN, CAR.KIA_SORENTO_HEV_4TH_GEN,
-          )),
-          dm_alert=hud_control.driverMonitoringAlert if (CS.adrv_0x161 is None or
-                   (camera_scc and not self.CP.openpilotLongitudinalControl)) else 0,
-        ))
+        can_sends.extend(hyundaicanfd.create_lfahda_cluster(self.packer, CS, self.CAN, CC.longActive, CC.latActive))
         if not camera_scc:
           can_sends.extend(hyundaicanfd.create_lfa_icon_non_camera_scc(self.packer, CS, self.CAN, CC))
 
@@ -575,7 +519,6 @@ class CarController(CarControllerBase):
       if self.camera_scc_params in [2, 3]:
         self.canfd_toggle_adas(CC, CS)
       if self.CP.openpilotLongitudinalControl:
-        hud_lateral = self.display_lead_lateral.update(getattr(CS, "radarState", None), getattr(CS, "modelV2", None))
         self.hyundai_jerk.make_jerk(self.CP, CS, accel, actuators, hud_control)
         self.hyundai_jerk.check_carrot_cruise(CC, CS, hud_control, stopping, accel, actuators.aTarget)
 
@@ -583,7 +526,7 @@ class CarController(CarControllerBase):
           can_sends.extend(hyundaicanfd.create_ccnc_messages(
             self.CP, self.packer, self.CAN, self.frame, CC, CS, hud_control, apply_angle,
             left_lane_warning, right_lane_warning, self.enable_corner_radar, stopping,
-            self.canfd_debug, self.paddle_mode, hud_lateral=hud_lateral,
+            self.canfd_debug, self.paddle_mode,
           ))
           if hda2:
             can_sends.extend(hyundaicanfd.create_adrv_messages(self.CP, self.packer, self.CAN, self.frame))
@@ -593,19 +536,15 @@ class CarController(CarControllerBase):
           if self.CP.flags & HyundaiFlags.CAMERA_SCC.value:
             msg, self.accel_value_last = hyundaicanfd.create_acc_control_scc2(
               self.packer, self.CAN, CC.enabled, self.accel_value_last, accel, stopping, CC.cruiseControl.override,
-              set_speed_in_units, hud_control, self.hyundai_jerk, CS, self.canfd_stopping, hud_lateral=hud_lateral,
+              set_speed_in_units, hud_control, self.hyundai_jerk, CS,
             )
             if msg is not None:
               can_sends.append(msg)
             can_sends.extend(hyundaicanfd.create_tcs_messages(self.packer, self.CAN, CS)) # for sorento SCC radar...
           else:
-            msg, self.accel_value_last = hyundaicanfd.create_acc_control(
-              self.packer, self.CAN, CC.enabled, self.accel_last, accel, stopping,
-              CC.cruiseControl.override, set_speed_in_units, hud_control,
-              self.hyundai_jerk.jerk_u, self.hyundai_jerk.jerk_l, CS, self.canfd_stopping,
-              accel_value_last=self.accel_value_last,
-            )
-            can_sends.append(msg)
+            can_sends.append(hyundaicanfd.create_acc_control(self.packer, self.CAN, CC.enabled, self.accel_last, accel, stopping,
+                                                             CC.cruiseControl.override, set_speed_in_units, hud_control,
+                                                             self.hyundai_jerk.jerk_u, self.hyundai_jerk.jerk_l, CS))
             self.accel_last = accel
       else:
         # button presses
@@ -620,8 +559,7 @@ class CarController(CarControllerBase):
           can_sends.append(hyundaican.create_lkas11(self.packer, self.frame, self.CP, apply_torque, apply_steer_req,
                                                     torque_fault, CS.lkas11, sys_warning, sys_state, CC.enabled,
                                                     hud_control.leftLaneVisible, hud_control.rightLaneVisible,
-                                                    left_lane_warning, right_lane_warning, self.is_ldws_car,
-                                                    dm_alert=hud_control.driverMonitoringAlert))
+                                                    left_lane_warning, right_lane_warning, self.is_ldws_car))
         self.lkas11_active = True
 
       if not self.CP.openpilotLongitudinalControl:
@@ -670,7 +608,7 @@ class CarController(CarControllerBase):
     # torqueOutputCan reflects the steering authority value actually sent over CAN.
     # Torque-control platforms send the signed torque command, while angle-control
     # platforms send LKAS_ANGLE_MAX_TORQUE alongside the requested angle.
-    new_actuators.torqueOutputCan = steering_authority if angle_control else apply_torque
+    new_actuators.torqueOutputCan = self.lkas_max_torque if angle_control else apply_torque
     new_actuators.steeringAngleDeg = float(apply_angle)
     new_actuators.accel = accel
 
@@ -807,7 +745,7 @@ class CarController(CarControllerBase):
         send_button = Buttons.SET_DECEL
       elif target > current and current < 160 and self.speed_from_pcm != 1:
         send_button = Buttons.RES_ACCEL
-    elif CS.out.activateCruise > 0: # Negative values request cancellation, never RES.
+    elif CS.out.activateCruise: #CC.cruiseControl.activate:
       if (hud_control.leadVisible or v_ego_kph > 10.0) and self.activateCruise == 0:
         self.activateCruise = 1
         send_button = Buttons.RES_ACCEL

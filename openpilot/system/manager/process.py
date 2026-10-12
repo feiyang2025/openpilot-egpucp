@@ -5,7 +5,7 @@ import time
 import subprocess
 from collections.abc import Callable, ValuesView
 from abc import ABC, abstractmethod
-from multiprocessing import Process, get_context
+from multiprocessing import Process
 
 from setproctitle import setproctitle
 
@@ -168,14 +168,13 @@ class NativeProcess(ManagerProcess):
 
 
 class PythonProcess(ManagerProcess):
-  def __init__(self, name, module, should_run, enabled=True, sigkill=False, restart_if_crash=False, spawn=False):
+  def __init__(self, name, module, should_run, enabled=True, sigkill=False, restart_if_crash=False):
     self.name = name
     self.module = module
     self.should_run = should_run
     self.enabled = enabled
     self.sigkill = sigkill
     self.launcher = launcher
-    self.process_factory = get_context('spawn').Process if spawn else Process
     self.restart_if_crash = restart_if_crash
 
   def prepare(self) -> None:
@@ -199,7 +198,7 @@ class PythonProcess(ManagerProcess):
     name = self.name if "modeld" not in self.name else "MainProcess"
 
     cloudlog.info(f"starting python {self.module}")
-    self.proc = self.process_factory(name=name, target=self.launcher, args=(self.module, self.name))
+    self.proc = Process(name=name, target=self.launcher, args=(self.module, self.name))
     self.proc.start()
     self.shutting_down = False
 

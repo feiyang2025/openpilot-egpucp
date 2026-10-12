@@ -10,7 +10,6 @@ from msgq.visionipc import VisionIpcClient, VisionStreamType
 
 
 from openpilot.common.params import Params
-from openpilot.common.impact_dashcam import ImpactDashcam
 from openpilot.common.realtime import config_realtime_process, Priority, Ratekeeper, DT_CTRL
 from openpilot.common.swaglog import cloudlog
 from openpilot.common.runtime_diagnostics import communication_snapshot
@@ -19,10 +18,9 @@ from openpilot.common.gps import get_gps_location_service
 from openpilot.selfdrive.car.car_specific import CarSpecificEvents
 from openpilot.selfdrive.locationd.helpers import PoseCalibrator, Pose
 from openpilot.selfdrive.selfdrived.camera_config import get_camera_packets
-from openpilot.selfdrive.selfdrived.events import Events, ET, EmptyAlert
+from openpilot.selfdrive.selfdrived.events import Events, ET
 from openpilot.selfdrive.selfdrived.helpers import ExcessiveActuationCheck
 from openpilot.selfdrive.selfdrived.state import StateMachine
-from openpilot.selfdrive.selfdrived.impact_detector import ImpactDetector
 from openpilot.selfdrive.selfdrived.alertmanager import AlertManager, set_offroad_alert
 from openpilot.selfdrive.controls.lib.cutin_alert import (
   CutinAlertCandidate,
@@ -56,8 +54,6 @@ IGNORED_SAFETY_MODES = (SafetyModel.silent, SafetyModel.noOutput)
 class SelfdriveD:
   def __init__(self, CP=None):
     self.params = Params()
-    self.impact_dashcam = ImpactDashcam(self.params, Params("/dev/shm/params"))
-    self.impact_detector = ImpactDetector()
 
     # Ensure the current branch is cached, otherwise the first cycle lags
     get_build_metadata()
@@ -81,8 +77,9 @@ class SelfdriveD:
     self.gps_location_service = get_gps_location_service(self.params)
     self.gps_packets = [self.gps_location_service]
     self.sensor_packets = ["accelerometer", "gyroscope"]
+    self.disable_dm = self.params.get_int("DisableDM")
     self.use_wide_camera = bool(self.params.get("UseWideCamera", return_default=True))
-    self.camera_packets = get_camera_packets(self.use_wide_camera)
+    self.camera_packets = get_camera_packets(self.use_wide_camera, self.disable_dm, SIMULATION)
 
     # TODO: de-couple selfdrived with card/conflate on carState without introducing controls mismatches
     self.car_state_sock = messaging.sub_sock('carState', timeout=20)
@@ -90,8 +87,7 @@ class SelfdriveD:
     ignore = self.sensor_packets + self.gps_packets + ['alertDebug']
     if SIMULATION:
       ignore += ['driverCameraState', 'managerState']
-    if self.CP.notCar or SIMULATION:
-      ignore += ['driverMonitoringState']
+    ignore += ['driverMonitoringState']
 
     if REPLAY:
       # no vipc in replay will make them ignored anyways
@@ -137,17 +133,12 @@ class SelfdriveD:
     self.experimental_mode = False
     self.personality = self.read_personality_param()
     self.recalibrating_seen = False
-    self.dm_lockout_set = self.params.get_bool("DriverTooDistracted")
+    self.dm_lockout_set = False
     self.cutin_audio_tracker = CutinAlertTracker()
     self.dm_uncertain_alerted = False
-    self.dm_disabled_prev = False
-    self.update_reboot_alerted = False
-    self.system_ready_alerted = False
-    self.system_ready_since = None
     self.big_model_loading = False
     self.big_model_active = False
     self.big_model_ready_t = 0.0
-    self.model_startup_complete = False
     self.state_machine = StateMachine()
     self.rk = Ratekeeper(100, print_delay_threshold=None)
 
@@ -193,9 +184,6 @@ class SelfdriveD:
     """Compute onroadEvents from carState"""
 
     self.events.clear()
-    from openpilot.selfdrive.modeld.jetlink.link import fault_active
-    if fault_active():
-      self.events.add(EventName.commIssue)
 
     if self.sm['controlsState'].lateralControlState.which() == 'debugState':
       self.events.add(EventName.joystickDebug)
@@ -214,8 +202,6 @@ class SelfdriveD:
     if not self.initialized:
       self.events.add(EventName.selfdriveInitializing)
       return
-
-    self.update_reboot_alert()
 
     # Check for user bookmark press (bookmark button or end of LKAS button feedback)
     if self.sm.updated['userBookmark']:
@@ -256,15 +242,11 @@ class SelfdriveD:
       self.events.add(EventName.resumeBlocked)
 
     # Handle DM
-    dm_disabled = self.sm['driverMonitoringState'].dm2Disabled
-    if dm_disabled and not self.dm_disabled_prev:
-      set_offroad_alert("Offroad_DriverMonitoringUncertain", False)
-      self.dm_uncertain_alerted = False
-    self.dm_disabled_prev = dm_disabled
-    if not self.CP.notCar and not dm_disabled:
-      # Camera availability silently selects vision or interaction monitoring.
-      # Actual attention warnings, lockout and service-health checks still apply.
-      self.update_dm_lockout()
+    if not self.CP.notCar and self.params.get_int("DisableDM") == 0:
+      # Block engaging until ignition cycle after max number or time of distractions
+      if self.sm['driverMonitoringState'].lockout and not self.dm_lockout_set:
+        self.params.put_bool("DriverTooDistracted", True)
+        self.dm_lockout_set = True
       # No entry conditions
       if self.sm['driverMonitoringState'].lockout or self.sm['driverMonitoringState'].alwaysOnLockout:
         self.events.add(EventName.tooDistracted)
@@ -408,10 +390,7 @@ class SelfdriveD:
       if not_running != self.not_running_prev:
         cloudlog.event("process_not_running", not_running=not_running, error=True)
       self.not_running_prev = not_running
-    dm_fallback_processes = {'dmonitoringmodeld'} if (self.sm.all_checks(['driverMonitoringState']) and
-                            (self.sm['driverMonitoringState'].cameraUnavailable or
-                             self.sm['driverMonitoringState'].dm2Disabled)) else set()
-    if self.sm.recv_frame['managerState'] and (not_running - self.ignored_processes - dm_fallback_processes):
+    if self.sm.recv_frame['managerState'] and (not_running - self.ignored_processes):
       self.events.add(EventName.processNotRunning)
     else:
       if not SIMULATION and not self.rk.lagging:
@@ -421,35 +400,13 @@ class SelfdriveD:
           self.events.add(EventName.cameraFrameRate)
     if not REPLAY and self.rk.lagging:
       self.events.add(EventName.selfdrivedLagging)
-    big_model_settling = self._big_model_settling()
-    pose = self.sm['livePose']
-    radar_errors = self.sm['radarState'].radarErrors
-    model_inputs_ready = (self.sm.all_checks(['modelV2', 'radarState', 'livePose', 'liveCalibration',
-                                             'liveParameters', 'longitudinalPlan', 'driverAssistance']) and
-                          pose.inputsOK and pose.sensorsOK and pose.posenetOK)
-    if self.enabled or model_inputs_ready:
-      self.model_startup_complete = True
-    startup_fault = (radar_errors.canError or radar_errors.radarFault or radar_errors.wrongConfig or
-                     radar_errors.radarUnavailableTemporary or
-                     (self.sm.seen['livePose'] and (not pose.sensorsOK or not pose.posenetOK)))
-    model_starting = big_model_settling and not self.model_startup_complete and not startup_fault
-    if model_starting and not model_inputs_ready:
-      # The first model output precedes readiness of its downstream services.
-      # Keep engagement blocked while they settle, without calling this a radar fault.
-      self.events.add(EventName.selfdriveInitializing)
     if not self.sm.valid['radarState']:
       if self.sm['radarState'].radarErrors.canError:
         self.events.add(EventName.canError)
       elif self.sm['radarState'].radarErrors.radarUnavailableTemporary:
         self.events.add(EventName.radarTempUnavailable)
-      elif self.sm['radarState'].radarErrors.radarFault or self.sm['radarState'].radarErrors.wrongConfig:
-        self.events.add(EventName.radarFault)
-      elif model_starting:
-        if EventName.selfdriveInitializing not in self.events.names:
-          self.events.add(EventName.selfdriveInitializing)
       else:
-        # Aggregate input validity is independent of decoded radar hardware errors.
-        self.events.add(EventName.commIssue)
+        self.events.add(EventName.radarFault)
     if not self.sm.valid['pandaStates']:
       self.events.add(EventName.usbError)
     if CS.canTimeout:
@@ -460,7 +417,8 @@ class SelfdriveD:
     # generic catch-all. ideally, a more specific event should be added above instead
     has_disable_events = self.events.contains(ET.NO_ENTRY) and (self.events.contains(ET.SOFT_DISABLE) or self.events.contains(ET.IMMEDIATE_DISABLE))
     no_system_errors = (not has_disable_events) or (len(self.events) == num_events)
-    if not self.sm.all_checks() and no_system_errors and not model_starting:
+    big_model_settling = self._big_model_settling()
+    if not self.sm.all_checks() and no_system_errors and not big_model_settling:
       if not self.sm.all_alive():
         self.events.add(EventName.commIssue)
       elif not self.sm.all_freq_ok():
@@ -486,11 +444,7 @@ class SelfdriveD:
       if self.sm.seen['livePose'] and not self.sm['livePose'].posenetOK:
         self.events.add(EventName.posenetInvalid)
       if self.sm.seen['livePose'] and not self.sm['livePose'].inputsOK:
-        if model_starting and self.sm['livePose'].sensorsOK and self.sm['livePose'].posenetOK:
-          if EventName.selfdriveInitializing not in self.events.names:
-            self.events.add(EventName.selfdriveInitializing)
-        else:
-          self.events.add(EventName.locationdTemporaryError)
+        self.events.add(EventName.locationdTemporaryError)
       if (self.sm.seen['liveParameters'] and not self.sm['liveParameters'].valid and cal_status == log.LiveCalibrationData.Status.calibrated
           and not TESTING_CLOSET and (not SIMULATION or REPLAY)):
         self.events.add(EventName.paramsdTemporaryError)
@@ -552,28 +506,6 @@ class SelfdriveD:
     #    self.params.put_nonblocking('LongitudinalPersonality', str(self.personality))
     #    self.events.add(EventName.personalityChanged)
 
-  def update_dm_lockout(self):
-    # One writer persists both lock and release from fresh DM output. Otherwise
-    # restarting DM after a parked reset would reload the old saved lockout.
-    if not self.sm.all_checks(['driverMonitoringState']):
-      return
-    age = time.monotonic() - self.sm.logMonoTime['driverMonitoringState'] / 1e9
-    if not 0 <= age < 0.25:
-      return
-    locked = self.sm['driverMonitoringState'].lockout
-    if locked != self.dm_lockout_set:
-      self.params.put_bool("DriverTooDistracted", locked)
-      self.dm_lockout_set = locked
-
-  def update_reboot_alert(self):
-    # One NNFF-style notice per onroad session, after startup alerts finish.
-    # Use the manager's fixed startup identity across ignition cycles.
-    if (not REPLAY and not SIMULATION and not self.update_reboot_alerted
-        and self.sm.frame * DT_CTRL >= 15.0 and self.sm.all_checks(['managerState'])
-        and self.sm['managerState'].rebootRequired):
-      self.events.add(EventName.updateRebootRequired)
-      self.update_reboot_alerted = True
-
   def data_sample(self):
     car_state = messaging.recv_one(self.car_state_sock)
     CS = car_state.carState if car_state else self.CS_prev
@@ -582,8 +514,7 @@ class SelfdriveD:
 
     if not self.initialized:
       all_valid = CS.canValid and self.sm.all_checks()
-      # Leave room for model startup; healthy services can finish sooner.
-      timed_out = self.sm.frame * DT_CTRL > 10.
+      timed_out = self.sm.frame * DT_CTRL > 6.
       if all_valid or timed_out or (SIMULATION and not REPLAY):
         available_streams = VisionIpcClient.available_streams("camerad", block=False)
         if VisionStreamType.VISION_STREAM_ROAD not in available_streams:
@@ -622,63 +553,6 @@ class SelfdriveD:
 
     return CS
 
-  def update_system_ready_alert(self, CS):
-    # Initialization can time out with unhealthy services. Require actual health
-    # and engageability for half a second, then wait for existing alerts to clear.
-    if self.system_ready_alerted or REPLAY or SIMULATION:
-      return
-    ready = (self.initialized and not self.CP.passive and self.sm['deviceState'].started
-             and CS.canValid and not CS.canTimeout and self.sm.all_checks()
-             and not self.events.contains(ET.NO_ENTRY))
-    if not ready:
-      self.system_ready_since = None
-      return
-    if self.system_ready_since is None:
-      self.system_ready_since = self.sm.frame
-    if (self.sm.frame - self.system_ready_since) * DT_CTRL < 0.5 or self.AM.current_alert is not EmptyAlert:
-      return
-    self.events.add(EventName.systemReady)
-    self.update_alerts(CS)
-    self.system_ready_alerted = True
-
-  def update_impact_dashcam(self, CS):
-    if REPLAY or SIMULATION or self.CP.notCar:
-      return
-    now = time.monotonic()
-    trigger, quiet, accel = False, None, None
-    if self.sm.updated['accelerometer']:
-      sample = self.sm['accelerometer']
-      pose = self.sm['livePose']
-      calibration = self.sm['liveCalibration']
-      valid = (self.sm.valid['accelerometer'] and self.sm.alive['accelerometer']
-               and sample.which() == 'acceleration'
-               and sample.source in (log.SensorEventData.SensorSource.lsm6ds3,
-                                     log.SensorEventData.SensorSource.lsm6ds3trc)
-               and self.sm.all_checks(['livePose', 'liveCalibration'])
-               and pose.orientationNED.valid and pose.inputsOK and pose.sensorsOK
-               and 0 <= now - pose.timestamp / 1e9 < 0.2
-               and calibration.calStatus == log.LiveCalibrationData.Status.calibrated)
-      orientation = [pose.orientationNED.x, pose.orientationNED.y, pose.orientationNED.z]
-      trigger, quiet, accel = self.impact_detector.update(
-        now=now, timestamp=sample.timestamp / 1e9,
-        sensor=list(sample.acceleration.v) if sample.which() == 'acceleration' else [],
-        orientation=orientation, calibration=list(calibration.rpyCalib), valid=valid)
-    elif not self.sm.alive['accelerometer']:
-      self.impact_detector.above = False
-      quiet = False
-    was_pending, was_committed = self.impact_dashcam.pending, self.impact_dashcam.committed
-    try:
-      self.impact_dashcam.update(now=now,
-        allowed=self.initialized and not self.CP.passive and self.sm['deviceState'].started,
-        trigger=trigger, quiet=quiet, details={'acceleration': accel, 'aEgo': CS.aEgo})
-    except OSError:
-      self.impact_dashcam.cancel()
-      cloudlog.exception("Impact dashcam parameter write failed")
-    if self.impact_dashcam.pending and not was_pending:
-      cloudlog.warning(f"Impact suspected: acceleration={accel}, aEgo={CS.aEgo}")
-    if self.impact_dashcam.committed and not was_committed:
-      cloudlog.warning("Impact dashcam countdown completed; openpilot disabled, reboot requested")
-
   def update_alerts(self, CS):
     clear_event_types = set()
     if ET.WARNING not in self.state_machine.current_alert_types:
@@ -689,11 +563,6 @@ class SelfdriveD:
     pers = LONGITUDINAL_PERSONALITY_MAP[self.personality]
     alerts = self.events.create_alerts(self.state_machine.current_alert_types, [self.CP, CS, self.sm, self.is_metric,
                                                                                 self.state_machine.soft_disable_timer, pers])
-    if not self.enabled and EventName.selfdriveInitializing in self.events.names:
-      # Retain wrongGear in the state machine/logs, but explain the current
-      # startup block when an early enable request also finds Park/Neutral.
-      alerts = [a for a in alerts if a.alert_type != 'wrongGear/noEntry']
-      self.AM.alerts.pop('wrongGear/noEntry', None)
     self.AM.add_many(self.sm.frame, alerts)
     self.AM.process_alerts(self.sm.frame, clear_event_types)
 
@@ -731,17 +600,10 @@ class SelfdriveD:
 
   def step(self):
     CS = self.data_sample()
-    self.update_impact_dashcam(CS)
     self.update_events(CS)
-    if self.impact_dashcam.pending:
-      self.events.add(EventName.impactDetected)
-    if self.impact_dashcam.committed:
-      self.events.add(EventName.impactDashcamReboot)
     if not self.CP.passive and self.initialized:
       self.enabled, self.active = self.state_machine.update(self.events)
     self.update_alerts(CS)
-
-    self.update_system_ready_alert(CS)
 
     self.publish_selfdriveState(CS)
 
@@ -774,9 +636,7 @@ class SelfdriveD:
 
 
 def main():
-  # Pair short 100Hz state/control work on core6, leaving core4 for planning
-  # and radar preprocessing. Camerad remains SCHED_OTHER on the same core.
-  config_realtime_process(6, Priority.CTRL_HIGH)
+  config_realtime_process(4, Priority.CTRL_HIGH)
   s = SelfdriveD()
   s.run()
 

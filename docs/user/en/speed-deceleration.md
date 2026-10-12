@@ -43,6 +43,7 @@ If raising one value produces no change, another source may already be lower. Ch
 |---|---:|---:|
 | `AutoCurveSpeedFactor` | 100 | 120 |
 | `AutoNaviSpeedCtrlEnd` | 6 | 7 |
+| `AutoNaviSpeedDecelRate` | 200 | 120 |
 | `MapTurnSpeedFactor` | 100 | 90 |
 | `AutoRoadSpeedAdjust` | 0 | 50 |
 
@@ -51,7 +52,7 @@ Record the value currently shown on the device before changing anything.
 <a id="speed-camera"></a>
 ## 1. Speed cameras
 
-The related settings are `AutoNaviSpeedCtrlMode`, `AutoNaviSpeedCtrlEnd`, `AutoNaviRearCameraHoldDistance`, `AutoNaviSpeedDecelRate`, `AutoNaviSpeedSafetyFactor`, `AutoNaviCountDownMode`, `VehicleNaviCanControl`, `VehicleNaviSchoolZoneControl`, `VehicleSpeedCameraControlMode`, and `VehicleSpeedCameraDistanceTime`.
+The related settings are `AutoNaviSpeedCtrlMode`, `AutoNaviSpeedCtrlEnd`, `AutoNaviSpeedDecelRate`, `AutoNaviSpeedSafetyFactor`, `AutoNaviCountDownMode`, `VehicleNaviCanControl`, `VehicleNaviSchoolZoneControl`, `VehicleSpeedCameraControlMode`, and `VehicleSpeedCameraDistanceTime`.
 
 ### `AutoNaviSpeedCtrlMode`
 
@@ -66,11 +67,7 @@ The event type, limit, and distance must all be valid. An average-speed zone ret
 
 ### Stock-navigation CAN control
 
-When external navigation is connected, deceleration and countdowns use external navigation only. Stock cameras, bumps, sections, 30 km/h zone caps, and stock-navigation speed displays are excluded even if external navigation has no current guidance or enforcement item. After disconnection or receive timeout is detected, stock navigation becomes available again according to its settings.
-
-`VehicleNaviCanControl` selects when exact camera and speed-bump distances from stock navigation are used on supported Hyundai/Kia CAN-FD vehicles. The modes below apply only without an external navigation connection. Always apply in mode `1` means independent of stock route guidance.
-
-A current camera warning is associated only with a nearby distance candidate with the same limit. If only a distant same-speed camera is available, the current warning uses its own virtual distance while the distant camera remains queued for a later approach.
+`VehicleNaviCanControl` selects when exact camera and speed-bump distances from stock navigation are used on supported Hyundai/Kia CAN-FD vehicles. The previous enabled value, `1`, remains the always-apply mode.
 
 | Value | vNAVI future-event scope |
 |---:|---|
@@ -100,23 +97,9 @@ This setting applies only to camera, average-speed-zone, and 30 km/h zone decele
 
 In mode `2`, an accelerator held from before actual deceleration begins does not pre-arm a floor. A new press during actual deceleration is treated as a request to ignore the current event, and the floor rises to the highest speed reached while accelerating. Releasing the pedal does not permit further slowing below that floor during the same event. Braking, stopping, a speed-limit or deceleration-source change, or the end of the event clears it.
 
-On the Kia PV5, a matched camera distance remains active through brief notification pulses only while fresh stock-navigation messages continue to report the same enforcement limit. When enforcement ends, the limit changes, or either message is lost for more than one second, the current and queued camera distances are cleared.
-
-A queued distance alone cannot trigger deceleration, including after the current camera's distance is exhausted. A new valid warning without a newly received matching distance uses the virtual distance below; an unchanged warning for a completed camera cannot restart it. PV5 route departure is not detected independently: cancellation relies on stock navigation ending or changing its enforcement state.
-
 ### `VehicleSpeedCameraDistanceTime`
 
 When the vehicle supplies only an enforcement speed without an exact camera distance, this setting creates a virtual deceleration distance. At a 50 km/h camera, `6.0 s` produces about 300 m and `6.2 s` about 310 m. A live change is applied within about one second.
-
-On supported CAN-FD vehicles, this also applies when no nearby camera distance matches the current warning. A new warning or a limit change starts a fresh virtual distance, which decreases with travel. Once the distance is exhausted, the cap remains while the warning is active; the virtual distance does not repeatedly restart at its full length.
-
-### `AutoNaviRearCameraHoldDistance`
-
-When external navigation reports a rear speed or rear signal-and-speed camera (TMAP types `75/76`), keep the target-speed cap beyond the camera position. The default is **100 m**, the range is **0–300 m**, and the step is **10 m**. `0` disables the extra hold. Increasing the value holds farther beyond the camera; decreasing it releases sooner.
-
-The camera position is captured within the final 50 m and then tracked by traveled distance. The hold survives guidance removal or a switch to the next camera or bump. A lower speed required by another control still takes precedence. Stopping does not consume the hold distance. The display shows the rear-camera hold and remaining distance; the countdown ends at the original camera position.
-
-External disconnection, off-route status, a new navigation session, a traveled-distance reset, or disabling camera deceleration clears the hold. Stock CAN does not identify rear-camera types, so it uses its active warning to retain the cap without this extra distance. The configured distance does not guarantee that measurement by the actual camera has ended.
 
 ### `AutoNaviSpeedSafetyFactor`
 
@@ -140,14 +123,12 @@ At a 60 km/h target (about 16.7 m/s), 6 seconds is about 100 m and 10 seconds is
 
 ### `AutoNaviSpeedDecelRate`
 
-The catalog default and initial Params value are both `120`, corresponding to `1.20 m/s²`. Updating the software does not change an existing saved setting.
-
-The stored value is multiplied by `0.01 m/s²` to calculate the approach curve for cameras and speed bumps:
+The stored value is multiplied by `0.01 m/s²`:
 
 | Stored value | Rate used | Perceived direction |
 |---:|---:|---|
 | 80 | 0.80 m/s² | Start earlier and more gently |
-| 120 | 1.20 m/s² | Default |
+| 120 | 1.20 m/s² | Middle |
 | 200 | 2.00 m/s² | Can start closer and slow more strongly |
 
 The important direction is: **a lower value starts deceleration earlier**. The speed ceiling follows:
@@ -164,7 +145,7 @@ If slowing begins too late, lower this value one step. If it begins too early, r
 | `1` | Turn points and speed events, excluding bumps |
 | `2` | Turn points, speed events, and bumps |
 
-The countdown uses only external-navigation distances while connected, and stock-navigation distances otherwise. Changing the connection state resets the previous countdown. It estimates seconds from distance and current speed and does not alter the deceleration calculation.
+The countdown estimates seconds from distance and current speed. It does not alter the deceleration calculation.
 
 Recommended tuning order: validate event data, set the target with `SafetyFactor`, set the completion position with `CtrlEnd`, and finally tune the approach curve with `DecelRate`.
 
@@ -247,7 +228,7 @@ There are three distinct sources:
 
 The code divides predicted yaw rate by velocity at the same point to obtain curvature. It divides the 1.9 m/s² reference lateral-acceleration budget by the setting ratio, so a higher factor produces a lower curve target. Predicted future velocity is not used directly as a driving-speed target.
 
-The curve target and remaining path distance determine the speed ceiling at the current position. A distant curve permits a higher approach speed; the ceiling decreases toward the curve target as the vehicle approaches. The calculation reserves time for control response and gradual braking buildup. When consecutive fresh model paths confirm that the turn is easing, vTurn recovers promptly to the lowest ceiling from roughly the last 0.25 seconds. A tighter curve limit applies immediately; repeated frames or missing model input do not justify fast release. Actual acceleration still follows the existing acceleration and jerk limits.
+The curve target and remaining path distance determine the speed ceiling at the current position. A distant curve permits a higher approach speed; the ceiling decreases toward the curve target as the vehicle approaches. The calculation reserves time for control response and gradual braking buildup. Release briefly holds the limit and then raises it progressively.
 
 Slow or invalid model predictions and isolated yaw-rate spikes are excluded. Late or inaccurate curve predictions can still lead to late deceleration.
 
