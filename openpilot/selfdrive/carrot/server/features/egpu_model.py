@@ -4,7 +4,8 @@ from typing import Any
 
 from aiohttp import web
 
-from openpilot.selfdrive.modeld.big_model import active_manifest, active_model_compiled, active_model_path, model_cache_dir
+from openpilot.selfdrive.modeld.big_model import active_manifest, active_model_path, model_cache_dir
+from openpilot.selfdrive.modeld.helpers import usbgpu_compiled_path
 from openpilot.selfdrive.modeld.big_model_status import read_big_model_status, write_big_model_status
 
 from ..services.params import HAS_PARAMS, Params
@@ -31,7 +32,7 @@ def build_status_payload(params: Any | None = None) -> dict[str, Any]:
   phase = status.get("state")
   updating = phase in {"checking", "downloading", "verifying", "compiling", "error"}
   try:
-    compiled = active_model_compiled() if same_model and not updating else False
+    compiled = usbgpu_compiled_path() is not None if same_model and not updating else False
   except Exception:
     compiled = False
   if updating:
