@@ -12,6 +12,8 @@ try:
 except ImportError:
   cv2 = None
 
+from openpilot.selfdrive.carrot.xiaoge.trt_onnx_runner import AsyncTrtRunner
+
 DEFAULT_LANE_MODEL_PATH = Path(__file__).resolve().parent / "assets" / "lane.onnx"
 
 INPUT_SIZE = 416
@@ -121,6 +123,7 @@ class LaneInference:
   def __init__(self, model_path: Path = DEFAULT_LANE_MODEL_PATH):
     self.model_path = model_path
     self.net = None
+    self.trt = None
     self.valid = False
     self.error = ""
 
@@ -134,7 +137,9 @@ class LaneInference:
       self.valid = False
       return False
     try:
+      # CPU OpenCV DNN fallback; TensorRT (Orin GPU) is preferred once built.
       self.net = cv2.dnn.readNetFromONNX(str(self.model_path))
+      self.trt = AsyncTrtRunner(self.model_path)
       self.valid = True
       self.error = ""
       return True
@@ -163,11 +168,16 @@ class LaneInference:
 
     try:
       blob = self.preprocess_image(image, width, height)
-      self.net.setInput(blob)
-      out_names = self.net.getUnconnectedOutLayersNames()
-      outputs = dict(zip(out_names, self.net.forward(out_names), strict=True))
-      predictions = outputs["output0"][0]  # shape (42, 3549)
-      prototypes = outputs["output1"][0]   # shape (32, 104, 104)
+      if self.trt is not None and self.trt.ready:
+        outputs = self.trt.infer({"images": blob})
+        predictions = outputs["output0"][0]  # shape (42, 3549)
+        prototypes = outputs["output1"][0]   # shape (32, 104, 104)
+      else:
+        self.net.setInput(blob)
+        out_names = self.net.getUnconnectedOutLayersNames()
+        outputs = dict(zip(out_names, self.net.forward(out_names), strict=True))
+        predictions = outputs["output0"][0]  # shape (42, 3549)
+        prototypes = outputs["output1"][0]   # shape (32, 104, 104)
 
       # Extract scores across 6 classes for 3549 anchors
       class_scores = predictions[4:10, :]  # shape (6, 3549)

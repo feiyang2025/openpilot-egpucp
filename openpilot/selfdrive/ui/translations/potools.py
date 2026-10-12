@@ -188,8 +188,25 @@ def write_po(path: str | Path, header: POEntry | None, entries: list[POEntry]) -
 
 # ──── String extraction (replaces xgettext) ────
 
+def _literal_str(node: ast.AST) -> str | None:
+  """Return the runtime value of a string literal, folding `"a" + "b"`.
+
+  CPython folds adjacent/explicit string concatenation before the call runs, so
+  the argument reaching tr() is one string. The AST keeps the `BinOp`, and a
+  plain `ast.Constant` check would silently skip those strings.
+  """
+  if isinstance(node, ast.Constant) and isinstance(node.value, str):
+    return node.value
+  if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+    left = _literal_str(node.left)
+    right = _literal_str(node.right)
+    if left is not None and right is not None:
+      return left + right
+  return None
+
+
 def extract_strings(files: list[str], basedir: str,
-                    translation_call_args: dict[str, tuple[tuple[int, ...], tuple[str, ...]]] | None = None) -> list[POEntry]:
+                    translation_call_args: dict[str, tuple[tuple[int, ...], tuple[int, ...]]] | None = None) -> list[POEntry]:
   """Extract translation calls and configured literal call arguments."""
   seen: dict[str, POEntry] = {}
   translation_call_args = translation_call_args or {}
@@ -244,8 +261,9 @@ def extract_strings(files: list[str], basedir: str,
         values = [node.args[i] for i in positions if i < len(node.args)]
         values.extend(kw.value for kw in node.keywords if kw.arg in keywords)
         for value in values:
-          if isinstance(value, ast.Constant) and isinstance(value.value, str):
-            add_entry(value.value, ref)
+          literal = _literal_str(value)
+          if literal is not None:
+            add_entry(literal, ref)
 
       if name not in ('tr', 'trn', 'tr_noop'):
         continue
@@ -253,19 +271,21 @@ def extract_strings(files: list[str], basedir: str,
       is_flagged = name in ('tr', 'trn')
 
       if name in ('tr', 'tr_noop'):
-        if not node.args or not isinstance(node.args[0], ast.Constant) or not isinstance(node.args[0].value, str):
+        if not node.args:
           continue
-        add_entry(node.args[0].value, ref, is_flagged)
+        literal = _literal_str(node.args[0])
+        if literal is None:
+          continue
+        add_entry(literal, ref, is_flagged)
 
       elif name == 'trn':
         if len(node.args) < 2:
           continue
-        a1, a2 = node.args[0], node.args[1]
-        if not (isinstance(a1, ast.Constant) and isinstance(a1.value, str)):
+        a1 = _literal_str(node.args[0])
+        a2 = _literal_str(node.args[1])
+        if a1 is None or a2 is None:
           continue
-        if not (isinstance(a2, ast.Constant) and isinstance(a2.value, str)):
-          continue
-        add_entry(a1.value, ref, is_flagged, a2.value)
+        add_entry(a1, ref, is_flagged, a2)
 
   return list(seen.values())
 

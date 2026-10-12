@@ -139,6 +139,9 @@ class SelfdriveD:
     self.big_model_loading = False
     self.big_model_active = False
     self.big_model_ready_t = 0.0
+    self._usbgpu_loading = False
+    self._usbgpu_active = False
+    self._usbgpu_state_refresh_t = 0.0
     self.state_machine = StateMachine()
     self.rk = Ratekeeper(100, print_delay_threshold=None)
 
@@ -170,8 +173,15 @@ class SelfdriveD:
 
   def _big_model_settling(self) -> bool:
     """Allow modeld to settle after eGPU startup or runtime fallback."""
-    loading = self.params.get_bool("UsbGpuLoading")
-    active = self.params.get_bool("UsbGpuActive")
+    # These Params change on the eGPU startup/fallback timescale; poll at 2 Hz
+    # instead of reading the files on every 100 Hz step.
+    now = time.monotonic()
+    if now >= self._usbgpu_state_refresh_t:
+      self._usbgpu_loading = self.params.get_bool("UsbGpuLoading")
+      self._usbgpu_active = self.params.get_bool("UsbGpuActive")
+      self._usbgpu_state_refresh_t = now + 0.5
+    loading = self._usbgpu_loading
+    active = self._usbgpu_active
 
     if (self.big_model_loading and not loading) or (self.big_model_active and not active):
       self.big_model_ready_t = time.monotonic()
@@ -182,6 +192,9 @@ class SelfdriveD:
 
   def update_events(self, CS):
     """Compute onroadEvents from carState"""
+
+    if self.sm.frame % 100 == 0:  # 1Hz로만 파라미터 IO (100Hz 루프 보호)
+      self.disable_dm = self.params.get_int("DisableDM")
 
     self.events.clear()
 
@@ -242,7 +255,7 @@ class SelfdriveD:
       self.events.add(EventName.resumeBlocked)
 
     # Handle DM
-    if not self.CP.notCar and self.params.get_int("DisableDM") == 0:
+    if not self.CP.notCar and self.disable_dm == 0:
       # Block engaging until ignition cycle after max number or time of distractions
       if self.sm['driverMonitoringState'].lockout and not self.dm_lockout_set:
         self.params.put_bool("DriverTooDistracted", True)

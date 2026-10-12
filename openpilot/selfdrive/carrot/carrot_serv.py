@@ -225,9 +225,17 @@ class CarrotServ:
     # 规则：main_ko -> 韩语；main_zh-CHS -> 中文；其他 -> 英文
     self.lang = "en"
 
+    self._params_refresh_t = 0.0
     self.update_params()
 
-  def update_params(self):
+  def update_params(self, force: bool = False):
+    # These user settings are read on the 20 Hz navi path; refresh at most once
+    # per second so the loop does not re-read ~28 Params files every frame.
+    now = time.monotonic()
+    if not force and now < self._params_refresh_t:
+      return
+    self._params_refresh_t = now + 1.0
+
     self.autoNaviSpeedBumpSpeed = float(self.params.get_int("AutoNaviSpeedBumpSpeed"))
     self.autoNaviSpeedBumpTime = float(self.params.get_int("AutoNaviSpeedBumpTime"))
     self.autoNaviSpeedBumpEndDistance = float(min(5000, max(0, self.params.get_int("AutoNaviSpeedBumpEndDistance")))) * 0.01

@@ -60,7 +60,16 @@ class Controls:
 
     self.CI = interfaces[self.CP.carFingerprint](self.CP)
 
-    self.disable_dm = False
+    # Settings read by the 100 Hz loop only need low-rate refreshes. Cache them
+    # here and refresh at 1 Hz in state_control() to avoid per-frame Params I/O.
+    self.steer_ratio_rate = self.params.get_float("SteerRatioRate")
+    self.custom_sr = self.params.get_float("CustomSR")
+    self.always_lateral = self.params.get_bool("AlwaysLateral")
+    self.use_lane_line_curve_speed = self.params.get_int("UseLaneLineCurveSpeed")
+    self.lat_smooth_seconds = self.params.get_float("LatSmoothSec") * 0.01
+    self.steer_actuator_delay = self.params.get_float("SteerActuatorDelay") * 0.01
+    self.speed_from_pcm = self.params.get_int("SpeedFromPCM")
+    self.disable_dm = self.params.get_int("DisableDM")
 
     self.sm = messaging.SubMaster(['liveDelay', 'liveParameters', 'liveTorqueParameters', 'modelV2', 'selfdriveState',
                                    'liveCalibration', 'livePose', 'longitudinalPlan', 'carState', 'carOutput',
@@ -103,11 +112,23 @@ class Controls:
 
   def update(self):
     self.sm.update(15)
+    if self.sm.frame % 100 == 0:  # 1Hz로만 파라미터 IO (100Hz 루프 보호)
+      self._refresh_params()
     if self.sm.updated["liveCalibration"]:
       self.pose_calibrator.feed_live_calib(self.sm['liveCalibration'])
     if self.sm.updated["livePose"]:
       device_pose = Pose.from_live_pose(self.sm['livePose'])
       self.calibrated_pose = self.pose_calibrator.build_calibrated_pose(device_pose)
+
+  def _refresh_params(self):
+    self.steer_ratio_rate = self.params.get_float("SteerRatioRate")
+    self.custom_sr = self.params.get_float("CustomSR")
+    self.always_lateral = self.params.get_bool("AlwaysLateral")
+    self.use_lane_line_curve_speed = self.params.get_int("UseLaneLineCurveSpeed")
+    self.lat_smooth_seconds = self.params.get_float("LatSmoothSec") * 0.01
+    self.steer_actuator_delay = self.params.get_float("SteerActuatorDelay") * 0.01
+    self.speed_from_pcm = self.params.get_int("SpeedFromPCM")
+    self.disable_dm = self.params.get_int("DisableDM")
 
   def state_control(self):
     CS = self.sm['carState']
@@ -119,8 +140,8 @@ class Controls:
     # override it, but legacy/out-of-range persisted rates must never collapse
     # the vehicle-model ratio and destabilize lateral feedback.
     sr = resolve_vehicle_model_steer_ratio(lp.steerRatio,
-                                           self.params.get_float("SteerRatioRate"),
-                                           self.params.get_float("CustomSR"),
+                                           self.steer_ratio_rate,
+                                           self.custom_sr,
                                            self.is_vw_meb)
     self.VM.update_params(x, sr)
 
@@ -143,7 +164,7 @@ class Controls:
     # carrot
     gear = car.CarState.GearShifter
     driving_gear = CS.gearShifter not in (gear.neutral, gear.park, gear.reverse, gear.unknown)
-    lateral_enabled = driving_gear and self.params.get_bool("AlwaysLateral")
+    lateral_enabled = driving_gear and self.always_lateral
     #self.soft_hold_active = CS.softHoldActive #car.OnroadEvent.EventName.softHold in [e.name for e in self.sm['onroadEvents']]
 
     # Check which actuators can be enabled
@@ -180,9 +201,9 @@ class Controls:
     # Steering PID loop and lateral MPC
     lat_plan = self.sm['lateralPlan']
     curve_speed_abs = abs(self.sm['carrotMan'].vTurnSpeed)
-    self.lanefull_mode_enabled = (lat_plan.useLaneLines and curve_speed_abs > self.params.get_int("UseLaneLineCurveSpeed"))
-    lat_smooth_seconds = self.params.get_float("LatSmoothSec") * 0.01
-    steer_actuator_delay = self.params.get_float("SteerActuatorDelay") * 0.01
+    self.lanefull_mode_enabled = (lat_plan.useLaneLines and curve_speed_abs > self.use_lane_line_curve_speed)
+    lat_smooth_seconds = self.lat_smooth_seconds
+    steer_actuator_delay = self.steer_actuator_delay
     if steer_actuator_delay == 0.0:
       steer_actuator_delay = self.sm['liveDelay'].lateralDelay 
     
@@ -341,7 +362,7 @@ class Controls:
 
     lp = self.sm['longitudinalPlan']
     if self.CP.pcmCruise:
-      speed_from_pcm = self.params.get_int("SpeedFromPCM")
+      speed_from_pcm = self.speed_from_pcm
       if speed_from_pcm == 1: #toyota
         hudControl.setSpeed = float(CS.vCruiseCluster * CV.KPH_TO_MS)
       elif speed_from_pcm == 2:
@@ -423,7 +444,7 @@ class Controls:
     cs.uiAccelCmd = float(self.LoC.pid.i)
     cs.ufAccelCmd = float(self.LoC.pid.f)
     cs.forceDecel = False
-    if self.params.get_int("DisableDM") == 0:
+    if self.disable_dm == 0:
       cs.forceDecel = bool((self.sm['driverMonitoringState'].alertLevel == log.DriverMonitoringState.AlertLevel.three) or
                            (self.sm['selfdriveState'].state == State.softDisabling))
 

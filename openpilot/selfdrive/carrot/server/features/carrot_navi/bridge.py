@@ -29,7 +29,9 @@ def _is_web_media_stream(kind: str, name: str) -> bool:
 class CarrotNaviWebBridge:
   """Demand-driven Cereal reader coordinating client and media pipeline modules."""
 
-  POLL_SLEEP = 0.004
+  # Navi state changes at ~1-10 Hz and the map renders at ~10-20 Hz; 50 Hz is
+  # plenty and avoids a 250 Hz poll loop while a client is connected.
+  POLL_SLEEP = 0.02
   IDLE_CLOSE_SECONDS = 2.0
   SEND_TIMEOUT = 1.0
   MEDIA_QUEUE_SIZE = 12

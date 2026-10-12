@@ -460,6 +460,7 @@ class Dashboard:
     self.lock = threading.Lock()  # 保护 state 的线程锁
     self.state = {}         # 最新提取的数据（后台线程写入，SSE 线程读取）
     self._stop = threading.Event()            # 停止信号（stop() 置位后各循环退出）
+    self._state_event = threading.Event()     # 新数据到达时唤醒 SSE 线程，避免 100Hz 轮询
     self._start_time = time.time()            # 启动时刻（用于计算运行时长）
     self._thread: Optional[threading.Thread] = None   # 后台数据采集线程
     self._sm: 'Optional[messaging.SubMaster]' = None  # 供调试/外部查询的 SubMaster 引用
@@ -491,6 +492,7 @@ class Dashboard:
       new_state = extract_state(sm)     # 提取成 JSON 可序列化 dict
       with self.lock:
         self.state = new_state          # 加锁写共享状态
+      self._state_event.set()           # 唤醒 SSE 线程推送
       time.sleep(PUSH_INTERVAL)
 
   # ---- 模拟数据（--mock，便于无数据源时预览页面）----
@@ -707,12 +709,18 @@ class Dashboard:
       }
       with self.lock:
         self.state = state     # 加锁写回共享状态
+      self._state_event.set()  # 唤醒 SSE 线程推送
       time.sleep(PUSH_INTERVAL)
 
   def get_state(self) -> dict:
     """线程安全地读取最新状态"""
     with self.lock:
       return self.state
+
+  def wait_for_state(self, timeout: float) -> None:
+    """等待下一帧数据（或超时），供 SSE 线程事件驱动地推送。"""
+    self._state_event.wait(timeout)
+    self._state_event.clear()
 
   def latest_frame(self) -> int:
     """读取最近一次数据帧号（无数据时为 -1）"""
@@ -784,7 +792,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.wfile.write(b": keepalive\n\n")
             self.wfile.flush()
             heartbeat = now
-          time.sleep(0.01)
+        # 事件驱动等待下一帧，避免每 10ms 空转轮询
+        self.server.dashboard.wait_for_state(0.5)
     except (BrokenPipeError, ConnectionResetError, OSError):
       pass  # 客户端断开
 

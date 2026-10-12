@@ -392,12 +392,13 @@ def test_safe_websocket_error_send_ignores_closing_transport():
 
 
 def test_map_param_change_reconnects_websocket_with_new_manifest():
-  map_config = ["dark", "normal", 10, 3000]
+  map_config = ["dark", "normal", 10, 3000, 0.68]
 
   async def scenario():
     receiver = CarrotNaviReceiver(
       map_theme=map_config[0], map_type=map_config[1],
       map_hz=map_config[2], map_bitrate_kbps=map_config[3],
+      screen_center_y_ratio=map_config[4],
     )
     client = TestClient(TestServer(create_app(receiver, lambda: tuple(map_config))))
     await client.start_server()
@@ -410,7 +411,7 @@ def test_map_param_change_reconnects_websocket_with_new_manifest():
       first_map = next(stream for stream in first_manifest["streams"] if stream["kind"] == "render")
       assert first_map["params"]["map_type"] == "normal"
 
-      map_config[:] = ["light", "satellite", 60, 12000]
+      map_config[:] = ["light", "satellite", 60, 12000, 0.60]
       message = await first_control.receive(timeout=2.0)
       assert message.type in (WSMsgType.CLOSE, WSMsgType.CLOSED)
 
@@ -422,6 +423,7 @@ def test_map_param_change_reconnects_websocket_with_new_manifest():
       assert second_map["params"]["map_type"] == "satellite"
       assert second_map["params"]["fps"] == 60
       assert second_map["params"]["h264_bitrate_kbps"] == 12000
+      assert second_map["params"]["screen_center_y_ratio"] == 0.60
     finally:
       if second_control is not None:
         await second_control.close()

@@ -476,6 +476,8 @@ def query_field_events(
   integer_backwards_count = 0
   integer_max_step = 0
   value_kind = "unknown"
+  saw_number_list = False
+  saw_integer64_list = False
   parse_status = "complete"
   parse_error = ""
   iterator = iter(events)
@@ -522,6 +524,7 @@ def query_field_events(
     extracted_value_count += len(values)
     if exact_integer and all(isinstance(value, int) and not isinstance(value, bool) for value in values):
       integers = [int(value) for value in values]
+      saw_integer64_list = saw_integer64_list or len(integers) > 1
       value_kind = "integer64-list" if len(integers) > 1 else "integer64"
       for value in integers:
         integer64.observe(value, valid)
@@ -551,6 +554,7 @@ def query_field_events(
     normalized = [_scalar(value) for value in values]
     kinds = {kind for kind, _value in normalized}
     if kinds <= {"number", "nonfinite"}:
+      saw_number_list = saw_number_list or len(values) > 1
       value_kind = "number-list" if len(values) > 1 else "number"
       finite = [float(value) for kind, value in normalized if kind == "number"]
       nonfinite_count += sum(1 for kind, _value in normalized if kind == "nonfinite")
@@ -677,6 +681,12 @@ def query_field_events(
       "max": max(value_lengths),
       "mean": sum(value_lengths) / len(value_lengths),
     }
+  # A `...[]` field can have a single element on the last sample; keep the list
+  # kind if any sample expanded to more than one value.
+  if value_kind == "number" and saw_number_list:
+    value_kind = "number-list"
+  elif value_kind == "integer64" and saw_integer64_list:
+    value_kind = "integer64-list"
   return {
     "service": service,
     "field": dict(field_meta),

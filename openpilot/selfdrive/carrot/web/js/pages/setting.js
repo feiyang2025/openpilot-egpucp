@@ -612,9 +612,9 @@ function formatSettingRangeMeta(p) {
     return "";
   }
   return [
-    `min=${formatSettingDisplayValue(p, p?.min)}`,
-    `max=${formatSettingDisplayValue(p, p?.max)}`,
-    `default=${formatSettingDisplayValue(p, p?.default)}`,
+    `${getUIText("setting_meta_min", "min")}=${formatSettingDisplayValue(p, p?.min)}`,
+    `${getUIText("setting_meta_max", "max")}=${formatSettingDisplayValue(p, p?.max)}`,
+    `${getUIText("setting_meta_default", "default")}=${formatSettingDisplayValue(p, p?.default)}`,
   ].join(", ");
 }
 

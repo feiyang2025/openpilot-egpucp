@@ -263,7 +263,7 @@ class VCruiseCarrot:
 
   def update_params(self, is_metric):
     unit_factor = 1.0 if is_metric else CV.MPH_TO_KPH
-    if self.frame % 10 == 0:
+    if self.frame % 100 == 0:  # user settings, refresh at 1 Hz instead of 10 Hz
       self.autoCruiseControl = self.params.get_int("AutoCruiseControl") * unit_factor
       self.soft_hold_on_cancel = self.params.get_bool("SoftHoldOnCancel")
       self.autoGasTokSpeed = self.params.get_int("AutoGasTokSpeed") * unit_factor

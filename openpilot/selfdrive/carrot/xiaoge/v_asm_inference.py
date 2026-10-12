@@ -12,6 +12,8 @@ except ModuleNotFoundError as error:
     ) from None
   raise
 
+from openpilot.selfdrive.carrot.xiaoge.trt_onnx_runner import AsyncTrtRunner
+
 
 MODEL_INPUT_HEIGHT = 256
 MODEL_INPUT_WIDTH = 352
@@ -25,6 +27,7 @@ class VASMInference:
   def __init__(self, model_path: Path = DEFAULT_MODEL_PATH):
     self.model_path = model_path
     self.net = None
+    self.trt = None
     self.valid = False
     self.error = ""
     self.frame_size = (0, 0)
@@ -39,9 +42,13 @@ class VASMInference:
       self.error = f"model missing: {self.model_path}"
       return False
     try:
+      # CPU OpenCV DNN is the always-available fallback. The TensorRT engine
+      # (Orin GPU) is preferred once ready; it is built/cached in the background
+      # so the first-ever build does not block startup.
       self.net = cv2.dnn.readNetFromONNX(str(self.model_path))
       self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
       self.net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+      self.trt = AsyncTrtRunner(self.model_path)
     except cv2.error as error:
       self.error = f"could not load model: {error}"
       return False
@@ -105,8 +112,11 @@ class VASMInference:
     rgb = cv2.bitwise_and(rgb, rgb, mask=self.masks[side])
     rgb = cv2.resize(rgb, (MODEL_INPUT_WIDTH, MODEL_INPUT_HEIGHT), interpolation=cv2.INTER_LINEAR)
     blob = np.transpose(rgb.astype(np.float32) / 255.0, (2, 0, 1))[None, :]
-    self.net.setInput(blob)
-    predictions = np.squeeze(self.net.forward())
+    if self.trt is not None and self.trt.ready:
+      predictions = np.squeeze(self.trt.infer({"images": blob})["output0"])
+    else:
+      self.net.setInput(blob)
+      predictions = np.squeeze(self.net.forward())
     if predictions.ndim == 2:
       if predictions.shape[0] < predictions.shape[1]:
         predictions = predictions.T

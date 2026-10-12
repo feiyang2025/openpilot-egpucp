@@ -148,6 +148,9 @@ def test_cluster_autorun_restarts_without_delay_after_orientation_change(monkeyp
     def get_int(self, name):
       return values[name]
 
+    def get_bool(self, name):
+      return bool(values.get(name, False))
+
     def put_bool_nonblocking(self, _name, _value):
       return None
 

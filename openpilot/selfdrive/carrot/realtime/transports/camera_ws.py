@@ -238,22 +238,23 @@ class CameraWsHub:
             break
 
         if msg is None:
-          await asyncio.sleep(0.002)
+          # Camera frames arrive at ~20-30 fps; poll at 100 Hz instead of 500 Hz.
+          await asyncio.sleep(0.01)
           continue
 
         which = ""
         try:
           which = msg.which()
         except Exception:
-          await asyncio.sleep(0.001)
+          await asyncio.sleep(0.002)
           continue
         if not which:
-          await asyncio.sleep(0.001)
+          await asyncio.sleep(0.002)
           continue
 
         frame = getattr(msg, which, None)
         if frame is None:
-          await asyncio.sleep(0.001)
+          await asyncio.sleep(0.002)
           continue
 
         frame_sample = self._build_frame_sample(frame, service=source_service, which=which)
@@ -272,7 +273,7 @@ class CameraWsHub:
         try:
           queue.put_nowait(packet)
         except Exception:
-          await asyncio.sleep(0.001)
+          await asyncio.sleep(0.002)
           continue
 
         self._frame_count[camera] += 1

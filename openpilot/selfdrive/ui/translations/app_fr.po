@@ -24,6 +24,14 @@ msgstr "--"
 msgid "1 year of drive storage"
 msgstr "1 an de stockage de trajets"
 
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
+msgid "12V / PCIe not ready"
+msgstr ""
+
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
+msgid "12V off ({} mV)"
+msgstr ""
+
 #: openpilot/selfdrive/ui/widgets/prime.py
 msgid "24/7 LTE connectivity"
 msgstr "Connexion LTE 24/7"
@@ -40,6 +48,10 @@ msgstr "3G"
 msgid "5G"
 msgstr "5G"
 
+#: openpilot/selfdrive/ui/layouts/settings/developer.py
+msgid "<b>WARNING: openpilot longitudinal control is in alpha for this car and will disable Automatic Emergency Braking (AEB).</b><br><br>On this car, openpilot defaults to the car's built-in ACC instead of openpilot's longitudinal control. Enable this to switch to openpilot longitudinal control. Enabling Experimental mode is recommended when enabling openpilot longitudinal control alpha. Changing this setting will restart openpilot if the car is powered on."
+msgstr ""
+
 #: openpilot/selfdrive/ui/layouts/settings/device.py
 msgid "<br><br>Steering lag calibration is complete."
 msgstr "<br><br>L'étalonnage du délai de réponse de la direction est terminé."
@@ -47,6 +59,14 @@ msgstr "<br><br>L'étalonnage du délai de réponse de la direction est terminé
 #: openpilot/selfdrive/ui/layouts/settings/device.py
 msgid "<br><br>Steering lag calibration is {}% complete."
 msgstr "<br><br>L'étalonnage du délai de réponse de la direction est terminé à {}%."
+
+#: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
+msgid "ACTIVE"
+msgstr ""
+
+#: openpilot/selfdrive/ui/layouts/settings/developer.py
+msgid "ADB (Android Debug Bridge) allows connecting to your device over USB or over the network. See https://docs.comma.ai/how-to/connect-to-comma for more info."
+msgstr ""
 
 #: openpilot/selfdrive/ui/widgets/ssh_key.py
 msgid "ADD"
@@ -92,8 +112,16 @@ msgstr ""
 msgid "Always-On Driver Monitoring"
 msgstr "Surveillance continue du conducteur"
 
+#: openpilot/selfdrive/ui/layouts/settings/toggles.py
+msgid "An alpha version of openpilot longitudinal control can be tested, along with Experimental mode, on non-release branches."
+msgstr ""
+
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Angle offset too high (Offset: {angle_offset:.1f}°)"
+msgstr ""
+
+#: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
+msgid "Any fast phone or laptop charger should be fine."
 msgstr ""
 
 #: openpilot/selfdrive/ui/layouts/settings/device.py
@@ -111,6 +139,10 @@ msgstr "Êtes-vous sûr de vouloir réinitialiser la calibration ?"
 #: openpilot/selfdrive/ui/layouts/settings/software.py
 msgid "Are you sure you want to uninstall?"
 msgstr "Êtes-vous sûr de vouloir désinstaller ?"
+
+#: openpilot/selfdrive/selfdrived/events.py
+msgid "Auto Hold Active"
+msgstr ""
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "BRAKE!"
@@ -154,6 +186,7 @@ msgid "CHANGE"
 msgstr "CHANGER"
 
 #: openpilot/selfdrive/ui/layouts/settings/software.py
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu.py
 msgid "CHECK"
 msgstr "VÉRIFIER"
 
@@ -249,8 +282,16 @@ msgstr "La modification de ce réglage redémarrera openpilot si la voiture est 
 msgid "Check Hardware"
 msgstr ""
 
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu.py
+msgid "Check eGPU"
+msgstr ""
+
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Check tires, pressure, or alignment (Factor: {stiffness_factor:.1f})"
+msgstr ""
+
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu.py
+msgid "Checks USB 5 Gbps, firmware, 12V/PCIe, and GPU execution."
 msgstr ""
 
 #: openpilot/selfdrive/ui/widgets/pairing_dialog.py
@@ -267,6 +308,10 @@ msgstr ""
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Confirm Lane Change"
+msgstr ""
+
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu.py
+msgid "Connection Check"
 msgstr ""
 
 #: openpilot/selfdrive/selfdrived/events.py
@@ -288,6 +333,10 @@ msgstr ""
 #: openpilot/selfdrive/ui/layouts/settings/software.py
 msgid "Current Version"
 msgstr "Version actuelle"
+
+#: openpilot/selfdrive/ui/mici/onroad/vision_renderer.py
+msgid "DETECTED"
+msgstr ""
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "DISENGAGE IMMEDIATELY"
@@ -333,6 +382,10 @@ msgstr ""
 msgid "Device Remount Detected: Recalibrating"
 msgstr ""
 
+#: openpilot/selfdrive/ui/mici/layouts/settings/device.py
+msgid "Device must be registered with the comma.ai backend to pair."
+msgstr ""
+
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Disable your car's stock LKAS to engage"
 msgstr ""
@@ -359,6 +412,18 @@ msgstr "Afficher la vitesse en km/h au lieu de mph."
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Distraction Level Too High"
+msgstr ""
+
+#: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
+msgid "Do all of my segments get pulled in Firehose Mode?"
+msgstr ""
+
+#: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
+msgid "Does it matter how or where I drive?"
+msgstr ""
+
+#: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
+msgid "Does it matter which software I run?"
 msgstr ""
 
 #: openpilot/selfdrive/selfdrived/events.py
@@ -547,8 +612,34 @@ msgid "Firehose"
 msgstr "Flux continu"
 
 #: openpilot/selfdrive/ui/layouts/settings/firehose.py
+#: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
 msgid "Firehose Mode"
 msgstr "Mode Firehose"
+
+#: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
+msgid ""
+"For maximum effectiveness, bring your device inside and connect to a good USB-C adapter and Wi-Fi weekly.\n"
+"\n"
+"Firehose Mode can also work while you're driving if connected to a hotspot or unlimited SIM card."
+msgstr ""
+
+#: openpilot/selfdrive/ui/layouts/settings/firehose.py
+msgid ""
+"For maximum effectiveness, bring your device inside and connect to a good USB-C adapter and Wi-Fi weekly.\n"
+"\n"
+"Firehose Mode can also work while you're driving if connected to a hotspot or unlimited SIM card.\n"
+"\n"
+"\n"
+"Frequently Asked Questions\n"
+"\n"
+"Does it matter how or where I drive? Nope, just drive as you normally would.\n"
+"\n"
+"Do all of my segments get pulled in Firehose Mode? No, we selectively pull a subset of your segments.\n"
+"\n"
+"What's a good USB-C adapter? Any fast phone or laptop charger should be fine.\n"
+"\n"
+"Does it matter which software I run? Yes, only upstream openpilot (and particular forks) are able to be used for training."
+msgstr ""
 
 #: openpilot/system/ui/widgets/network.py
 msgid "Forget"
@@ -558,9 +649,21 @@ msgstr "Oublier"
 msgid "Forget Wi-Fi Network \"{}\"?"
 msgstr "Oublier le réseau Wi-Fi \"{}\" ?"
 
+#: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
+msgid "Frequently Asked Questions"
+msgstr ""
+
 #: openpilot/selfdrive/ui/layouts/sidebar.py
 msgid "GOOD"
 msgstr "BON"
+
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
+msgid "GPU check timed out"
+msgstr ""
+
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
+msgid "GPU incompatible"
+msgstr ""
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Gas: {gas}%, Steer: {steer}%"
@@ -588,6 +691,10 @@ msgstr "Réseau"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "High CPU Usage"
+msgstr ""
+
+#: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
+msgid "INACTIVE: connect to an unmetered network"
 msgstr ""
 
 #: openpilot/selfdrive/ui/layouts/settings/software.py
@@ -663,6 +770,7 @@ msgstr ""
 msgid "Low Memory: Reboot Your Device"
 msgstr ""
 
+#: openpilot/selfdrive/ui/mici/onroad/hud_renderer.py
 #: openpilot/selfdrive/ui/onroad/hud_renderer.py
 msgid "MAX"
 msgstr "MAX."
@@ -691,6 +799,10 @@ msgstr ""
 msgid "NO"
 msgstr "NON"
 
+#: openpilot/selfdrive/ui/mici/onroad/vision_renderer.py
+msgid "NO DETECTION"
+msgstr ""
+
 #: openpilot/selfdrive/ui/layouts/settings/settings.py
 msgid "Network"
 msgstr "Réseau"
@@ -703,6 +815,14 @@ msgstr "Aucune clé SSH trouvée pour l'utilisateur '{}'"
 msgid "No release notes available."
 msgstr "Aucune note de version disponible."
 
+#: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
+msgid "No, we selectively pull a subset of your segments."
+msgstr ""
+
+#: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
+msgid "Nope, just drive as you normally would."
+msgstr ""
+
 #: openpilot/selfdrive/ui/layouts/sidebar.py
 msgid "OFFLINE"
 msgstr "HORS LIGNE"
@@ -713,9 +833,17 @@ msgstr "HORS LIGNE"
 msgid "OK"
 msgstr "OK"
 
+#: openpilot/selfdrive/ui/mici/onroad/vision_renderer.py
+msgid "ON"
+msgstr ""
+
 #: openpilot/selfdrive/ui/layouts/sidebar.py
 msgid "ONLINE"
 msgstr "EN LIGNE"
+
+#: openpilot/selfdrive/ui/widgets/carrot_web_dialog.py
+msgid "Offline"
+msgstr ""
 
 #: openpilot/selfdrive/ui/widgets/setup.py
 msgid "Open"
@@ -773,6 +901,14 @@ msgstr ""
 #: openpilot/selfdrive/ui/widgets/setup.py
 msgid "Please connect to Wi-Fi to complete initial pairing"
 msgstr "Veuillez vous connecter au Wi‑Fi pour terminer l'association initiale"
+
+#: openpilot/selfdrive/ui/mici/layouts/settings/device.py
+msgid "Please connect to Wi-Fi to complete initial pairing."
+msgstr ""
+
+#: openpilot/selfdrive/ui/mici/layouts/settings/device.py
+msgid "Please connect to Wi-Fi to update."
+msgstr ""
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Posenet Speed Invalid"
@@ -860,6 +996,10 @@ msgstr ""
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Recalibrating"
+msgstr ""
+
+#: openpilot/selfdrive/ui/layouts/settings/toggles.py
+msgid "Receive alerts to steer back into the lane when your vehicle drifts over a detected lane line without a turn signal activated while driving over 31 mph (50 km/h)."
 msgstr ""
 
 #: openpilot/selfdrive/ui/layouts/settings/toggles.py
@@ -956,6 +1096,14 @@ msgstr "SELECTIONNER"
 msgid "SSH Keys"
 msgstr "Clefs SSH"
 
+#: openpilot/selfdrive/ui/mici/onroad/vision_renderer.py
+msgid "STALE"
+msgstr ""
+
+#: openpilot/selfdrive/ui/mici/onroad/vision_renderer.py
+msgid "STANDBY"
+msgstr ""
+
 #: openpilot/system/ui/widgets/network.py
 msgid "Scanning Wi-Fi networks..."
 msgstr "Analyse des réseaux Wi-Fi..."
@@ -1023,6 +1171,10 @@ msgstr ""
 #: openpilot/selfdrive/ui/layouts/settings/toggles.py
 msgid "Standard"
 msgstr "Normal"
+
+#: openpilot/selfdrive/ui/layouts/settings/toggles.py
+msgid "Standard is recommended. In aggressive mode, openpilot will follow lead cars closer and be more aggressive with the gas and brake. In relaxed mode openpilot will stay further away from lead cars. On supported cars, you can cycle through these personalities with your steering wheel distance button."
+msgstr ""
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Steer Assist Unavailable Below {speed}"
@@ -1165,6 +1317,30 @@ msgstr "METTRE À JOUR"
 msgid "USB Error: Reboot Your Device"
 msgstr ""
 
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu.py
+msgid "USB Link"
+msgstr ""
+
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
+msgid "USB disconnected during GPU check"
+msgstr ""
+
+#: openpilot/selfdrive/ui/mici/layouts/settings/usbgpu.py
+msgid "USB link"
+msgstr ""
+
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
+msgid "USB link errors"
+msgstr ""
+
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
+msgid "USB link {} Mbps"
+msgstr ""
+
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
+msgid "USB not connected"
+msgstr ""
+
 #: openpilot/selfdrive/ui/layouts/settings/software.py
 msgid "Uninstall"
 msgstr "Désinstaller"
@@ -1193,6 +1369,10 @@ msgstr "Téléverser les données de la caméra orientée conducteur et aider à
 msgid "Use Metric System"
 msgstr "Utiliser le système métrique"
 
+#: openpilot/selfdrive/ui/layouts/settings/toggles.py
+msgid "Use the openpilot system for adaptive cruise control and lane keep driver assistance. Your attention is required at all times to use this feature."
+msgstr ""
+
 #: openpilot/selfdrive/ui/layouts/sidebar.py
 msgid "VEHICLE"
 msgstr "VÉHICULE"
@@ -1213,6 +1393,10 @@ msgstr ""
 msgid "Vehicle Steering Time Limit"
 msgstr ""
 
+#: openpilot/selfdrive/ui/mici/onroad/vision_renderer.py
+msgid "WAIT"
+msgstr ""
+
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "WARNING: This branch is not tested"
 msgstr ""
@@ -1221,9 +1405,17 @@ msgstr ""
 msgid "Waiting to start"
 msgstr "En attente de démarrage"
 
+#: openpilot/selfdrive/ui/layouts/settings/developer.py
+msgid "Warning: This grants SSH access to all public keys in your GitHub settings. Never enter a GitHub username other than your own. A comma employee will NEVER ask you to add their GitHub username."
+msgstr ""
+
 #: openpilot/selfdrive/ui/layouts/onboarding.py
 msgid "Welcome to openpilot"
 msgstr "Bienvenue sur openpilot"
+
+#: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
+msgid "What's a good USB-C adapter?"
+msgstr ""
 
 #: openpilot/selfdrive/ui/layouts/settings/toggles.py
 msgid "When enabled, pressing the accelerator pedal will disengage openpilot."
@@ -1241,6 +1433,10 @@ msgstr "Réseau Wi-Fi limité"
 msgid "Wrong password"
 msgstr "Mauvais mot de passe"
 
+#: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
+msgid "Yes, only upstream openpilot (and particular forks) are able to be used for training."
+msgstr ""
+
 #: openpilot/selfdrive/ui/layouts/onboarding.py
 msgid "You must accept the Terms and Conditions in order to use openpilot."
 msgstr "Vous devez accepter les conditions générales pour utiliser openpilot."
@@ -1249,17 +1445,41 @@ msgstr "Vous devez accepter les conditions générales pour utiliser openpilot."
 msgid "You must accept the Terms and Conditions to use openpilot. Read the latest terms at https://comma.ai/terms before continuing."
 msgstr "Vous devez accepter les conditions générales pour utiliser openpilot. Lisez les dernières conditions sur https://comma.ai/terms avant de continuer."
 
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
+msgid "active"
+msgstr ""
+
+#: openpilot/selfdrive/ui/mici/onroad/hud_renderer.py
+msgid "brake hold"
+msgstr ""
+
+#: openpilot/selfdrive/ui/mici/layouts/onboarding.py
+#: openpilot/selfdrive/ui/mici/onroad/driver_camera_dialog.py
 #: openpilot/selfdrive/ui/onroad/driver_camera_dialog.py
 msgid "camera starting"
 msgstr "démarrage de la caméra"
 
+#: openpilot/selfdrive/ui/mici/onroad/hud_renderer.py
+msgid "carrot"
+msgstr ""
+
+#: openpilot/selfdrive/ui/mici/layouts/settings/usbgpu.py
+msgid "check connection"
+msgstr ""
+
 #: openpilot/selfdrive/ui/layouts/settings/software.py
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu.py
+#: openpilot/selfdrive/ui/mici/layouts/settings/usbgpu.py
 msgid "checking..."
 msgstr "vérification..."
 
 #: openpilot/selfdrive/ui/widgets/prime.py
 msgid "comma prime"
 msgstr "comma prime"
+
+#: openpilot/selfdrive/ui/mici/layouts/settings/usbgpu.py
+msgid "compile model"
+msgstr ""
 
 #: openpilot/system/ui/widgets/network.py
 msgid "default"
@@ -1273,6 +1493,19 @@ msgstr "bas"
 msgid "downloading..."
 msgstr "téléchargement..."
 
+#: openpilot/selfdrive/ui/layouts/settings/settings.py
+msgid "eGPU"
+msgstr ""
+
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu.py
+msgid "eGPU Status"
+msgstr ""
+
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
+msgid "eGPU power fault ({} mV, {} mA)"
+msgstr ""
+
+#: openpilot/selfdrive/ui/mici/onroad/hud_renderer.py
 #: openpilot/selfdrive/ui/onroad/hud_renderer.py
 msgid "eco"
 msgstr ""
@@ -1285,14 +1518,24 @@ msgstr "échec de la vérification de mise à jour"
 msgid "finalizing update..."
 msgstr "finalisation de la mise à jour..."
 
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
+msgid "firmware mismatch"
+msgstr ""
+
 #: openpilot/system/ui/widgets/network.py
 msgid "for \"{}\""
 msgstr "pour \"{}\""
 
+#: openpilot/selfdrive/ui/mici/onroad/hud_renderer.py
 #: openpilot/selfdrive/ui/onroad/hud_renderer.py
 msgid "high"
 msgstr ""
 
+#: openpilot/selfdrive/ui/mici/layouts/settings/usbgpu.py
+msgid "keep ignition on"
+msgstr ""
+
+#: openpilot/selfdrive/ui/mici/onroad/hud_renderer.py
 #: openpilot/selfdrive/ui/onroad/hud_renderer.py
 msgid "km/h"
 msgstr "km/h"
@@ -1304,6 +1547,10 @@ msgstr "ne pas remplir pour une configuration automatique"
 #: openpilot/selfdrive/ui/layouts/settings/device.py
 msgid "left"
 msgstr "gauche"
+
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
+msgid "loading"
+msgstr ""
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "locationd Permanent Error"
@@ -1317,20 +1564,51 @@ msgstr ""
 msgid "metered"
 msgstr "limité"
 
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
+msgid "model not compiled"
+msgstr ""
+
 #: openpilot/selfdrive/ui/layouts/settings/toggles.py
 msgid "moreRelaxed"
 msgstr ""
 
+#: openpilot/selfdrive/ui/mici/onroad/hud_renderer.py
 #: openpilot/selfdrive/ui/onroad/hud_renderer.py
 msgid "mph"
 msgstr "mph"
+
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
+msgid "multiple devices"
+msgstr ""
 
 #: openpilot/selfdrive/ui/layouts/settings/software.py
 msgid "never"
 msgstr "jamais"
 
+#: openpilot/selfdrive/ui/mici/layouts/offroad_alerts.py
+msgid "no alerts"
+msgstr ""
+
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
+msgid "no errors"
+msgstr ""
+
+#: openpilot/selfdrive/ui/mici/onroad/hud_renderer.py
 #: openpilot/selfdrive/ui/onroad/hud_renderer.py
 msgid "norm"
+msgstr ""
+
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu.py
+msgid "not checked"
+msgstr ""
+
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu.py
+#: openpilot/selfdrive/ui/mici/layouts/settings/usbgpu.py
+msgid "not connected"
+msgstr ""
+
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
+msgid "not detected"
 msgstr ""
 
 #: openpilot/selfdrive/ui/layouts/settings/software.py
@@ -1349,6 +1627,22 @@ msgstr "Contrôle longitudinal openpilot (Alpha)"
 #: openpilot/selfdrive/ui/onroad/alert_renderer.py
 msgid "openpilot Unavailable"
 msgstr "openpilot indisponible"
+
+#: openpilot/selfdrive/ui/layouts/settings/toggles.py
+msgid "openpilot defaults to driving in chill mode. Experimental mode enables alpha-level features that aren't ready for chill mode. Experimental features are listed below:<br><h4>End-to-End Longitudinal Control</h4><br>Let the driving model control the gas and brakes. openpilot will drive as it thinks a human would, including stopping for red lights and stop signs. Since the driving model decides the speed to drive, the set speed will only act as an upper bound. This is an alpha quality feature; mistakes should be expected.<br><h4>New Driving Visualization</h4><br>The driving visualization will transition to the road-facing wide-angle camera at low speeds to better show some turns. The Experimental mode logo will also be shown in the top right corner."
+msgstr ""
+
+#: openpilot/selfdrive/ui/layouts/settings/device.py
+msgid "openpilot is continuously calibrating, resetting is rarely required. Resetting calibration will restart openpilot if the car is powered on."
+msgstr ""
+
+#: openpilot/selfdrive/ui/layouts/settings/firehose.py
+#: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
+msgid ""
+"openpilot learns to drive by watching humans, like you, drive.\n"
+"\n"
+"Firehose Mode allows you to maximize your training data uploads to improve openpilot's driving models. More data means bigger models, which means better Experimental Mode."
+msgstr ""
 
 #: openpilot/selfdrive/ui/layouts/settings/toggles.py
 msgid "openpilot longitudinal control may come in a future update."
@@ -1370,12 +1664,45 @@ msgstr ""
 msgid "paramsd Temporary Error"
 msgstr ""
 
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
+msgid "power status unavailable: {}"
+msgstr ""
+
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
+msgid "ready"
+msgstr ""
+
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
+msgid "reboot to compile"
+msgstr ""
+
 #: openpilot/selfdrive/ui/layouts/settings/device.py
 msgid "right"
 msgstr "droite"
 
+#: openpilot/selfdrive/ui/mici/onroad/hud_renderer.py
 #: openpilot/selfdrive/ui/onroad/hud_renderer.py
 msgid "safe"
+msgstr ""
+
+#: openpilot/selfdrive/ui/mici/layouts/settings/usbgpu.py
+msgid "slide to reboot and compile"
+msgstr ""
+
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
+msgid "slow USB ({} Mbps)"
+msgstr ""
+
+#: openpilot/selfdrive/ui/mici/onroad/hud_renderer.py
+msgid "soft hold"
+msgstr ""
+
+#: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
+msgid "startup failed"
+msgstr ""
+
+#: openpilot/selfdrive/ui/mici/layouts/settings/usbgpu.py
+msgid "status"
 msgstr ""
 
 #: openpilot/selfdrive/selfdrived/events.py
@@ -1457,6 +1784,7 @@ msgstr[0] "il y a {} minute"
 msgstr[1] "il y a {} minutes"
 
 #: openpilot/selfdrive/ui/layouts/settings/firehose.py
+#: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
 msgid "{} segment of your driving is in the training dataset so far."
 msgid_plural "{} segments of your driving is in the training dataset so far."
 msgstr[0] "{} segment de votre conduite est dans l'ensemble d'entraînement jusqu'à présent."

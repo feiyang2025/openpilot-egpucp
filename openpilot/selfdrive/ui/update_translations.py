@@ -26,9 +26,12 @@ ALERT_TRANSLATION_CALL_ARGS = {
 
 def update_translations():
   files = []
+  # The mici layout tree is the one actually rendered on this device, so its
+  # strings have to reach the catalogs too.
   for root, _, filenames in chain(os.walk(SYSTEM_UI_DIR),
                                   os.walk(os.path.join(UI_DIR, "widgets")),
                                   os.walk(os.path.join(UI_DIR, "layouts")),
+                                  os.walk(os.path.join(UI_DIR, "mici")),
                                   os.walk(os.path.join(UI_DIR, "onroad"))):
     for filename in filenames:
       if filename.endswith(".py"):

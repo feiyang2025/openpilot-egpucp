@@ -1632,6 +1632,11 @@ class ClusterUiRenderer:
             return live_camera
         if getattr(self, "_live_road_camera_failed", False) or os.name != "posix":
             return None
+        # LiveRoadCamera compiles a raylib shader on construction, which needs an
+        # initialized GL/EGL context. Calling raylib before the window is ready
+        # segfaults in C, which the except below cannot catch; disable until then.
+        if not rl.is_window_ready():
+            return None
         try:
             from cluster_live_camera import LiveRoadCamera
 

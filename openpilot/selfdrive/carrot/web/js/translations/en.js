@@ -1494,6 +1494,13 @@ window.CarrotTranslations.register("en", {
     qr_restore_camera_failed: "Camera could not be opened.",
     qr_restore_preview_failed: "Failed to read backup.",
     empty_value: "(empty)",
+    git_pull_btn: "git pull",
+    git_sync_btn: "git sync",
+    git_reset_btn: "git reset",
+    git_log_btn: "git log",
+    setting_meta_min: "min",
+    setting_meta_max: "max",
+    setting_meta_default: "default",
   },
   actionLabels: {
     git_pull:         { running: "Checking for updates...",  done: "Update complete",     failed: "Update failed" },

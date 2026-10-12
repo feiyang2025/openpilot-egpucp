@@ -396,6 +396,10 @@ def test_road_camera_world_reuses_one_projection_for_background_and_overlay(monk
   monkeypatch.setattr(renderer, "_draw_camera_background", lambda *args: background_calls.append(args))
   monkeypatch.setattr(renderer, "_draw_camera_projected_overlay", lambda *args: overlay_calls.append(args))
   monkeypatch.setattr(cluster_renderer.rl, "clear_background", lambda _color: None)
+  # No live road camera without a raylib window: constructing LiveRoadCamera
+  # compiles a shader and segfaults outside a GL context. This test only checks
+  # that _render_world computes the projection once and reuses it.
+  monkeypatch.setattr(renderer, "_live_road_camera_view", lambda: None)
 
   renderer._render_world(state, (False, False))
 

@@ -1,3 +1,5 @@
+import time
+
 from openpilot.common.realtime import DT_CTRL
 from openpilot.common.params import Params
 
@@ -8,9 +10,16 @@ class CarrotControls:
     self.lat_suspend_active = False
     self.lat_suspend_enter_t = 0.0
     self.lat_suspend_hold_t = 0.0
+    self.suspend_angle = float(self.params.get_int("LatSuspendAngleDeg"))
+    self._suspend_angle_refresh_t = 0.0
 
   def lat_suspend_control(self, CS, latActive):
-    suspend_angle = float(self.params.get_int("LatSuspendAngleDeg"))
+    # LatSuspendAngleDeg is a user setting; refresh at 1 Hz instead of every 100 Hz frame.
+    now = time.monotonic()
+    if now >= self._suspend_angle_refresh_t:
+      self.suspend_angle = float(self.params.get_int("LatSuspendAngleDeg"))
+      self._suspend_angle_refresh_t = now + 1.0
+    suspend_angle = self.suspend_angle
     resume_angle  = 15
     delay_sec     = 1.0
     hold_sec      = 0.5
