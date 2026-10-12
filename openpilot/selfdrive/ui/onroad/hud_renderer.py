@@ -23,6 +23,21 @@ CRUISE_SPEED_ANIMATION_STEP = 12
 CRUISE_SPEED_ANIMATION_START_SIZE = 300
 HUD_PARAM_REFRESH_INTERVAL = 1.0
 WEEKDAYS_KO = ("일", "월", "화", "수", "목", "금", "토")
+# 日期行 "10-12(금)" 的星期原为韩文硬编码: 中文界面下中文字体图集没有韩文字形 -> 画成 "?"。
+# 按界面语言取(韩文仍作默认, 保持原样)。
+WEEKDAYS_BY_LANGUAGE = {
+  "zh-CHS": ("日", "一", "二", "三", "四", "五", "六"),
+  "zh-CHT": ("日", "一", "二", "三", "四", "五", "六"),
+  "en": ("SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"),
+}
+
+
+def weekdays_for_ui_language() -> tuple[str, ...]:
+  try:
+    from openpilot.system.ui.lib.multilang import multilang as _ml
+    return WEEKDAYS_BY_LANGUAGE.get(_ml.language, WEEKDAYS_KO)
+  except Exception:
+    return WEEKDAYS_KO
 
 
 @dataclass(frozen=True)
@@ -1049,7 +1064,7 @@ class HudRenderer(Widget):
     if minute_key == self._date_time_minute_key:
       return
 
-    weekday = WEEKDAYS_KO[(now.tm_wday + 1) % 7]
+    weekday = weekdays_for_ui_language()[(now.tm_wday + 1) % 7]
     self._date_time_text = time.strftime("%H:%M", now)
     self._date_text = f"{time.strftime('%m-%d', now)}({weekday})"
     self._date_time_minute_key = minute_key

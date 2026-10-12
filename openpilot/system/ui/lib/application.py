@@ -122,6 +122,7 @@ class FontWeight(StrEnum):
   ROMAN = "Inter-Regular.fnt"
   #DISPLAY = "Inter-Bold.fnt"
   DISPLAY = "KaiGenGothicKR-Bold.fnt"
+  CJK = "OpenpilotCJK-Regular.fnt"
 
 
 class TextAlignment(IntEnum):
@@ -136,10 +137,30 @@ class TextAlignmentVertical(IntEnum):
   BOTTOM = 2
 
 
-def font_fallback(font: rl.Font) -> rl.Font:
-  """Fall back to unifont for languages that require it."""
-  if multilang.requires_unifont() and gui_app.has_font(FontWeight.DISPLAY):
-    return gui_app.font(FontWeight.DISPLAY)
+# 只有含中日韩/泰文的文本才需要换字体; 纯拉丁/符号串(带 ✓ ° … 等)继续用 Inter 图集画。
+def _needs_cjk_font(text: str) -> bool:
+  return any(0x2E80 <= ord(c) <= 0x9FFF or 0xAC00 <= ord(c) <= 0xD7AF or 0x0E00 <= ord(c) <= 0x0E7F
+             for c in text)
+
+
+_CJK_FONT_BY_LANGUAGE = {
+  "zh-CHS": FontWeight.CJK,
+  "zh-CHT": FontWeight.CJK,
+}
+
+
+def font_fallback(font: rl.Font, text: str = "") -> rl.Font:
+  """CJK 语言回退到中文字形图集(OpenpilotCJK), 再退 unifont, 最后才是 DISPLAY。"""
+  if multilang.requires_unifont():
+    if text and not _needs_cjk_font(text):
+      return font
+    fw = _CJK_FONT_BY_LANGUAGE.get(multilang.language)
+    if fw is not None and gui_app.has_font(fw):
+      return gui_app.font(fw)
+    if gui_app.has_font(FontWeight.UNIFONT):
+      return gui_app.font(FontWeight.UNIFONT)
+    if gui_app.has_font(FontWeight.DISPLAY):
+      return gui_app.font(FontWeight.DISPLAY)
   return font
 
 
@@ -987,7 +1008,7 @@ class GuiApplication:
 
   def _font_codepoints(self, font_weight: FontWeight) -> list[int]:
     codepoints = set(range(32, 127))
-    if font_weight in (FontWeight.DISPLAY, FontWeight.UNIFONT):
+    if font_weight in (FontWeight.DISPLAY, FontWeight.UNIFONT, FontWeight.CJK):
       codepoints.update(range(0xAC00, 0xD7A4))
       codepoints.update(range(0x4E00, 0xA000))
       codepoints.update(range(0x3400, 0x4DC0))
@@ -1006,7 +1027,7 @@ class GuiApplication:
       rl._orig_draw_text_ex = rl.draw_text_ex
 
     def _draw_text_ex_scaled(font, text, position, font_size, spacing, tint):
-      font = font_fallback(font)
+      font = font_fallback(font, text)
       return rl._orig_draw_text_ex(font, text, position, font_size * FONT_SCALE, spacing, tint)
 
     rl.draw_text_ex = _draw_text_ex_scaled
