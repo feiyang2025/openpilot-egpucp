@@ -27,18 +27,28 @@ SPEED_MPH = float(os.getenv("FAKE_PANDA_SPEED_MPS", "8.0")) * 2.23694  # to mph 
 RATE = 20.0
 
 PACKER = None
+_MSG_SIGNALS: dict[str, set[str]] = {}
 
 
 def get_packer():
-  global PACKER
+  global PACKER, _MSG_SIGNALS
   if PACKER is None:
+    from opendbc.can.dbc import DBC
     from opendbc.can.packer import CANPacker
+    _MSG_SIGNALS = {msg.name: set(msg.sigs) for msg in DBC("toyota_nodsu_pt_generated").addr_to_msg.values()}
     PACKER = CANPacker("toyota_nodsu_pt_generated")
   return PACKER
 
 
 def frame(name, values, bus=0):
-  addr, dat, b = get_packer().make_can_msg(name, bus, values)
+  packer = get_packer()
+  # Drop signals this DBC doesn't define. The C++ packer warns for every
+  # unknown name; at 20 Hz that floods stderr and fake_panda.log grows by
+  # ~100 MB/hour. Unknown names would not be packed anyway.
+  signals = _MSG_SIGNALS.get(name)
+  if signals is not None and values:
+    values = {k: v for k, v in values.items() if k in signals}
+  addr, dat, b = packer.make_can_msg(name, bus, values)
   return addr, b, dat
 
 

@@ -503,9 +503,10 @@ class HudRenderer(Widget):
     time_block_right = time_x
 
     if show_date_time != 0:
-      weekdays_ko = ["일", "월", "화", "수", "목", "금", "토"]
+      from openpilot.selfdrive.ui.onroad.hud_renderer import weekdays_for_ui_language
+      weekdays = weekdays_for_ui_language()   # 按界面语言(韩文为默认), 不再写死韩文
       # Python weekday(): 월=0 ... 일=6 이라서 C tm_wday 스타일로 변환
-      weekday = weekdays_ko[(now.weekday() + 1) % 7]
+      weekday = weekdays[(now.weekday() + 1) % 7]
 
       time_text = now.strftime("%H:%M")
       date_text = now.strftime(f"%m-%d({weekday})")

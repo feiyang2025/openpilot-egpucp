@@ -55,6 +55,12 @@ source_list = ['lat_mpc.py',
 ]
 
 lenv = env.Clone()
+# libacados_ocp_solver_lat.so needs libacados.so from third_party/acados; without
+# an RPATH the loader cannot find it transitively (the cython module's $ORIGIN
+# RUNPATH does not cover it) and "import lat_mpc" dies with
+# "libacados.so: cannot open shared object file". Mirrors longitudinal_mpc_lib.
+acados_rel_path = Dir(gen).rel_path(Dir(f"#third_party/acados/{arch}/lib"))
+lenv["RPATH"] += [lenv.Literal(f'\\$$ORIGIN/{acados_rel_path}')]
 lenv.Clean(generated_files, Dir(gen))
 
 generated_lat = lenv.Command(generated_files,
@@ -67,6 +73,9 @@ lenv["CXXFLAGS"].append("-DACADOS_WITH_QPOASES")
 lenv["CCFLAGS"].append("-Wno-unused")
 if arch != "Darwin":
   lenv["LINKFLAGS"].append("-Wl,--disable-new-dtags")
+else:
+  lenv["LINKFLAGS"].append("-Wl,-install_name,@loader_path/libacados_ocp_solver_lat.dylib")
+  lenv["LINKFLAGS"].append(f"-Wl,-rpath,@loader_path/{acados_rel_path}")
 lib_solver = lenv.SharedLibrary(f"{gen}/acados_ocp_solver_lat",
                                 build_files,
                                 LIBS=['m', 'acados', 'hpipm', 'blasfeo', 'qpOASES_e'])

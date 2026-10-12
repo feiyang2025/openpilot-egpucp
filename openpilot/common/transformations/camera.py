@@ -46,6 +46,64 @@ class DeviceCameraConfig:
       if not isinstance(getattr(self, cam), _NoneCameraConfig):
         yield cam, getattr(self, cam)
 
+def _read_calib_from_params(param_key, width, height, default_fl):
+  from openpilot.common.params import Params
+  import json
+  raw = Params().get(param_key)
+  if raw is None:
+    data = {"fl": default_fl, "cx": width / 2.0, "cy": height / 2.0,
+            "calibrations": {f"{width}x{height}": {"fl": default_fl, "cx": width / 2.0, "cy": height / 2.0}}}
+    try:
+      Params().put(param_key, data, block=True)
+    except Exception:
+      pass
+  else:
+    data = raw if isinstance(raw, dict) else json.loads(raw)
+  calibs = data.get("calibrations")
+  if calibs:
+    key = f"{width}x{height}"
+    entry = calibs.get(key)
+    if entry is not None:
+      return float(entry.get("fl", default_fl)), float(entry.get("cx", width / 2.0)), float(entry.get("cy", height / 2.0))
+    # No exact match: scale from first available calibration entry by width ratio
+    for cal_key, cal_entry in calibs.items():
+      try:
+        cal_w = int(cal_key.split("x")[0])
+        scale = width / cal_w
+        scaled_fl = float(cal_entry.get("fl", default_fl)) * scale
+        return scaled_fl, float(cal_entry.get("cx", width / 2.0)), float(cal_entry.get("cy", height / 2.0))
+      except (ValueError, KeyError, IndexError):
+        continue
+  fl = float(data.get("fl", default_fl))
+  return fl, float(data.get("cx", width / 2.0)), float(data.get("cy", height / 2.0))
+
+
+def _env_or(val, env_key, cast=int):
+  import os
+  # env_key 可以是单个键或键列表 (按顺序取第一个非空的): 本树 launcher 用 CAM_WIDTH/HEIGHT,
+  # 移植脚本身份用 ROAD_/WIDE_CAM_WIDTH —— 名字分家就会让 K 的像素空间与 camerad 实际
+  # 送的帧不一致 (1344x760 的帧配 1920x1080 的 K = 模型 warp 尺度偏 1.43 倍)。
+  if isinstance(env_key, (list, tuple)):
+    for k in env_key:
+      env = os.environ.get(k)
+      if env:
+        return cast(env)
+    return val
+  env = os.environ.get(env_key)
+  return cast(env) if env else val
+
+
+def _camera_config_from_params(width_env, height_env, base_fl: float, param_key: str, base_w: int = 1920) -> CameraConfig:
+  width = _env_or(1920, width_env)
+  height = _env_or(1080, height_env)
+  fl = base_fl * (width / base_w)
+  try:
+    calib_fl, _, _ = _read_calib_from_params(param_key, width, height, fl)
+    return CameraConfig(width, height, calib_fl)
+  except Exception:
+    return CameraConfig(width, height, fl)
+
+
 _ar_ox_fisheye = CameraConfig(1928, 1208, 567.0)  # focal length probably wrong? magnification is not consistent across frame
 _os_fisheye = CameraConfig(2688 // 2, 1520 // 2, 567.0 / 4 * 3)
 _ar_ox_config = DeviceCameraConfig(CameraConfig(1928, 1208, 2648.0), _ar_ox_fisheye, _ar_ox_fisheye)
@@ -89,6 +147,40 @@ DEVICE_CAMERAS = {
 }
 prods = itertools.product(('tici', 'tizi', 'mici'), (('ar0231', _ar_ox_config), ('ox03c10', _ar_ox_config), ('os04c10', _os_config)))
 DEVICE_CAMERAS.update({(d, c[0]): c[1] for d, c in prods})
+
+
+# ---- AGX Orin + Sensing/twgmsl IMX390 GMSL dual camera (PC webcamerad path) ----
+#   fcam = road camera: vendor pinhole fl ~= 961.76 @1920x1080
+#   ecam = the second camera (exposed as WIDE stream): vendor fl 1740.0 @1920x1080
+# Live values are stored in the FcamIntrinsics / EcamIntrinsics Params
+# (resolution-keyed JSON written by tools/calib/*); the numbers below are the
+# fallback used the first time those Params are created.
+# camerad's roadCameraState.sensor enum cannot report imx390, so the ("pc",
+# "unknown") entry is replaced instead - the PC path only hits this one entry.
+_imx390_fcam = _camera_config_from_params(("ROAD_CAM_WIDTH", "CAM_WIDTH"), ("ROAD_CAM_HEIGHT", "CAM_HEIGHT"), 961.76, "FcamIntrinsics")
+_imx390_ecam = _camera_config_from_params(("WIDE_CAM_WIDTH", "CAM_WIDTH"), ("WIDE_CAM_HEIGHT", "CAM_HEIGHT"), 1740.0, "EcamIntrinsics")
+DEVICE_CAMERAS[("pc", "unknown")] = DeviceCameraConfig(_imx390_fcam, _imx390_ecam, _imx390_ecam)
+
+# ---- AGX 移植兼容: DeviceCameraConfig 的两代字段名 ----
+# 本树 camera.py 的 dataclass 用的是旧名 fcam/dcam/ecam, sp-cuda (连跑 1 个多月
+# 的那套) 的 modeld.py / modeld_bigcombo.py / ui 也直接写 dc.fcam / dc.ecam;
+# 而 tools/calib/* 读的是新上游名 narrow_road/wide_road/cabin。谁缺就给谁补一个
+# 指向另一名的 property, 两个世代都能取到, 不再是"某一边静默 AttributeError"。
+# 注意判据必须读 __dataclass_fields__: 无默认值的 dataclass 字段不会生成类属性,
+# hasattr(cls, "fcam") 恒为 False —— 之前正是用它做判据, 于是给 fcam/dcam/ecam
+# 装上了指向 narrow_road/cabin 的 property, 任何 dc.dcam 访问都 AttributeError。
+def _sp_camera_config_aliases():
+  fields = set(getattr(DeviceCameraConfig, "__dataclass_fields__", {}))
+  if not fields:
+    fields = set(getattr(DeviceCameraConfig, "__annotations__", {}))
+  for _new, _old in (("narrow_road", "fcam"), ("wide_road", "ecam"), ("cabin", "dcam")):
+    if _old in fields and _new not in fields:
+      setattr(DeviceCameraConfig, _new, property(lambda self, _o=_old: getattr(self, _o)))
+    elif _new in fields and _old not in fields:
+      setattr(DeviceCameraConfig, _old, property(lambda self, _n=_new: getattr(self, _n)))
+
+
+_sp_camera_config_aliases()
 
 # device/mesh : x->forward, y-> right, z->down
 # view : x->right, y->down, z->forward

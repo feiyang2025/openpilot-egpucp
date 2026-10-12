@@ -123,6 +123,13 @@ class FontWeight(StrEnum):
   #DISPLAY = "Inter-Bold.fnt"
   DISPLAY = "KaiGenGothicKR-Bold.fnt"
 
+  # 中文回退字体: 用本目录的烘焙器 assets/fonts/process.py + 系统里的文泉驿正黑(wqy-zenhei)
+  # 现场烘的图集, 覆盖两个中文 .po 用到的全部汉字(只差 ‑ ✓ 🔥 三个符号, 那几个在纯拉丁串里画)。
+  # 背景: 本树原来中文回退到 DISPLAY(KaiGenGothicKR-Bold.fnt, 韩文字体), 它图集里汉字不全 →
+  # 界面上 "态/电/通/轻/柔" 被画成 "?"; 改成回退 unifont 又不缺字, 但 unifont 是点阵字体,
+  # 中文看起来像"数码管"。
+  CJK = "OpenpilotCJK-Regular.fnt"
+
 
 class TextAlignment(IntEnum):
   LEFT = 0
@@ -136,10 +143,34 @@ class TextAlignmentVertical(IntEnum):
   BOTTOM = 2
 
 
-def font_fallback(font: rl.Font) -> rl.Font:
-  """Fall back to unifont for languages that require it."""
-  if multilang.requires_unifont() and gui_app.has_font(FontWeight.DISPLAY):
-    return gui_app.font(FontWeight.DISPLAY)
+_CJK_FONT_BY_LANGUAGE = {
+  "zh-CHS": FontWeight.CJK,
+  "zh-CHT": FontWeight.CJK,
+}
+
+# 只有含中日韩/泰文的文本才需要换字体; 纯拉丁/符号串(带 ✓ ° … 等)继续用 Inter 图集画,
+# 那套图集里这些符号是齐的。
+def _needs_cjk_font(text: str) -> bool:
+  return any(0x2E80 <= ord(c) <= 0x9FFF or 0xAC00 <= ord(c) <= 0xD7AF or 0x0E00 <= ord(c) <= 0x0E7F
+             for c in text)
+
+
+def font_fallback(font: rl.Font, text: str = "") -> rl.Font:
+  """CJK/泰文语言回退到对应字形的字体。
+
+  顺序: 中文图集(OpenpilotCJK, 字形齐全且好看) → unifont(全 BMP, 但是点阵风格) →
+  DISPLAY(KaiGenGothicKR-Bold, 汉字不全, 会画成 "?")。
+  """
+  if multilang.requires_unifont():
+    if text and not _needs_cjk_font(text):
+      return font
+    fw = _CJK_FONT_BY_LANGUAGE.get(multilang.language)
+    if fw is not None and gui_app.has_font(fw):
+      return gui_app.font(fw)
+    if gui_app.has_font(FontWeight.UNIFONT):
+      return gui_app.font(FontWeight.UNIFONT)
+    if gui_app.has_font(FontWeight.DISPLAY):
+      return gui_app.font(FontWeight.DISPLAY)
   return font
 
 
@@ -987,7 +1018,7 @@ class GuiApplication:
 
   def _font_codepoints(self, font_weight: FontWeight) -> list[int]:
     codepoints = set(range(32, 127))
-    if font_weight in (FontWeight.DISPLAY, FontWeight.UNIFONT):
+    if font_weight in (FontWeight.DISPLAY, FontWeight.UNIFONT, FontWeight.CJK):
       codepoints.update(range(0xAC00, 0xD7A4))
       codepoints.update(range(0x4E00, 0xA000))
       codepoints.update(range(0x3400, 0x4DC0))
@@ -1006,7 +1037,7 @@ class GuiApplication:
       rl._orig_draw_text_ex = rl.draw_text_ex
 
     def _draw_text_ex_scaled(font, text, position, font_size, spacing, tint):
-      font = font_fallback(font)
+      font = font_fallback(font, text)
       return rl._orig_draw_text_ex(font, text, position, font_size * FONT_SCALE, spacing, tint)
 
     rl.draw_text_ex = _draw_text_ex_scaled

@@ -6,7 +6,14 @@ try:
   from openpilot.cereal import car
 except ImportError:
   capnp.remove_import_hook()
-  car = capnp.load(os.path.join(BASEDIR, "car.capnp"), "/car.capnp", imports=[BASEDIR, os.path.join(BASEDIR, "include")])
+  try:
+    # pycapnp truncates non-ASCII import paths (see openpilot/common/capnp_compat.py)
+    from openpilot.common.capnp_compat import capnp_import_paths
+  except ImportError:  # standalone opendbc checkout without the openpilot tree
+    def capnp_import_paths(*paths):
+      return [str(p) for p in paths]
+  car = capnp.load(os.path.join(BASEDIR, "car.capnp"), "/car.capnp",
+                   imports=capnp_import_paths(BASEDIR, os.path.join(BASEDIR, "include")))
 
 CarState = car.CarState
 RadarData = car.RadarData

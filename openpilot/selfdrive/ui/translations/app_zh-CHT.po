@@ -26,11 +26,11 @@ msgstr "1 年行駛資料儲存"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
 msgid "12V / PCIe not ready"
-msgstr ""
+msgstr "12V / PCIe 未就緒"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
 msgid "12V off ({} mV)"
-msgstr "12V 未上电（{} mV）"
+msgstr "12V 未上電（{} mV）"
 
 #: openpilot/selfdrive/ui/widgets/prime.py
 msgid "24/7 LTE connectivity"
@@ -50,7 +50,9 @@ msgstr "5G"
 
 #: openpilot/selfdrive/ui/layouts/settings/developer.py
 msgid "<b>WARNING: openpilot longitudinal control is in alpha for this car and will disable Automatic Emergency Braking (AEB).</b><br><br>On this car, openpilot defaults to the car's built-in ACC instead of openpilot's longitudinal control. Enable this to switch to openpilot longitudinal control. Enabling Experimental mode is recommended when enabling openpilot longitudinal control alpha. Changing this setting will restart openpilot if the car is powered on."
-msgstr ""
+msgstr "<b>警告：openpilot 的縱向控制在該車型上仍處於 alpha 階段，開啓後將關閉自動緊急制動（AEB）。</b><br><br>在該車"
+"型上，openpilot 默認使用車輛自帶的 ACC，而不是 openpilot 的縱向控制。開啓此項可切換到 openpilot 縱向控制。開"
+"啓 openpilot 縱向控制 alpha 時，建議同時開啓實驗模式。車輛上電時修改此設置會重啓 openpilot。"
 
 #: openpilot/selfdrive/ui/layouts/settings/device.py
 msgid "<br><br>Steering lag calibration is complete."
@@ -62,11 +64,12 @@ msgstr "<br><br>轉向延遲校正已完成 {}%。"
 
 #: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
 msgid "ACTIVE"
-msgstr ""
+msgstr "活躍"
 
 #: openpilot/selfdrive/ui/layouts/settings/developer.py
 msgid "ADB (Android Debug Bridge) allows connecting to your device over USB or over the network. See https://docs.comma.ai/how-to/connect-to-comma for more info."
-msgstr ""
+msgstr "ADB（Android Debug Bridge）允許通過 USB 或網絡連接到您的設備。詳情請參閱 https://docs.comma.ai"
+"/how-to/connect-to-comma。"
 
 #: openpilot/selfdrive/ui/widgets/ssh_key.py
 msgid "ADD"
@@ -74,7 +77,7 @@ msgstr "新增"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "AEB: Risk of Collision"
-msgstr ""
+msgstr "AEB：存在碰撞風險"
 
 #: openpilot/system/ui/widgets/network.py
 msgid "APN Setting"
@@ -82,7 +85,7 @@ msgstr "APN 設定"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Abnormal tire stiffness"
-msgstr ""
+msgstr "輪胎剛度異常"
 
 #: openpilot/selfdrive/ui/widgets/offroad_alerts.py
 msgid "Acknowledge Excessive Actuation"
@@ -90,7 +93,7 @@ msgstr "確認過度作動"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Adaptive Cruise Disabled"
-msgstr ""
+msgstr "自適應巡航已關閉"
 
 #: openpilot/system/ui/widgets/network.py
 msgid "Advanced"
@@ -106,7 +109,7 @@ msgstr "同意"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Always keep hands on wheel and eyes on road"
-msgstr ""
+msgstr "小鴿溫馨提醒：請始終握住方向盤並注視前方道路"
 
 #: openpilot/selfdrive/ui/layouts/settings/toggles.py
 msgid "Always-On Driver Monitoring"
@@ -114,15 +117,15 @@ msgstr "持續啟用駕駛監控"
 
 #: openpilot/selfdrive/ui/layouts/settings/toggles.py
 msgid "An alpha version of openpilot longitudinal control can be tested, along with Experimental mode, on non-release branches."
-msgstr ""
+msgstr "在非發佈分支上，可以和實驗模式一起測試 openpilot 縱向控制的 alpha 版本。"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Angle offset too high (Offset: {angle_offset:.1f}°)"
-msgstr ""
+msgstr "角度偏移過大（偏移：{angle_offset:.1f}°）"
 
 #: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
 msgid "Any fast phone or laptop charger should be fine."
-msgstr ""
+msgstr "任何手機或筆記本快充充電器均可。"
 
 #: openpilot/selfdrive/ui/layouts/settings/device.py
 msgid "Are you sure you want to power off?"
@@ -142,11 +145,11 @@ msgstr "確定要解除安裝嗎？"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Auto Hold Active"
-msgstr ""
+msgstr "自動駐車已啓用"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "BRAKE!"
-msgstr ""
+msgstr "剎車！"
 
 #: openpilot/selfdrive/ui/layouts/onboarding.py
 #: openpilot/system/ui/widgets/network.py
@@ -155,7 +158,7 @@ msgstr "返回"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Be ready to take over at any time"
-msgstr ""
+msgstr "隨時準備接管"
 
 #: openpilot/selfdrive/ui/widgets/prime.py
 msgid "Become a comma prime member at connect.comma.ai"
@@ -163,7 +166,7 @@ msgstr "前往 connect.comma.ai 成為 comma prime 會員"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Bookmark Saved"
-msgstr ""
+msgstr "書籤已保存"
 
 #: openpilot/selfdrive/ui/widgets/pairing_dialog.py
 msgid "Bookmark connect.comma.ai to your home screen to use it like an app"
@@ -171,15 +174,15 @@ msgstr "將 connect.comma.ai 加到主畫面，像 App 一樣使用"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "CAN Bus Disconnected"
-msgstr ""
+msgstr "CAN總線已斷開"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "CAN Bus Disconnected: Check Connections"
-msgstr ""
+msgstr "CAN總線斷開：請檢查連接"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "CAN Error: Check Connections!!"
-msgstr ""
+msgstr "CAN錯誤：請檢查連接！！"
 
 #: openpilot/selfdrive/ui/layouts/settings/device.py
 msgid "CHANGE"
@@ -205,39 +208,39 @@ msgstr "連線中..."
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Calibrating"
-msgstr ""
+msgstr "校準"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Calibration Incomplete"
-msgstr ""
+msgstr "校準未完成"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Calibration Invalid"
-msgstr ""
+msgstr "校準無效"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Calibration Invalid: Remount Device & Recalibrate"
-msgstr ""
+msgstr "校準無效：請重新安裝設備並重新校準"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Calibration in Progress"
-msgstr ""
+msgstr "校準進行中"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Camera Frame Rate Low"
-msgstr ""
+msgstr "攝像頭幀率過低"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Camera Frame Rate Low: Reboot Your Device"
-msgstr ""
+msgstr "攝像頭幀率過低：請重啓設備"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Camera Malfunction"
-msgstr ""
+msgstr "攝像頭故障"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Camera Malfunction: Reboot Your Device"
-msgstr ""
+msgstr "攝像頭故障：請重啓設備"
 
 #: openpilot/system/ui/widgets/confirm_dialog.py
 #: openpilot/system/ui/widgets/keyboard.py
@@ -248,19 +251,19 @@ msgstr "取消"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Cancel Pressed"
-msgstr ""
+msgstr "已按下取消"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Car Detected in Blindspot"
-msgstr ""
+msgstr "盲區內檢測到車輛"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Car Unrecognized"
-msgstr ""
+msgstr "車輛未識別"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Car in Blindspot"
-msgstr ""
+msgstr "盲區檢測到車輛"
 
 #: openpilot/system/ui/widgets/network.py
 msgid "Cellular Metered"
@@ -272,7 +275,7 @@ msgstr "變更語言"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Changing Lanes"
-msgstr ""
+msgstr "正在變道"
 
 #: openpilot/selfdrive/ui/layouts/settings/toggles.py
 msgid "Changing this setting will restart openpilot if the car is powered on."
@@ -280,19 +283,19 @@ msgstr "若車輛通電，變更此設定將重新啟動 openpilot。"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Check Hardware"
-msgstr ""
+msgstr "請檢查硬件"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu.py
 msgid "Check eGPU"
-msgstr ""
+msgstr "檢測 eGPU"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Check tires, pressure, or alignment (Factor: {stiffness_factor:.1f})"
-msgstr ""
+msgstr "請檢查輪胎、胎壓或定位（係數：{stiffness_factor:.1f}）"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu.py
 msgid "Checks USB 5 Gbps, firmware, 12V/PCIe, and GPU execution."
-msgstr ""
+msgstr "檢測 USB 5 Gbps、固件、12V/PCIe 和 GPU 執行狀態"
 
 #: openpilot/selfdrive/ui/widgets/pairing_dialog.py
 msgid "Click \"add new device\" and scan the QR code on the right"
@@ -304,31 +307,31 @@ msgstr "關閉"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Communication Issue Between Processes"
-msgstr ""
+msgstr "進程間通信異常"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Confirm Lane Change"
-msgstr ""
+msgstr "確認變道"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu.py
 msgid "Connection Check"
-msgstr ""
+msgstr "連接檢測"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Controls Mismatch"
-msgstr ""
+msgstr "控制不匹配"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Cruise Fault: Restart the Car"
-msgstr ""
+msgstr "巡航故障：請重啓車輛"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Cruise Fault: Restart the car to engage"
-msgstr ""
+msgstr "巡航故障：請重啓車輛後再啓用"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Cruise Is Off"
-msgstr ""
+msgstr "巡航已關閉"
 
 #: openpilot/selfdrive/ui/layouts/settings/software.py
 msgid "Current Version"
@@ -336,11 +339,11 @@ msgstr "目前版本"
 
 #: openpilot/selfdrive/ui/mici/onroad/vision_renderer.py
 msgid "DETECTED"
-msgstr ""
+msgstr "已識別"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "DISENGAGE IMMEDIATELY"
-msgstr ""
+msgstr "請立即解除"
 
 #: openpilot/selfdrive/ui/layouts/settings/software.py
 msgid "DOWNLOAD"
@@ -348,15 +351,15 @@ msgstr "下載"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Dashcam Mode"
-msgstr ""
+msgstr "行車記錄儀模式"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Dashcam mode"
-msgstr ""
+msgstr "行車記錄儀模式"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Dashcam mode for unsupported car"
-msgstr ""
+msgstr "不支持車型，僅提供行車記錄儀模式"
 
 #: openpilot/selfdrive/ui/layouts/onboarding.py
 msgid "Decline"
@@ -376,19 +379,19 @@ msgstr "裝置"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Device Fell Off Mount"
-msgstr ""
+msgstr "設備從支架掉落"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Device Remount Detected: Recalibrating"
-msgstr ""
+msgstr "檢測到設備重新安裝：重新校準中"
 
 #: openpilot/selfdrive/ui/mici/layouts/settings/device.py
 msgid "Device must be registered with the comma.ai backend to pair."
-msgstr ""
+msgstr "設備必須先在 comma.ai 後臺註冊才能配對。"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Disable your car's stock LKAS to engage"
-msgstr ""
+msgstr "關閉車輛的原廠LKAS後再接入"
 
 #: openpilot/selfdrive/ui/layouts/settings/toggles.py
 msgid "Disengage on Accelerator Pedal"
@@ -412,23 +415,23 @@ msgstr "以 km/h 顯示速度（非 mph）。"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Distraction Level Too High"
-msgstr ""
+msgstr "分心程度過高"
 
 #: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
 msgid "Do all of my segments get pulled in Firehose Mode?"
-msgstr ""
+msgstr "我的所有行駛片段都會在數據上傳模式下上傳嗎？"
 
 #: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
 msgid "Does it matter how or where I drive?"
-msgstr ""
+msgstr "我的駕駛方式或地點有影響嗎？"
 
 #: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
 msgid "Does it matter which software I run?"
-msgstr ""
+msgstr "我運行哪個軟件有影響嗎？"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Donate logs to Twilsonco to get it added!"
-msgstr ""
+msgstr "請向 Twilsonco 提供日誌以便加入！"
 
 #: openpilot/selfdrive/ui/layouts/settings/device.py
 msgid "Dongle ID"
@@ -436,7 +439,7 @@ msgstr "裝置 ID"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Door Open"
-msgstr ""
+msgstr "車門已打開"
 
 #: openpilot/selfdrive/ui/layouts/settings/software.py
 msgid "Download"
@@ -444,15 +447,15 @@ msgstr "下載"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Drive Above {speed}"
-msgstr ""
+msgstr "請將車速提升至{speed}以上"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Drive above {speed} to engage"
-msgstr ""
+msgstr "車速超過{speed}後可啓用"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Drive to Calibrate"
-msgstr ""
+msgstr "請行駛以完成校準"
 
 #: openpilot/selfdrive/ui/layouts/settings/device.py
 msgid "Driver Camera"
@@ -460,15 +463,15 @@ msgstr "車內鏡頭"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Driver Distracted"
-msgstr ""
+msgstr "駕駛員分心"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Driver Unresponsive"
-msgstr ""
+msgstr "駕駛員無響應"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Driving Model Lagging"
-msgstr ""
+msgstr "駕駛模型延遲"
 
 #: openpilot/selfdrive/ui/layouts/settings/toggles.py
 msgid "Driving Personality"
@@ -476,7 +479,7 @@ msgstr "駕駛風格"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Driving Personality: {personality}"
-msgstr ""
+msgstr "駕駛風格：{personality}"
 
 #: openpilot/system/ui/widgets/network.py
 msgid "EDIT"
@@ -496,15 +499,15 @@ msgstr "實驗模式已開啟"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Electronic Stability Control Active"
-msgstr ""
+msgstr "電子穩定控制介入"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Electronic Stability Control Disabled"
-msgstr ""
+msgstr "電子穩定控制已關閉"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Emergency Braking: Risk of Collision"
-msgstr ""
+msgstr "緊急制動：存在碰撞風險"
 
 #: openpilot/selfdrive/ui/layouts/settings/developer.py
 #: openpilot/selfdrive/ui/layouts/settings/toggles.py
@@ -517,7 +520,7 @@ msgstr "啟用 ADB"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Enable Adaptive Cruise to Engage"
-msgstr ""
+msgstr "請啓用自適應巡航以接入"
 
 #: openpilot/selfdrive/ui/layouts/settings/toggles.py
 msgid "Enable Lane Departure Warnings"
@@ -525,7 +528,7 @@ msgstr "啟用偏離車道警示"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Enable Main Switch to Engage"
-msgstr ""
+msgstr "請打開主開關以接入"
 
 #: openpilot/system/ui/widgets/network.py
 msgid "Enable Roaming"
@@ -553,11 +556,11 @@ msgstr "啟用 openpilot 縱向控制（alpha）切換，以使用實驗模式�
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Enable your car's LKAS to engage"
-msgstr ""
+msgstr "開啓車輛的LKAS後再接入"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Ensure road ahead is clear"
-msgstr ""
+msgstr "請確保前方道路無障礙"
 
 #: openpilot/system/ui/widgets/network.py
 msgid "Enter APN"
@@ -585,7 +588,7 @@ msgstr "錯誤"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Excessive Actuation"
-msgstr ""
+msgstr "過度動作"
 
 #: openpilot/selfdrive/ui/layouts/settings/toggles.py
 msgid "Experimental Mode"
@@ -601,7 +604,7 @@ msgstr "正在遺忘..."
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Fan Malfunction"
-msgstr ""
+msgstr "風扇故障"
 
 #: openpilot/selfdrive/ui/widgets/setup.py
 msgid "Finish Setup"
@@ -621,7 +624,8 @@ msgid ""
 "For maximum effectiveness, bring your device inside and connect to a good USB-C adapter and Wi-Fi weekly.\n"
 "\n"
 "Firehose Mode can also work while you're driving if connected to a hotspot or unlimited SIM card."
-msgstr ""
+msgstr "爲獲得最佳效果，請每週將設備帶入室內，連接良好的 USB-C 適配器和 Wi-Fi。\n\n如果連接到熱點或不限量 SIM 卡，數據上傳模式也可"
+"以在駕駛時工作。"
 
 #: openpilot/selfdrive/ui/layouts/settings/firehose.py
 msgid ""
@@ -639,7 +643,10 @@ msgid ""
 "What's a good USB-C adapter? Any fast phone or laptop charger should be fine.\n"
 "\n"
 "Does it matter which software I run? Yes, only upstream openpilot (and particular forks) are able to be used for training."
-msgstr ""
+msgstr "爲獲得最佳效果，請每週將設備帶入室內，連接良好的 USB-C 適配器和 Wi-Fi。\n\n如果連接到熱點或不限量 SIM 卡，數據上傳模式也可"
+"以在駕駛時工作。\n\n\n常見問題\n\n我的駕駛方式或地點有影響嗎？沒有，正常駕駛即可。\n\n我的所有行駛片段都會在數據上傳模式下上傳嗎？"
+"不，我們只選擇性地上傳部分片段。\n\n什麼是好的 USB-C 適配器？任何手機或筆記本快充充電器均可。\n\n我運行哪個軟件有影響嗎？是的，只"
+"有上游 openpilot（及特定分支）可用於訓練。"
 
 #: openpilot/system/ui/widgets/network.py
 msgid "Forget"
@@ -651,7 +658,7 @@ msgstr "要忘記 Wi‑Fi 網路「{}」嗎？"
 
 #: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
 msgid "Frequently Asked Questions"
-msgstr ""
+msgstr "常見問題"
 
 #: openpilot/selfdrive/ui/layouts/sidebar.py
 msgid "GOOD"
@@ -659,19 +666,19 @@ msgstr "良好"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
 msgid "GPU check timed out"
-msgstr ""
+msgstr "GPU 檢測超時"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
 msgid "GPU incompatible"
-msgstr ""
+msgstr "GPU 不兼容"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Gas: {gas}%, Steer: {steer}%"
-msgstr ""
+msgstr "油門：{gas}%，轉向：{steer}%"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Gear not D"
-msgstr ""
+msgstr "擋位非D擋"
 
 #: openpilot/selfdrive/ui/widgets/pairing_dialog.py
 msgid "Go to https://connect.comma.ai on your phone"
@@ -683,7 +690,7 @@ msgstr "高"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Harness Relay Malfunction"
-msgstr ""
+msgstr "線束繼電器故障"
 
 #: openpilot/system/ui/widgets/network.py
 msgid "Hidden Network"
@@ -691,11 +698,11 @@ msgstr "隱藏網路"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "High CPU Usage"
-msgstr ""
+msgstr "CPU佔用過高"
 
 #: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
 msgid "INACTIVE: connect to an unmetered network"
-msgstr ""
+msgstr "未激活：請連接不限流量網絡"
 
 #: openpilot/selfdrive/ui/layouts/settings/software.py
 msgid "INSTALL"
@@ -711,7 +718,7 @@ msgstr "安裝更新"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Invalid LKAS setting"
-msgstr ""
+msgstr "LKAS設置無效"
 
 #: openpilot/selfdrive/ui/layouts/settings/developer.py
 msgid "Joystick Debug Mode"
@@ -719,15 +726,15 @@ msgstr "搖桿除錯模式"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Joystick Mode"
-msgstr ""
+msgstr "手柄模式"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "LKAS Fault: Restart the Car"
-msgstr ""
+msgstr "LKAS故障：請重啓車輛"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "LKAS Fault: Restart the car to engage"
-msgstr ""
+msgstr "LKAS故障：重啓車輛後再接入"
 
 #: openpilot/selfdrive/ui/widgets/ssh_key.py
 msgid "LOADING"
@@ -739,15 +746,15 @@ msgstr "LTE"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Lane Departure Detected"
-msgstr ""
+msgstr "檢測到車道偏離"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Lateral Maneuver Mode"
-msgstr ""
+msgstr "橫向操作模式"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Likely Hardware Issue"
-msgstr ""
+msgstr "可能是硬件問題"
 
 #: openpilot/selfdrive/selfdrived/events.py
 #: openpilot/selfdrive/ui/layouts/settings/developer.py
@@ -756,19 +763,19 @@ msgstr "縱向操作模式"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Low Battery"
-msgstr ""
+msgstr "電量低"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Low Communication Rate Between Processes"
-msgstr ""
+msgstr "進程間通信速率低"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Low Memory"
-msgstr ""
+msgstr "內存不足"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Low Memory: Reboot Your Device"
-msgstr ""
+msgstr "內存不足：請重啓設備"
 
 #: openpilot/selfdrive/ui/mici/onroad/hud_renderer.py
 #: openpilot/selfdrive/ui/onroad/hud_renderer.py
@@ -781,7 +788,7 @@ msgstr "最大化上傳訓練資料，以改進 openpilot 的駕駛模型。"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Model uncertain at this speed"
-msgstr ""
+msgstr "模型在該車速下存在不確定性"
 
 #: openpilot/selfdrive/ui/layouts/settings/device.py
 msgid "N/A"
@@ -789,11 +796,11 @@ msgstr "無"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "NNFF Torque Controller loaded"
-msgstr ""
+msgstr "NNFF扭矩控制器已加載"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "NNFF Torque Controller not available"
-msgstr ""
+msgstr "NNFF扭矩控制器不可用"
 
 #: openpilot/selfdrive/ui/layouts/sidebar.py
 msgid "NO"
@@ -801,7 +808,7 @@ msgstr "否"
 
 #: openpilot/selfdrive/ui/mici/onroad/vision_renderer.py
 msgid "NO DETECTION"
-msgstr ""
+msgstr "未識別"
 
 #: openpilot/selfdrive/ui/layouts/settings/settings.py
 msgid "Network"
@@ -817,11 +824,11 @@ msgstr "無可用發行說明。"
 
 #: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
 msgid "No, we selectively pull a subset of your segments."
-msgstr ""
+msgstr "不，我們只選擇性地上傳您的部分行駛片段。"
 
 #: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
 msgid "Nope, just drive as you normally would."
-msgstr ""
+msgstr "不，正常駕駛即可。"
 
 #: openpilot/selfdrive/ui/layouts/sidebar.py
 msgid "OFFLINE"
@@ -835,7 +842,7 @@ msgstr "確定"
 
 #: openpilot/selfdrive/ui/mici/onroad/vision_renderer.py
 msgid "ON"
-msgstr ""
+msgstr "開啓"
 
 #: openpilot/selfdrive/ui/layouts/sidebar.py
 msgid "ONLINE"
@@ -843,7 +850,7 @@ msgstr "線上"
 
 #: openpilot/selfdrive/ui/widgets/carrot_web_dialog.py
 msgid "Offline"
-msgstr ""
+msgstr "離線"
 
 #: openpilot/selfdrive/ui/widgets/setup.py
 msgid "Open"
@@ -851,7 +858,7 @@ msgstr "開啟"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Out of Storage"
-msgstr ""
+msgstr "存儲空間不足"
 
 #: openpilot/selfdrive/ui/layouts/settings/device.py
 msgid "PAIR"
@@ -888,15 +895,15 @@ msgstr "將裝置與 comma connect（connect.comma.ai）配對，領取您的 co
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Parking Brake Engaged"
-msgstr ""
+msgstr "駐車制動已啓用"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Pay Attention"
-msgstr ""
+msgstr "請注意駕駛"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Pedal Pressed"
-msgstr ""
+msgstr "踏板被踩下"
 
 #: openpilot/selfdrive/ui/widgets/setup.py
 msgid "Please connect to Wi-Fi to complete initial pairing"
@@ -904,19 +911,19 @@ msgstr "請連線至 Wi‑Fi 以完成初始化配對"
 
 #: openpilot/selfdrive/ui/mici/layouts/settings/device.py
 msgid "Please connect to Wi-Fi to complete initial pairing."
-msgstr ""
+msgstr "請連接 Wi-Fi 以完成初始配對。"
 
 #: openpilot/selfdrive/ui/mici/layouts/settings/device.py
 msgid "Please connect to Wi-Fi to update."
-msgstr ""
+msgstr "請連接 Wi-Fi 以更新。"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Posenet Speed Invalid"
-msgstr ""
+msgstr "Posenet 速度無效"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Possible Hardware Issue"
-msgstr ""
+msgstr "可能是硬件問題"
 
 #: openpilot/selfdrive/ui/layouts/settings/device.py
 msgid "Power Off"
@@ -924,19 +931,19 @@ msgstr "關機"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Press Resume"
-msgstr ""
+msgstr "請按RES按鈕"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Press Resume to Exit Brake Hold"
-msgstr ""
+msgstr "按下恢復以解除制動保持"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Press Resume to Exit Standstill"
-msgstr ""
+msgstr "按下恢復以結束靜止"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Press Set to Engage"
-msgstr ""
+msgstr "按下設定以接入"
 
 #: openpilot/system/ui/widgets/network.py
 msgid "Prevent large data uploads when on a metered Wi-Fi connection"
@@ -952,7 +959,7 @@ msgstr "預覽車內鏡頭以確保駕駛監控視野良好。（車輛須熄火
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Process Not Running"
-msgstr ""
+msgstr "進程未運行"
 
 #: openpilot/selfdrive/ui/widgets/pairing_dialog.py
 msgid "QR Code Error"
@@ -972,11 +979,11 @@ msgstr "檢視"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Radar Error: Restart the Car"
-msgstr ""
+msgstr "雷達錯誤：請重啓車輛"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Radar Temporarily Unavailable"
-msgstr ""
+msgstr "雷達暫時不可用"
 
 #: openpilot/selfdrive/ui/layouts/settings/device.py
 msgid "Reboot"
@@ -992,15 +999,15 @@ msgstr "重新啟動並更新"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Reboot your Device"
-msgstr ""
+msgstr "請重啓設備"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Recalibrating"
-msgstr ""
+msgstr "重新校準"
 
 #: openpilot/selfdrive/ui/layouts/settings/toggles.py
 msgid "Receive alerts to steer back into the lane when your vehicle drifts over a detected lane line without a turn signal activated while driving over 31 mph (50 km/h)."
-msgstr ""
+msgstr "當車速超過 31 mph（50 km/h）且未打轉向燈時，如果車輛偏離檢測到的車道線，將收到重返車道的提醒。"
 
 #: openpilot/selfdrive/ui/layouts/settings/toggles.py
 msgid "Record and Upload Driver Camera"
@@ -1016,7 +1023,7 @@ msgstr "行車時錄製並儲存麥克風音訊。音訊將包含在 comma conne
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Recording Audio Feedback"
-msgstr ""
+msgstr "正在錄製語音反饋"
 
 #: openpilot/selfdrive/ui/layouts/settings/device.py
 msgid "Regulatory"
@@ -1028,7 +1035,7 @@ msgstr "從容"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Release Brake to Engage"
-msgstr ""
+msgstr "鬆開剎車以接入"
 
 #: openpilot/selfdrive/ui/widgets/prime.py
 msgid "Remote access"
@@ -1040,11 +1047,11 @@ msgstr "遠端擷圖"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Remount Detected: Recalibrating"
-msgstr ""
+msgstr "檢測到重新安裝：正在重新校準"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Remount Device (Pitch: {pitch:.1f}°, Yaw: {yaw:.1f}°)"
-msgstr ""
+msgstr "請重新安裝設備（俯仰：{pitch:.1f}°，偏航：{yaw:.1f}°）"
 
 #: openpilot/selfdrive/ui/widgets/ssh_key.py
 msgid "Request timed out"
@@ -1060,21 +1067,21 @@ msgstr "重設校正"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Resume Driving Manually"
-msgstr ""
+msgstr "請手動恢復駕駛"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Reverse"
-msgstr ""
+msgstr "倒擋"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid ""
 "Reverse\n"
 "Gear"
-msgstr ""
+msgstr "倒車\n檔"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Reverse Gear"
-msgstr ""
+msgstr "倒擋"
 
 #: openpilot/selfdrive/ui/layouts/settings/device.py
 msgid "Review Training Guide"
@@ -1086,7 +1093,7 @@ msgstr "檢視 openpilot 的規則、功能與限制"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Risk of Collision"
-msgstr ""
+msgstr "存在碰撞風險"
 
 #: openpilot/selfdrive/ui/layouts/settings/software.py
 msgid "SELECT"
@@ -1098,11 +1105,11 @@ msgstr "SSH 金鑰"
 
 #: openpilot/selfdrive/ui/mici/onroad/vision_renderer.py
 msgid "STALE"
-msgstr ""
+msgstr "數據過期"
 
 #: openpilot/selfdrive/ui/mici/onroad/vision_renderer.py
 msgid "STANDBY"
-msgstr ""
+msgstr "待機"
 
 #: openpilot/system/ui/widgets/network.py
 msgid "Scanning Wi-Fi networks..."
@@ -1110,11 +1117,11 @@ msgstr "正在掃描 Wi‑Fi 網路…"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Seatbelt Unlatched"
-msgstr ""
+msgstr "安全帶未扣"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Security Key Not Available"
-msgstr ""
+msgstr "安全密鑰不可用"
 
 #: openpilot/system/ui/widgets/option_dialog.py
 msgid "Select"
@@ -1130,11 +1137,11 @@ msgstr "選取語言"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Selfdrive Process Lagging: Reboot Your Device"
-msgstr ""
+msgstr "自駕進程延遲：請重啓設備"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Sensor Data Invalid"
-msgstr ""
+msgstr "傳感器數據無效"
 
 #: openpilot/selfdrive/ui/layouts/settings/device.py
 msgid "Serial"
@@ -1142,7 +1149,7 @@ msgstr "序號"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Slow down to engage"
-msgstr ""
+msgstr "請減速後接入"
 
 #: openpilot/selfdrive/ui/widgets/offroad_alerts.py
 msgid "Snooze Update"
@@ -1150,7 +1157,7 @@ msgstr "延後更新"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "SoftHold"
-msgstr ""
+msgstr "軟保持"
 
 #: openpilot/selfdrive/ui/layouts/settings/settings.py
 msgid "Software"
@@ -1158,15 +1165,15 @@ msgstr "軟體"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Speed Error: {error:.1f} m/s"
-msgstr ""
+msgstr "速度誤差：{error:.1f} m/s"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Speed Too High"
-msgstr ""
+msgstr "車速過高"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Speed too low"
-msgstr ""
+msgstr "車速過低"
 
 #: openpilot/selfdrive/ui/layouts/settings/toggles.py
 msgid "Standard"
@@ -1174,75 +1181,76 @@ msgstr "標準"
 
 #: openpilot/selfdrive/ui/layouts/settings/toggles.py
 msgid "Standard is recommended. In aggressive mode, openpilot will follow lead cars closer and be more aggressive with the gas and brake. In relaxed mode openpilot will stay further away from lead cars. On supported cars, you can cycle through these personalities with your steering wheel distance button."
-msgstr ""
+msgstr "推薦使用標準模式。激進模式下 openpilot 會跟車更近，油門和剎車也更激進；從容模式下 openpilot 會與前車保持更大距離。在支持的"
+"車型上，可以用方向盤上的跟車距離按鈕循環切換這些風格。"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Steer Assist Unavailable Below {speed}"
-msgstr ""
+msgstr "當前車速低於{speed}時無法提供轉向"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Steer Left"
-msgstr ""
+msgstr "向左轉動方向盤"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Steer Left to Start Lane Change Once Safe"
-msgstr ""
+msgstr "確認安全後向左轉向開始變道"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Steer Right"
-msgstr ""
+msgstr "向右轉動方向盤"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Steer Right to Start Lane Change Once Safe"
-msgstr ""
+msgstr "確認安全後向右轉向開始變道"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Steer ratio mismatch"
-msgstr ""
+msgstr "轉向比不匹配"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Steering Assist Temporarily Unavailable"
-msgstr ""
+msgstr "轉向暫時不可用"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Steering Pressed"
-msgstr ""
+msgstr "檢測到方向盤轉動"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Steering Temporarily Unavailable"
-msgstr ""
+msgstr "轉向暫時不可用"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Steering misalignment detected"
-msgstr ""
+msgstr "檢測到轉向未對準"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Steering rack geometry may be off (Ratio: {steer_ratio:.1f})"
-msgstr ""
+msgstr "轉向齒條幾何可能異常（比例：{steer_ratio:.1f}）"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Stock AEB: Risk of Collision"
-msgstr ""
+msgstr "原廠AEB：存在碰撞風險"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Stock LKAS: Lane Departure Detected"
-msgstr ""
+msgstr "車道偏離預警：車輛原廠LKAS已介入"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Switch to Traffic-Aware Cruise Control to engage"
-msgstr ""
+msgstr "切換到動態雷達巡航控制後再啓用"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "System Initializing"
-msgstr ""
+msgstr "系統初始化中"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "System Lagging"
-msgstr ""
+msgstr "系統運行緩慢"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "System Overheated"
-msgstr ""
+msgstr "系統過熱"
 
 #: openpilot/selfdrive/ui/onroad/alert_renderer.py
 msgid "System Unresponsive"
@@ -1250,7 +1258,7 @@ msgstr "系統無回應"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "TAKE CONTROL"
-msgstr ""
+msgstr "請接管"
 
 #: openpilot/selfdrive/selfdrived/events.py
 #: openpilot/selfdrive/ui/onroad/alert_renderer.py
@@ -1263,7 +1271,7 @@ msgstr "溫度"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Take Control"
-msgstr ""
+msgstr "請接管"
 
 #: openpilot/selfdrive/ui/layouts/settings/software.py
 msgid "Target Branch"
@@ -1275,7 +1283,7 @@ msgstr "網路共享密碼"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Toggle stock LKAS on or off to engage"
-msgstr ""
+msgstr "開啓或關閉車輛原廠LKAS後再接入"
 
 #: openpilot/selfdrive/ui/layouts/settings/settings.py
 msgid "Toggles"
@@ -1283,23 +1291,23 @@ msgstr "切換"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Touch Steering Wheel"
-msgstr ""
+msgstr "請握住方向盤"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Touch Steering Wheel: No Face Detected"
-msgstr ""
+msgstr "請握住方向盤：未檢測到人臉"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Turn Exceeds Steering Limit"
-msgstr ""
+msgstr "轉向角超出限制"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Turning Left"
-msgstr ""
+msgstr "左轉中"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Turning Right"
-msgstr ""
+msgstr "右轉中"
 
 #: openpilot/selfdrive/ui/layouts/settings/developer.py
 msgid "UI Debug Mode"
@@ -1315,31 +1323,31 @@ msgstr "更新"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "USB Error: Reboot Your Device"
-msgstr ""
+msgstr "USB錯誤：請重啓設備"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu.py
 msgid "USB Link"
-msgstr ""
+msgstr "USB 鏈路"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
 msgid "USB disconnected during GPU check"
-msgstr ""
+msgstr "GPU 檢測期間 USB 斷開"
 
 #: openpilot/selfdrive/ui/mici/layouts/settings/usbgpu.py
 msgid "USB link"
-msgstr "USB 链路"
+msgstr "USB 鏈路"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
 msgid "USB link errors"
-msgstr ""
+msgstr "USB 鏈路錯誤"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
 msgid "USB link {} Mbps"
-msgstr "USB 链路 {} Mbps"
+msgstr "USB 鏈路 {} Mbps"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
 msgid "USB not connected"
-msgstr ""
+msgstr "USB 未連接"
 
 #: openpilot/selfdrive/ui/layouts/settings/software.py
 msgid "Uninstall"
@@ -1351,7 +1359,7 @@ msgstr "未知"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Unknown Vehicle Variant"
-msgstr ""
+msgstr "CAN錯誤"
 
 #: openpilot/selfdrive/ui/layouts/settings/software.py
 msgid "Updates are only downloaded while the car is off."
@@ -1371,7 +1379,7 @@ msgstr "使用公制"
 
 #: openpilot/selfdrive/ui/layouts/settings/toggles.py
 msgid "Use the openpilot system for adaptive cruise control and lane keep driver assistance. Your attention is required at all times to use this feature."
-msgstr ""
+msgstr "使用 openpilot 系統進行自適應巡航和車道保持輔助。使用此功能時必須全程保持注意力。"
 
 #: openpilot/selfdrive/ui/layouts/sidebar.py
 msgid "VEHICLE"
@@ -1383,23 +1391,23 @@ msgstr "檢視"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Vehicle Sensors Calibrating"
-msgstr ""
+msgstr "車輛傳感器校準中"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Vehicle Sensors Invalid"
-msgstr ""
+msgstr "車輛傳感器無效"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "Vehicle Steering Time Limit"
-msgstr ""
+msgstr "車輛轉向時間限制"
 
 #: openpilot/selfdrive/ui/mici/onroad/vision_renderer.py
 msgid "WAIT"
-msgstr ""
+msgstr "等待"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "WARNING: This branch is not tested"
-msgstr ""
+msgstr "提醒：需配合CarrotAmap或CP搭子 App才能實現高德地圖的NOO"
 
 #: openpilot/selfdrive/ui/onroad/alert_renderer.py
 msgid "Waiting to start"
@@ -1407,7 +1415,8 @@ msgstr "等待開始"
 
 #: openpilot/selfdrive/ui/layouts/settings/developer.py
 msgid "Warning: This grants SSH access to all public keys in your GitHub settings. Never enter a GitHub username other than your own. A comma employee will NEVER ask you to add their GitHub username."
-msgstr ""
+msgstr "警告：這將授予您 GitHub 設置中所有公鑰的 SSH 訪問權限。切勿輸入除您自己以外的 GitHub 用戶名。comma 員工絕不會要求您添"
+"加他們的 GitHub 用戶名。"
 
 #: openpilot/selfdrive/ui/layouts/onboarding.py
 msgid "Welcome to openpilot"
@@ -1415,7 +1424,7 @@ msgstr "歡迎使用 openpilot"
 
 #: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
 msgid "What's a good USB-C adapter?"
-msgstr ""
+msgstr "推薦什麼 USB-C 適配器？"
 
 #: openpilot/selfdrive/ui/layouts/settings/toggles.py
 msgid "When enabled, pressing the accelerator pedal will disengage openpilot."
@@ -1435,7 +1444,7 @@ msgstr "密碼錯誤"
 
 #: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
 msgid "Yes, only upstream openpilot (and particular forks) are able to be used for training."
-msgstr ""
+msgstr "是，只有上游 openpilot（及特定分支）的數據可用於訓練。"
 
 #: openpilot/selfdrive/ui/layouts/onboarding.py
 msgid "You must accept the Terms and Conditions in order to use openpilot."
@@ -1447,11 +1456,11 @@ msgstr "您必須接受條款與細則才能使用 openpilot。繼續前請閱�
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
 msgid "active"
-msgstr ""
+msgstr "運行中"
 
 #: openpilot/selfdrive/ui/mici/onroad/hud_renderer.py
 msgid "brake hold"
-msgstr ""
+msgstr "剎車駐車"
 
 #: openpilot/selfdrive/ui/mici/layouts/onboarding.py
 #: openpilot/selfdrive/ui/mici/onroad/driver_camera_dialog.py
@@ -1461,11 +1470,11 @@ msgstr "相機啟動中"
 
 #: openpilot/selfdrive/ui/mici/onroad/hud_renderer.py
 msgid "carrot"
-msgstr ""
+msgstr "胡蘿蔔巡航"
 
 #: openpilot/selfdrive/ui/mici/layouts/settings/usbgpu.py
 msgid "check connection"
-msgstr "检测连接"
+msgstr "檢測連接"
 
 #: openpilot/selfdrive/ui/layouts/settings/software.py
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu.py
@@ -1479,7 +1488,7 @@ msgstr "comma prime"
 
 #: openpilot/selfdrive/ui/mici/layouts/settings/usbgpu.py
 msgid "compile model"
-msgstr "编译模型"
+msgstr "編譯模型"
 
 #: openpilot/system/ui/widgets/network.py
 msgid "default"
@@ -1495,20 +1504,20 @@ msgstr "下載中..."
 
 #: openpilot/selfdrive/ui/layouts/settings/settings.py
 msgid "eGPU"
-msgstr ""
+msgstr "eGPU"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu.py
 msgid "eGPU Status"
-msgstr ""
+msgstr "eGPU 狀態"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
 msgid "eGPU power fault ({} mV, {} mA)"
-msgstr "eGPU 供电异常（{} mV, {} mA）"
+msgstr "eGPU 供電異常（{} mV, {} mA）"
 
 #: openpilot/selfdrive/ui/mici/onroad/hud_renderer.py
 #: openpilot/selfdrive/ui/onroad/hud_renderer.py
 msgid "eco"
-msgstr ""
+msgstr "經濟"
 
 #: openpilot/selfdrive/ui/layouts/settings/software.py
 msgid "failed to check for update"
@@ -1520,7 +1529,7 @@ msgstr "正在完成更新..."
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
 msgid "firmware mismatch"
-msgstr ""
+msgstr "固件不匹配"
 
 #: openpilot/system/ui/widgets/network.py
 msgid "for \"{}\""
@@ -1529,11 +1538,11 @@ msgstr "適用於「{}」"
 #: openpilot/selfdrive/ui/mici/onroad/hud_renderer.py
 #: openpilot/selfdrive/ui/onroad/hud_renderer.py
 msgid "high"
-msgstr ""
+msgstr "運動"
 
 #: openpilot/selfdrive/ui/mici/layouts/settings/usbgpu.py
 msgid "keep ignition on"
-msgstr "保持点火"
+msgstr "保持點火"
 
 #: openpilot/selfdrive/ui/mici/onroad/hud_renderer.py
 #: openpilot/selfdrive/ui/onroad/hud_renderer.py
@@ -1550,15 +1559,15 @@ msgstr "左"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
 msgid "loading"
-msgstr ""
+msgstr "加載中"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "locationd Permanent Error"
-msgstr ""
+msgstr "locationd 永久錯誤"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "locationd Temporary Error"
-msgstr ""
+msgstr "locationd 臨時錯誤"
 
 #: openpilot/system/ui/widgets/network.py
 msgid "metered"
@@ -1566,11 +1575,11 @@ msgstr "計量"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
 msgid "model not compiled"
-msgstr ""
+msgstr "模型未編譯"
 
 #: openpilot/selfdrive/ui/layouts/settings/toggles.py
 msgid "moreRelaxed"
-msgstr ""
+msgstr "輕柔"
 
 #: openpilot/selfdrive/ui/mici/onroad/hud_renderer.py
 #: openpilot/selfdrive/ui/onroad/hud_renderer.py
@@ -1579,7 +1588,7 @@ msgstr "mph"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
 msgid "multiple devices"
-msgstr ""
+msgstr "多個設備"
 
 #: openpilot/selfdrive/ui/layouts/settings/software.py
 msgid "never"
@@ -1587,29 +1596,29 @@ msgstr "從不"
 
 #: openpilot/selfdrive/ui/mici/layouts/offroad_alerts.py
 msgid "no alerts"
-msgstr ""
+msgstr "無警報"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
 msgid "no errors"
-msgstr "无异常"
+msgstr "無異常"
 
 #: openpilot/selfdrive/ui/mici/onroad/hud_renderer.py
 #: openpilot/selfdrive/ui/onroad/hud_renderer.py
 msgid "norm"
-msgstr ""
+msgstr "標準"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu.py
 msgid "not checked"
-msgstr "未检测"
+msgstr "未檢測"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu.py
 #: openpilot/selfdrive/ui/mici/layouts/settings/usbgpu.py
 msgid "not connected"
-msgstr "未连接"
+msgstr "未連接"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
 msgid "not detected"
-msgstr ""
+msgstr "未檢測到"
 
 #: openpilot/selfdrive/ui/layouts/settings/software.py
 msgid "now"
@@ -1617,7 +1626,7 @@ msgstr "現在"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "openpilot Canceled"
-msgstr ""
+msgstr "openpilot已取消"
 
 #: openpilot/selfdrive/ui/layouts/settings/developer.py
 msgid "openpilot Longitudinal Control (Alpha)"
@@ -1630,11 +1639,14 @@ msgstr "openpilot 無法使用"
 
 #: openpilot/selfdrive/ui/layouts/settings/toggles.py
 msgid "openpilot defaults to driving in chill mode. Experimental mode enables alpha-level features that aren't ready for chill mode. Experimental features are listed below:<br><h4>End-to-End Longitudinal Control</h4><br>Let the driving model control the gas and brakes. openpilot will drive as it thinks a human would, including stopping for red lights and stop signs. Since the driving model decides the speed to drive, the set speed will only act as an upper bound. This is an alpha quality feature; mistakes should be expected.<br><h4>New Driving Visualization</h4><br>The driving visualization will transition to the road-facing wide-angle camera at low speeds to better show some turns. The Experimental mode logo will also be shown in the top right corner."
-msgstr ""
+msgstr "openpilot 默認以平順（chill）模式駕駛。實驗模式會啓用尚未達到平順模式標準的 alpha 功能。實驗功能如下：<br><h4>端到"
+"端縱向控制</h4><br>由駕駛模型直接控制油門和剎車。openpilot 會像人類司機一樣駕駛，包括紅燈和停車標誌前停車。由於速度由駕駛模型"
+"決定，設定的速度只作爲上限。該功能仍處於 alpha 階段，可能出現失誤。<br><h4>全新駕駛畫面</h4><br>低速時駕駛畫面會切換到前"
+"向廣角攝像頭，以更好地展示部分彎道。實驗模式標誌也會顯示在右上角。"
 
 #: openpilot/selfdrive/ui/layouts/settings/device.py
 msgid "openpilot is continuously calibrating, resetting is rarely required. Resetting calibration will restart openpilot if the car is powered on."
-msgstr ""
+msgstr "openpilot 會持續自動校準，通常不需要重置。重置校準會在車輛上電時重啓 openpilot。"
 
 #: openpilot/selfdrive/ui/layouts/settings/firehose.py
 #: openpilot/selfdrive/ui/mici/layouts/settings/firehose.py
@@ -1642,7 +1654,8 @@ msgid ""
 "openpilot learns to drive by watching humans, like you, drive.\n"
 "\n"
 "Firehose Mode allows you to maximize your training data uploads to improve openpilot's driving models. More data means bigger models, which means better Experimental Mode."
-msgstr ""
+msgstr "openpilot 通過觀察人類駕駛來學會開車，就像你一樣。\n\n數據上傳模式可以讓你儘可能多地上傳訓練數據，從而改進 openpilot 的"
+"駕駛模型。數據越多，模型越好，實驗模式也就越強。"
 
 #: openpilot/selfdrive/ui/layouts/settings/toggles.py
 msgid "openpilot longitudinal control may come in a future update."
@@ -1654,27 +1667,27 @@ msgstr "openpilot 要求裝置安裝在左右 4°、上 5° 或下 9° 以內。
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "openpilot will disengage"
-msgstr ""
+msgstr "openpilot即將解除"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "paramsd Permanent Error"
-msgstr ""
+msgstr "paramsd 永久錯誤"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "paramsd Temporary Error"
-msgstr ""
+msgstr "paramsd 臨時錯誤"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
 msgid "power status unavailable: {}"
-msgstr "无法读取供电状态：{}"
+msgstr "無法讀取供電狀態：{}"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
 msgid "ready"
-msgstr ""
+msgstr "就緒"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
 msgid "reboot to compile"
-msgstr ""
+msgstr "重啓後編譯"
 
 #: openpilot/selfdrive/ui/layouts/settings/device.py
 msgid "right"
@@ -1683,35 +1696,35 @@ msgstr "右"
 #: openpilot/selfdrive/ui/mici/onroad/hud_renderer.py
 #: openpilot/selfdrive/ui/onroad/hud_renderer.py
 msgid "safe"
-msgstr ""
+msgstr "安全"
 
 #: openpilot/selfdrive/ui/mici/layouts/settings/usbgpu.py
 msgid "slide to reboot and compile"
-msgstr "滑动重启并编译"
+msgstr "滑動重啓並編譯"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
 msgid "slow USB ({} Mbps)"
-msgstr "USB 速率过慢（{} Mbps）"
+msgstr "USB 速率過慢（{} Mbps）"
 
 #: openpilot/selfdrive/ui/mici/onroad/hud_renderer.py
 msgid "soft hold"
-msgstr ""
+msgstr "柔性駐車"
 
 #: openpilot/selfdrive/ui/layouts/settings/usbgpu_text.py
 msgid "startup failed"
-msgstr ""
+msgstr "啓動失敗"
 
 #: openpilot/selfdrive/ui/mici/layouts/settings/usbgpu.py
 msgid "status"
-msgstr "状态"
+msgstr "狀態"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "take control"
-msgstr ""
+msgstr "請接管方向盤"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "turn exceeds limit"
-msgstr ""
+msgstr "轉向超出限制"
 
 #: openpilot/system/ui/widgets/network.py
 msgid "unmetered"
@@ -1735,29 +1748,29 @@ msgstr "有可用更新"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "{calibration_state}: {percent:.0f}%"
-msgstr ""
+msgstr "{calibration_state}進行中：{percent:.0f}%"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "{percent:.1f}% frames dropped"
-msgstr ""
+msgstr "丟幀率{percent:.1f}%"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "{percent}% full"
-msgstr ""
+msgstr "已使用{percent}%"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "{percent}% used"
-msgstr ""
+msgstr "已用{percent}%"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "{seconds} second remaining. Press again to save early."
 msgid_plural "{seconds} seconds remaining. Press again to save early."
-msgstr[0] ""
-msgstr[1] ""
+msgstr[0] "剩餘{seconds}秒，再次按下可提前保存。"
+msgstr[1] "剩餘{seconds}秒，再次按下可提前保存。"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "{temperature:.0f} °C"
-msgstr ""
+msgstr "溫度 {temperature:.0f} °C"
 
 #: openpilot/selfdrive/ui/layouts/home.py
 msgid "{} ALERT"
@@ -1796,7 +1809,7 @@ msgstr "✓ 已訂閱"
 
 #: openpilot/selfdrive/selfdrived/events.py
 msgid "신호가바뀌었어요."
-msgstr ""
+msgstr "信號燈已變化"
 
 #: openpilot/selfdrive/ui/widgets/setup.py
 msgid "🔥 Firehose Mode 🔥"

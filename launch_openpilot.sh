@@ -20,17 +20,26 @@ if [ "$(uname -m)" = "aarch64" ] && [ ! -e /TICI ]; then
   for n in 30 31 32 33; do
     [ -e /dev/i2c-$n ] || sudo ln -sf /dev/i2c-$((n-21)) /dev/i2c-$n 2>/dev/null
   done
-  # SerDes initialization is owned by tw-camera-bring.service. Starting an
-  # additional unmanaged process here races for the reset GPIO and I2C buses.
-  for _ in $(seq 1 20); do
-    systemctl is-active --quiet tw-camera-bring.service && break
-    sleep 1
-  done
-  if systemctl is-active --quiet tw-camera-bring.service; then
-    echo "[camera] tw-camera-bring.service active"
+  # SerDes/I2C 初始化由 `tw_camera_cfg` 服务模式(不带参数)完成。本机没有
+  # tw-camera-bring.service;而且 bring 是 GStreamer 预览模式,会 spawn 预览
+  # 管道占住 /dev/video0/1,不要用。已在运行(例如开机自启或上次启动遗留)则跳过。
+  if pgrep -x tw_camera_cfg > /dev/null 2>&1; then
+    echo "[camera] tw_camera_cfg 已在运行, 跳过启动"
+  elif sudo -n true 2>/dev/null; then
+    echo "[camera] 启动森云相机驱动 (tw_camera_cfg, serdes 初始化)..."
+    sudo tw_camera_cfg > /tmp/tw_camera_cfg.log 2>&1 &
+    for _ in $(seq 1 16); do
+      _cam_pid=$(pgrep -xn tw_camera_cfg 2>/dev/null || true)
+      if [ -n "$_cam_pid" ] && sudo lsof -p "$_cam_pid" 2>/dev/null | grep -q "/dev/i2c-9"; then
+        echo "[camera] 相机驱动就绪 (i2c 已初始化)"
+        break
+      fi
+      sleep 0.5
+    done
+    pgrep -x tw_camera_cfg > /dev/null 2>&1 || \
+      echo "[camera] 警告: tw_camera_cfg 未起来, 黑屏时看 /tmp/tw_camera_cfg.log"
   else
-    echo "[camera] ERROR: tw-camera-bring.service did not become active"
-    exit 1
+    echo "[camera] 警告: 当前无免密 sudo, 无法自动拉起相机驱动; 请手动执行 sudo tw_camera_cfg"
   fi
 
   # Road-test default: never synthesize ignition or CAN. The fake panda can

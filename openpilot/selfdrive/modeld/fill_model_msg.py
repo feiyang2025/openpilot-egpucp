@@ -1,13 +1,40 @@
 import os
 import capnp
 import numpy as np
-import math
 from openpilot.cereal import log
 from openpilot.selfdrive.modeld.constants import ModelConstants, Plan, Meta
 
 SEND_RAW_PRED = os.getenv('SEND_RAW_PRED')
 
 ConfidenceClass = log.ModelDataV2.ConfidenceClass
+
+
+def plan_x_idxs_helper(constants, plan, model_output) -> list[float]:
+  """plan 上 X_IDXS 对应的时间序列 (与 sunnypilot `openpilot/sunnypilot/models/helpers.py` 同实现).
+
+  本树 (carrot/egpucp) 没有 openpilot.sunnypilot 包, 所以这里内联一份等价实现, 而不是引入那个
+  包 —— 本树 HEAD 版本的 fill_model_msg 本来也是内联算的, 只是被 overlay kit 换成了外部 import。
+  """
+  # times at X_IDXS according to plan.
+  LINE_T_IDXS = [np.nan] * constants.IDX_N
+  LINE_T_IDXS[0] = 0.0
+  plan_x = model_output['plan'][0, :, plan.POSITION][:, 0].tolist()
+  for xidx in range(1, constants.IDX_N):
+    tidx = 0
+    # increment tidx until we find an element that's further away than the current xidx
+    while tidx < constants.IDX_N - 1 and plan_x[tidx + 1] < constants.X_IDXS[xidx]:
+      tidx += 1
+    if tidx == constants.IDX_N - 1:
+      # if the plan doesn't extend far enough, set plan_t to the max value (10s), then break
+      LINE_T_IDXS[xidx] = constants.T_IDXS[constants.IDX_N - 1]
+      break
+    # interpolate to find `t` for the current xidx
+    current_x_val = plan_x[tidx]
+    next_x_val = plan_x[tidx + 1]
+    p = (constants.X_IDXS[xidx] - current_x_val) / (next_x_val - current_x_val) if abs(
+      next_x_val - current_x_val) > 1e-9 else float('nan')
+    LINE_T_IDXS[xidx] = p * constants.T_IDXS[tidx + 1] + (1 - p) * constants.T_IDXS[tidx]
+  return LINE_T_IDXS
 
 
 class PublishState:
@@ -64,6 +91,11 @@ def fill_driving_model_data(msg: capnp._DynamicStructBuilder, modelv2_send: capn
   driving_model_data.frameIdExtra = modelV2.frameIdExtra
   driving_model_data.frameDropPerc = modelV2.frameDropPerc
   driving_model_data.modelExecutionTime = modelV2.modelExecutionTime
+  # 本树 (carrot/egpucp) 的 log.capnp 没有 `big` 字段 —— 移植过来的这行会让 modeld 每帧崩:
+  # AttributeError: capnp/schema.c++: struct has no such member; name = big。
+  # 树里也没有任何读 drivingModelData.big 的地方, 所以直接不写; 若将来真需要这个字段,
+  # 得先在 log.capnp 里给 DrivingModelData/ModelDataV2 加字段再重建 cereal。
+  # driving_model_data.big = modelV2.big
   driving_model_data.action = modelV2.action
   driving_model_data.meta.laneChangeState = modelV2.meta.laneChangeState
   driving_model_data.meta.laneChangeDirection = modelV2.meta.laneChangeDirection
@@ -96,49 +128,8 @@ def fill_model_msg(msg: capnp._DynamicStructBuilder, net_output_data: dict[str, 
   # action
   modelV2.action = action
 
-  # times at X_IDXS of edges and lines aren't used
-  # LINE_T_IDXS: list[float] = []
-
-  # times at X_IDXS according to model plan
-  LINE_T_IDXS = [np.nan] * ModelConstants.IDX_N
-  LINE_T_IDXS[0] = 0.0
-  plan_x = net_output_data['plan'][0, :, Plan.POSITION][:, 0].tolist()
-  Tmax = ModelConstants.T_IDXS[ModelConstants.IDX_N - 1]
-  for xidx in range(1, ModelConstants.IDX_N):
-    tidx = 0
-    # increment tidx until we find an element that's further away than the current xidx
-    while tidx < ModelConstants.IDX_N - 1 and plan_x[tidx + 1] < ModelConstants.X_IDXS[xidx]:
-      tidx += 1
-    if tidx == ModelConstants.IDX_N - 1:
-      for k in range(xidx, ModelConstants.IDX_N):
-        LINE_T_IDXS[k] = Tmax
-      break  
-    # interpolate to find `t` for the current xidx
-    current_x_val = plan_x[tidx]
-    next_x_val = plan_x[tidx + 1]
-
-    dx = next_x_val - current_x_val
-    if dx <= 1e-9:
-      LINE_T_IDXS[xidx] = ModelConstants.T_IDXS[tidx]
-    else:
-      p = (ModelConstants.X_IDXS[xidx] - current_x_val) / dx
-      if p < 0.0: p = 0.0                                   
-      elif p > 1.0: p = 1.0                                 
-      LINE_T_IDXS[xidx] = p * ModelConstants.T_IDXS[tidx + 1] + (1.0 - p) * ModelConstants.T_IDXS[tidx]
-
-    #p = (ModelConstants.X_IDXS[xidx] - current_x_val) / (next_x_val - current_x_val) if abs(
-    #  next_x_val - current_x_val) > 1e-9 else float('nan')
-    #LINE_T_IDXS[xidx] = p * ModelConstants.T_IDXS[tidx + 1] + (1 - p) * ModelConstants.T_IDXS[tidx]
-
-  LINE_T_IDXS = [float(Tmax if math.isnan(float(v)) else float(v)) for v in LINE_T_IDXS]
-
-  # 鍮꾨궡由?monotonic non-decreasing) 蹂댁젙 (?쒖닔 ?뚯씠?? numpy 遺덉궗??
-  running = LINE_T_IDXS[0]
-  for i in range(1, len(LINE_T_IDXS)):
-      if LINE_T_IDXS[i] < running:
-          LINE_T_IDXS[i] = running
-      else:
-          running = LINE_T_IDXS[i]
+  # times at X_IDXS of edges and lines
+  LINE_T_IDXS: list[float] = plan_x_idxs_helper(ModelConstants, Plan, net_output_data)
 
   # lane lines
   modelV2.init('laneLines', 4)
@@ -215,9 +206,24 @@ def fill_model_msg(msg: capnp._DynamicStructBuilder, net_output_data: dict[str, 
   if SEND_RAW_PRED:
     modelV2.rawPredictions = net_output_data['raw_pred'].tobytes()
 
+def get_action_from_plan(net_output_data: dict[str, np.ndarray]) -> log.ModelDataV2.Action:
+  """action 的 plan 回退路径 —— 与移植前 fill_model_msg 的语义逐位一致 (yaw_rate / max(vx, 0.01))。
+
+  只在 caller 里每帧算一次(两次取值+一次除法), 不进 TRT 引擎 → 热路径零额外开销。
+  兼容性: 本树下游没有任何地方消费 action.desiredAcceleration/shouldStop
+  (cruise.py 只用 getattr 取 desiredVelocity, 缺失即 0.0 —— 与旧行为相同),
+  所以这里只填 desiredCurvature, 与移植前的输出保持一致, 不引入新行为。
+  """
+  plan = net_output_data['plan']
+  plan_last = plan[0, -1] if plan.ndim == 3 else plan[0, 0, -1]
+  vx = float(plan_last[Plan.VELOCITY][0])
+  yaw_rate = float(plan_last[Plan.ORIENTATION_RATE][2])
+  return log.ModelDataV2.Action(desiredCurvature=yaw_rate / max(vx, 0.01))
+
+
 def fill_pose_msg(msg: capnp._DynamicStructBuilder, net_output_data: dict[str, np.ndarray],
-                  vipc_frame_id: int, vipc_dropped_frames: int, timestamp_eof: int, live_calib_seen: bool) -> None:
-  msg.valid = live_calib_seen & (vipc_dropped_frames < 1)
+                  vipc_frame_id: int, vipc_dropped_frames: int, timestamp_eof: int, extrinsics_calibration_seen: bool) -> None:
+  msg.valid = extrinsics_calibration_seen & (vipc_dropped_frames < 1)
   cameraOdometry = msg.cameraOdometry
 
   cameraOdometry.frameId = vipc_frame_id

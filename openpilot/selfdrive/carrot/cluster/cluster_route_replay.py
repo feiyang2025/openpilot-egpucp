@@ -5178,7 +5178,9 @@ def load_openpilot_log_schema() -> Any:
         raise RuntimeError("pycapnp is required to read openpilot route logs") from exc
 
     schema_dir = prepare_schema_copy()
-    _LOG_SCHEMA = capnp.load(str(schema_dir / "log.capnp"), imports=[str(schema_dir)])
+    from openpilot.common.capnp_compat import capnp_import_paths
+    _LOG_SCHEMA = capnp.load(str(schema_dir / "log.capnp"),
+                            imports=capnp_import_paths(str(schema_dir)))
     return _LOG_SCHEMA
 
 
