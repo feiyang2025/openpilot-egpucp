@@ -8,18 +8,30 @@
 动物/锥桶可扩展(锥桶需自定义模型,COCO 无;先用 person/bicycle/motorcycle/动物)。
 
 关键点:
-- 只处理低频(每 3 帧)降低 CPU(软渲染设备 YOLO 每帧很贵)
+- 推理后端:优先 TensorRT GPU(同目录 .plan,如 yolov8n-oiv7.plan),无则回退 cv2.dnn CPU
+- 只处理低频(每 3 帧)降低开销
 - 检测框底部中点 = 目标着地点 → 用 pinhole 模型换算距离
 - 只报告"足够近"的目标(< 40m),远处交给雷达/模型
 """
 from __future__ import annotations
 
 import os
+import sys
 import time
+import ctypes
 from dataclasses import dataclass
 
 import numpy as np
 import cv2
+
+# TRT 注入:venv 无 tensorrt,系统 dist-packages 有(仅当 .plan 存在时才真正使用)
+_trt = None
+try:
+  sys.path.insert(0, "/usr/lib/python3.12/dist-packages")
+  import tensorrt as trt  # noqa: E402
+  _trt = trt
+except Exception:
+  _trt = None
 
 # 目标类别:优先用名字匹配(兼容 COCO 与 OIV7)
 # COCO 索引(用于 yolov8n.onnx)
@@ -55,12 +67,83 @@ class VisionObstacle:
   bbox: tuple     # (x1,y1,x2,y2) 原图坐标
 
 
+class TrtYolo:
+  """TensorRT GPU 推理封装:加载 .plan,ctypes 调 libcuda 搬运输入输出。
+
+  输入/输出形状固定(与 trtexec 编译的 plan 一致):
+    in:  (1,3,640,640) float32
+    out: (1,605,8400) float32
+  """
+
+  def __init__(self, plan_path: str):
+    if _trt is None:
+      raise RuntimeError("tensorrt 不可用")
+    # cudart runtime API(nvgpu libcuda 只有 cu* driver API,无 cudaMalloc)
+    self._libcuda = ctypes.CDLL("/usr/local/cuda/targets/sbsa-linux/lib/libcudart.so.13")
+    self._libcuda.cudaMalloc.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_size_t]
+    self._libcuda.cudaMemcpy.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
+    self._libcuda.cudaFree.argtypes = [ctypes.c_void_p]
+
+    logger = _trt.Logger(_trt.Logger.WARNING)
+    runtime = _trt.Runtime(logger)
+    with open(plan_path, "rb") as f:
+      self.engine = runtime.deserialize_cuda_engine(f.read())
+    self.context = self.engine.create_execution_context()
+
+    # I/O 尺寸
+    in_name, out_name = "images", "output0"
+    self._in_shape = tuple(self.engine.get_tensor_shape(in_name))
+    self._out_shape = tuple(self.engine.get_tensor_shape(out_name))
+    in_bytes = int(np.prod(self._in_shape)) * 4
+    out_bytes = int(np.prod(self._out_shape)) * 4
+
+    # 设备内存
+    self._d_in = ctypes.c_void_p()
+    self._d_out = ctypes.c_void_p()
+    ret1 = self._libcuda.cudaMalloc(ctypes.byref(self._d_in), in_bytes)
+    ret2 = self._libcuda.cudaMalloc(ctypes.byref(self._d_out), out_bytes)
+    if ret1 != 0 or ret2 != 0:
+      raise RuntimeError(f"cudaMalloc failed: {ret1} {ret2}")
+    self._in_bytes = in_bytes
+    self._out_bytes = out_bytes
+    self._out = np.empty(self._out_shape, np.float32)
+
+  def infer(self, blob: np.ndarray) -> np.ndarray:
+    """blob: (1,3,640,640) float32 C-contiguous → (1,605,8400) float32。"""
+    blob = np.ascontiguousarray(blob, dtype=np.float32)
+    src_ptr = blob.ctypes.data_as(ctypes.c_void_p)
+    # H2D (kind=1)
+    self._libcuda.cudaMemcpy(self._d_in, src_ptr, self._in_bytes, 1)
+    # 同步推理
+    ok = self.context.execute_v2([int(self._d_in.value), int(self._d_out.value)])
+    if not ok:
+      raise RuntimeError("TRT execute_v2 failed")
+    # D2H (kind=2)
+    self._libcuda.cudaMemcpy(self._out.ctypes.data_as(ctypes.c_void_p), self._d_out, self._out_bytes, 2)
+    return self._out
+
+  def close(self):
+    self._libcuda.cudaFree(self._d_in)
+    self._libcuda.cudaFree(self._d_out)
+
+
 class VisionObstacleDetector:
-  """YOLOv8n 小目标检测 → 虚拟障碍。"""
+  """YOLOv8n 小目标检测 → 虚拟障碍。推理优先 TRT GPU,回退 cv2.dnn CPU。"""
 
   def __init__(self, model_path: str = "/home/nvidia/yolov8n.onnx"):
     self.model_path = model_path
-    self.net = cv2.dnn.readNetFromONNX(model_path)
+    self.net = None
+    self._trt = None
+    # TRT plan 优先(同目录同名前缀 .plan)
+    plan_path = os.path.splitext(model_path)[0] + ".plan"
+    if os.path.exists(plan_path):
+      try:
+        self._trt = TrtYolo(plan_path)
+      except Exception as e:
+        print(f"[obstacle_vision] TRT init failed, fallback cv2.dnn: {e}")
+        self._trt = None
+    if self._trt is None:
+      self.net = cv2.dnn.readNetFromONNX(model_path)
     self._frame_count = 0
     self._oiv7 = "oiv7" in model_path or "oiv" in model_path
     # 建立 名字→索引 映射(检测时用名字判断是否关注)
@@ -94,10 +177,13 @@ class VisionObstacleDetector:
     dx, dy = (640 - nw) // 2, (640 - nh) // 2
     canvas[dy:dy + nh, dx:dx + nw] = resized
     blob = cv2.dnn.blobFromImage(canvas, 1 / 255.0, (640, 640), swapRB=True, crop=False)
-    self.net.setInput(blob)
     t0 = time.time()
     try:
-      outs = self.net.forward()
+      if self._trt is not None:
+        outs = self._trt.infer(blob)
+      else:
+        self.net.setInput(blob)
+        outs = self.net.forward()
     except Exception:
       return []
     infer_ms = (time.time() - t0) * 1000

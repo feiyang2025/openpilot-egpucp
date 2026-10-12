@@ -29,9 +29,9 @@ fi
 
 # UI: 1920x1200 monitor -> big-UI canvas (2160x1080) scaled to fit (0.889)
 export BIG="1"
-export SCALE="0.889"
-export UI_WIDTH="2160"
-export UI_HEIGHT="1080"
+export SCALE="1.0"
+export UI_WIDTH="1920"
+export UI_HEIGHT="1048"
 # gdm 用 -displayfd 启动 Xorg,重启后 display 号会漂移(:0/:1/:2...)。
 # 动态检测真实 Xorg socket(排除 X99=Xvfb 虚拟屏),避免 UI 连不上 X。
 _OP_DISPLAY=""
@@ -51,12 +51,10 @@ if [ -r /run/user/1000/gdm/Xauthority ]; then
   export XAUTHORITY=/run/user/1000/gdm/Xauthority
 fi
 
-# Jetson Xorg uses NVIDIA GLX. Pin GLVND/raylib to that hardware backend so a
-# UI started while the monitor is reconnecting cannot retain Mesa llvmpipe.
-if [ "$(uname -m)" = "aarch64" ] && [ ! -e /TICI ]; then
-  export RAYLIB_BACKEND="desktop"
-  export __GLX_VENDOR_LIBRARY_NAME="nvidia"
-fi
+# T906G desktop Xorg currently uses the modesetting provider. Do not force
+# a vendor-specific GLX library here: that causes GLXBadFBConfig on this panel.
+unset __GLX_VENDOR_LIBRARY_NAME
+export RAYLIB_BACKEND="desktop"
 #!/usr/bin/env bash
 # Jetson dev/sim mode: the Qualcomm-only camerad (spectra.cc) asserts on this
 # platform, so block it and use the Python webcamerad instead; fake panda
