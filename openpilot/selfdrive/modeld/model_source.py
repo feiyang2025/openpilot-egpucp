@@ -47,6 +47,46 @@ OPTIONAL_MODELS = (
   },
 )
 
+# Big 1.8G driving models that are NOT in the remote catalog
+# (op.gitop.vip:/egpu/models/catalog.json). They are served from the user's
+# Synology mirror (shind0) and the sunnypilot GitHub LFS. The web model manager
+# (models.html) merges this built-in catalog with the remote one, so a new model
+# needs only one entry here to become selectable and downloadable anywhere.
+BUILTIN_MODELS = (
+  {
+    "label": "TT (1.8G)",
+    "model_id": "comma-pr38652-tt-driving-82fa8e95-62345fa8",
+    "filename": "big_driving_supercombo.onnx",
+    "size": 1_757_103_461,
+    "sha256": "62345fa8406e318599cb62a8dccc3eb4f7e4cd6750638f2dcf7075c42798cf34",
+    "url": "https://upload.shind0.synology.me/models/comma4-big/big_driving_supercombo.onnx",
+  },
+  {
+    "label": "HBM (1.8G)",
+    "model_id": "comma-happy-birthday-db06f5f-ae90227c",
+    "filename": "big_driving_supercombo.onnx",
+    "size": 1_757_855_836,
+    "sha256": "ae90227c1ba51d325a006e95c7c231c988198864a7b59fd1b62b2cc485d176f3",
+    "url": "https://upload.shind0.synology.me/models/comma4-big-hb/big_driving_supercombo.onnx",
+  },
+  {
+    "label": "LM (1.8G)",
+    "model_id": "comma-lebowski-1-8g-a501760a",
+    "filename": "big_driving_supercombo.onnx",
+    "size": 1_757_355_221,
+    "sha256": "a501760a9d1d5fef0eab2b8c5d122d06124fc26dc8e0782e0aa94b82a208f0ff",
+    "url": "https://raw.githubusercontent.com/sunnypilot/sunnypilot/fa0c6876d3cf070e91e25e5353ceadc68a5b3285/openpilot/selfdrive/modeld/models/big_driving_supercombo.onnx",
+  },
+  {
+    "label": "BRH (1.8G)",
+    "model_id": "comma-brh-1-8g-10926f2c",
+    "filename": "big_driving_supercombo.onnx",
+    "size": 1_753_235_978,
+    "sha256": "10926f2c0911821ca0e72439c1c3bf3ec11f0a08789aa14b7ee8f25379b2afa4",
+    "url": "https://raw.githubusercontent.com/sunnypilot/sunnypilot/bf74ce544/openpilot/selfdrive/modeld/models/big_driving_supercombo.onnx",
+  },
+)
+
 # Schemes the model server may use. Upstream insists on https; this fork's mirror is
 # plain http on a LAN, and integrity comes from the mandatory sha256 checks instead.
 MODEL_SCHEMES = ("http", "https")
@@ -66,6 +106,23 @@ def optional_manifests() -> list:
       out.append(manifest_from_dict(meta))
     except Exception:
       continue
+  return out
+
+
+def builtin_manifests() -> list:
+  """Validated dicts for BUILTIN_MODELS (big 1.8G models); bad entries skipped.
+
+  Returns plain dicts (not manifests) so the caller keeps the 'label' field;
+  used by the web model manager so the big models are listed and selectable even
+  when the remote catalog does not know them.
+  """
+  out = []
+  for meta in BUILTIN_MODELS:
+    try:
+      manifest_from_dict(meta)  # validate
+    except Exception:
+      continue
+    out.append(dict(meta))
   return out
 
 
