@@ -194,6 +194,14 @@ def main():
   }, args.url)
   catalog_register(m, selected=True)
   print(f"models.json registered -> {args.model_id}")
+
+  # sync status.json so the web tools page shows this model as ready instead of
+  # "checking" forever (status.sha256 must match the active manifest)
+  from openpilot.selfdrive.modeld.big_model_status import write_big_model_status
+  write_big_model_status(CACHE_DIR, "compiled", model_id=args.model_id,
+                         sha256=args.sha256, downloaded_bytes=args.size,
+                         total_bytes=args.size, detail="compiled via TRT plan")
+  print(f"status.json synced -> {args.model_id} (compiled)")
   print("next: Params().remove('UsbGpuStartupFailed'); pkill -f '[s]elfdrive.modeld.modeld'")
 
 
