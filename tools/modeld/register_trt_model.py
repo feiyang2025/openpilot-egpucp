@@ -184,6 +184,16 @@ def main():
   }
   (CACHE_DIR / "state.json").write_text(json.dumps(state, indent=2) + "\n")
   print(f"state.json active -> {args.model_id}")
+
+  # register in the model_catalog index so the web UI (models.html) lists it
+  from openpilot.selfdrive.modeld.big_model import BigModelManifest
+  from openpilot.selfdrive.modeld.model_catalog import register as catalog_register
+  m = BigModelManifest.from_dict({
+    "model_id": args.model_id, "filename": "big_driving_supercombo.onnx",
+    "size": args.size, "sha256": args.sha256, "url": args.url,
+  }, args.url)
+  catalog_register(m, selected=True)
+  print(f"models.json registered -> {args.model_id}")
   print("next: Params().remove('UsbGpuStartupFailed'); pkill -f '[s]elfdrive.modeld.modeld'")
 
 
