@@ -210,4 +210,9 @@ procs = [
   PythonProcess("beep", "openpilot.selfdrive.controls.beep", c3x_lite, enabled=TICI),
 ]
 
+
+# CH347 USB-I2C IMU (AGX Orin). Builds on first run; exits cleanly if no device.
+procs += [NativeProcess("sensord_ch347", "openpilot/system/sensord",
+              ["bash", "run_ch347t.sh"],
+              always_run, enabled=PC, sigkill=False)]
 managed_processes = {p.name: p for p in procs}
