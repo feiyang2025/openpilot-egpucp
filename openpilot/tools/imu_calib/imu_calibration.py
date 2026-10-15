@@ -80,7 +80,7 @@ def main():
         "imuCalibMatrix": imu_calib_matrix,
         "gravity": args.g,
         "note": "backend: accel_ms2 = imuCalibMatrix @ (raw_mps2 - gravity * imuBiasAccel); "
-                "gyro_rad = (raw_dps - imuBiasGyro) * pi/180",
+                + "gyro_rad = (raw_dps - imuBiasGyro) * pi/180",
     }
 
     print(json.dumps(result, indent=2))

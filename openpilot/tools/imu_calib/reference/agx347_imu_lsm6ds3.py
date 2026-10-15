@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 CH347 (Mode 2 / HID) + LSM6DS3 - I2C scan & IMU data reader
 For NVIDIA AGX Orin (Linux aarch64)
@@ -16,7 +15,6 @@ import ctypes
 import sys
 import os
 import time
-import math
 import glob
 import argparse
 
@@ -33,7 +31,7 @@ def load_lib():
     for p in candidates:
         if os.path.exists(p):
             return ctypes.CDLL(p)
-    sys.exit("ERROR: libch347.so not found (looked in: %s)" % ", ".join(candidates))
+    sys.exit(f"ERROR: libch347.so not found (looked in: {', '.join(candidates)})")
 
 
 lib = load_lib()
@@ -68,7 +66,7 @@ def find_ch347_hidraw():
                     return dev, uevent
                 if fallback is None:
                     fallback = (dev, uevent)
-        except IOError:
+        except OSError:
             continue
     return fallback
 
@@ -113,8 +111,8 @@ GYRO_SENS = 245.0 / 32768  # 245dps
 def imu_init():
     who = read_reg(IMU_ADDR, 0x0F, 1)
     if not who or who[0] != 0x69:
-        print("WHO_AM_I read failed or wrong chip: %s" %
-              ("0x%02X" % who[0] if who else "None"))
+        print("WHO_AM_I read failed or wrong chip: "
+              + (f"0x{who[0]:02X}" if who else "None"))
         sys.exit(1)
     print("LSM6DS3 found (WHO_AM_I=0x69)")
 
@@ -147,13 +145,13 @@ def main():
     dev, uevent = find_ch347_hidraw()
     if not dev:
         sys.exit("CH347 (VID:PID 1A86:55DC) hidraw device not found.\n"
-                 "Check: dip switch S1=OFF S2=ON (Mode 2), ls /dev/hidraw*")
-    print("CH347 device: %s" % dev)
+                 + "Check: dip switch S1=OFF S2=ON (Mode 2), ls /dev/hidraw*")
+    print(f"CH347 device: {dev}")
 
     fd = lib.CH347OpenDevice(dev.encode())
     if fd < 0:
         sys.exit("CH347OpenDevice failed (try sudo, or check udev rules)")
-    print("opened, fd=%d" % fd)
+    print(f"opened, fd={fd}")
 
     if not lib.CH347I2C_Set(fd, 1):  # 100kHz
         sys.exit("CH347I2C_Set failed")
@@ -170,25 +168,23 @@ def main():
                     t = read_reg(a, 0x0F, 1)
                     if t:
                         found.append(a)
-                        print("  0x%02X  WHO_AM_I=0x%02X" % (a, t[0]))
+                        print(f"  0x{a:02X}  WHO_AM_I=0x{t[0]:02X}")
             print("found:", [hex(a) for a in found])
         else:
             imu_init()
             print("\nStreaming (Ctrl+C to stop)")
-            print("%6s | %7s %7s %7s | %8s %8s %8s" %
-                  ("n", "aX g", "aY g", "aZ g", "gX dps", "gY dps", "gZ dps"))
+            print(f"{'n':>6} | {'aX g':>7} {'aY g':>7} {'aZ g':>7} | {'gX dps':>8} {'gY dps':>8} {'gZ dps':>8}")
             n = 0
             t0 = time.monotonic()
             while True:
                 ax, ay, az, gx, gy, gz = imu_read()
                 n += 1
-                print("%6d | %7.3f %7.3f %7.3f | %8.1f %8.1f %8.1f" %
-                      (n, ax, ay, az, gx, gy, gz))
+                print(f"{n:6d} | {ax:7.3f} {ay:7.3f} {az:7.3f} | {gx:8.1f} {gy:8.1f} {gz:8.1f}")
                 if n % 50 == 0:
-                    print("      --- %.0f Hz ---" % (n / (time.monotonic() - t0)))
+                    print(f"      --- {n / (time.monotonic() - t0):.0f} Hz ---")
                 time.sleep(1.0 / args.rate)
     except KeyboardInterrupt:
-        print("\nstopped, %.0f samples" % n)
+        print(f"\nstopped, {n:.0f} samples")
     finally:
         lib.CH347CloseDevice(fd)
 

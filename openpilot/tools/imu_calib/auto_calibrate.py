@@ -33,7 +33,7 @@ import time
 
 import numpy as np
 
-from imu_calibration import accel_ellipsoid, gyro_bias, stationary_mask
+from imu_calibration import accel_ellipsoid
 
 # libch347.so 每个 I2C 事务都往 stdout printf 调试行（mLength: ..），
 # 会把交互提示淹没 —— 把 fd 1 重定向到 /dev/null 压掉库输出，
@@ -121,7 +121,7 @@ class CH347LSM6:
         wbuf = (ctypes.c_ubyte * len(wb))(*wb)
         rbuf = (ctypes.c_ubyte * rlen)()
         # USB-HID 桥偶发单次事务失败（实测出现过），短重试后再抛
-        for attempt in range(retries):
+        for _ in range(retries):
             # 统一用两库都有的 CH347StreamI2C（RetAck 变体仅部分库导出，不强求）
             if self.lib.CH347StreamI2C(self.fd, len(wb), wbuf, rlen, rbuf):
                 return bytes(rbuf)
@@ -130,7 +130,7 @@ class CH347LSM6:
 
     def _stream_write(self, wb, retries=3):
         wbuf = (ctypes.c_ubyte * len(wb))(*wb)
-        for attempt in range(retries):
+        for _ in range(retries):
             if self.lib.CH347StreamI2C(self.fd, len(wb), wbuf, 0, None):
                 return
             time.sleep(0.02)
@@ -147,9 +147,9 @@ class CH347LSM6:
         if not dev:
             raise RuntimeError(
                 "CH347T hidraw 未找到（VID:PID 1a86:55dc）。\n"
-                "  - 检查 USB 连接（需经 USB hub 到 CH347T 开发板）\n"
-                "  - 检查拨码开关 Mode2（S1=OFF, S2=ON）\n"
-                "  - 重新插拔后运行: lsusb | grep 1a86")
+                + "  - 检查 USB 连接（需经 USB hub 到 CH347T 开发板）\n"
+                + "  - 检查拨码开关 Mode2（S1=OFF, S2=ON）\n"
+                + "  - 重新插拔后运行: lsusb | grep 1a86")
         self.dev_path = dev
         m = re.match(r"/dev/hidraw(\d+)", dev)
         hidraw_n = int(m.group(1)) if m else -1
@@ -297,7 +297,7 @@ def _collect_pose_once(imu, secs, label, try_no):
     n = len(arr)
     a_norm = np.linalg.norm(arr[:, 3:6], axis=1).mean()
     print(f"    采集 {n} 样本 | accel 模长均值 {a_norm:.3f} g | gyro 均值 "
-          f"[{arr[:,0].mean():+.3f} {arr[:,1].mean():+.3f} {arr[:,2].mean():+.3f}] °/s")
+          + f"[{arr[:,0].mean():+.3f} {arr[:,1].mean():+.3f} {arr[:,2].mean():+.3f}] °/s")
     return arr
 
 
@@ -381,7 +381,7 @@ def main():
         "imuCalibMatrix": [round(float(x), 6) for x in M.flatten()],
         "gravity": 9.81,
         "note": "backend: accel_ms2 = imuCalibMatrix @ (raw_mps2 - gravity * imuBiasAccel); "
-                "gyro_rad = (raw_dps - imuBiasGyro) * pi/180",
+                + "gyro_rad = (raw_dps - imuBiasGyro) * pi/180",
         "samples": int(len(data)),
         "poses": args.poses,
     }

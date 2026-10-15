@@ -148,7 +148,8 @@ class LSM6DS3_IMU:
             who = self.t.read_reg(0x0F, 1)
             if not who or who[0] != 0x69:
                 raise RuntimeError("LSM6DS3 WHO_AM_I != 0x69")
-        self.t.write_reg(0x12, 0x01); time.sleep(0.1)   # soft reset
+        self.t.write_reg(0x12, 0x01)   # soft reset
+        time.sleep(0.1)
         self.t.write_reg(0x10, 0x60)                    # CTRL1_XL: 416Hz, +-2g
         self.t.write_reg(0x11, 0x60)                    # CTRL2_G : 416Hz, 245dps
         self.t.write_reg(0x12, 0x44)                    # CTRL3_C : BDU + 地址自增

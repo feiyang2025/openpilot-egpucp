@@ -22,7 +22,7 @@ def get_ch347_lib_path():
     if machine in ("x86_64", "amd64"):
         arch_dir = "x64"
     elif machine.startswith("arm"):
-        if machine.endswith("v7l") or machine.endswith("hf"):
+        if machine.endswith(("v7l", "hf")):
             arch_dir = "arm-gnueabihf"
         else:
             arch_dir = "arm-gnueabi"
@@ -253,7 +253,7 @@ def ch347_loop(dev_path: str, lib_path: str, event: threading.Event) -> None:
         calib = load_calibration()
         gyro_bias_rad = [v * DEG_TO_RAD for v in calib["gyro_bias_dps"]]
         cloudlog.info(f"IMU: calibration loaded gyro_bias_dps={calib['gyro_bias_dps']} "
-                      f"accel_bias_g={calib['accel_bias_g']}")
+                      + f"accel_bias_g={calib['accel_bias_g']}")
 
         while not event.is_set():
             status = sensor.read_u8(0x1E)
