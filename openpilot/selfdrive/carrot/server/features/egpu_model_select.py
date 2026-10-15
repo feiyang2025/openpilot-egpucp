@@ -25,7 +25,7 @@ from aiohttp import web
 
 from openpilot.selfdrive.modeld import chunked_model, model_catalog
 from openpilot.selfdrive.modeld.big_model import active_manifest, model_cache_dir
-from openpilot.selfdrive.modeld.model_source import MODEL_BASE
+from openpilot.selfdrive.modeld.model_source import MODEL_BASE, builtin_manifests
 
 from ..services.params import HAS_PARAMS, Params
 
@@ -137,6 +137,20 @@ def build_models_payload() -> dict[str, Any]:
                          entry.get('url'), downloaded=bool(known.get('downloaded')),
                          selected=sha == selected, is_active=sha == active))
 
+  # Built-in big 1.8G models (shind0 mirror / sunnypilot LFS) that the remote
+  # catalog may not know. Merged the same way, so a fresh device still sees them
+  # and can download them directly.
+  for entry in builtin_manifests():
+    if not isinstance(entry, dict):
+      continue
+    sha = entry.get('sha256')
+    if not isinstance(sha, str) or len(sha) != 64:
+      continue
+    known = by_sha.pop(sha, {})
+    models.append(_entry(entry.get('label'), entry.get('model_id'), sha, entry.get('size'),
+                         entry.get('url'), downloaded=bool(known.get('downloaded')),
+                         selected=sha == selected, is_active=sha == active))
+
   # Anything on disk that the server no longer lists still has to be switchable.
   for sha, known in by_sha.items():
     models.append(_entry(None, known.get('model_id'), sha, known.get('size'), known.get('url'),
@@ -180,6 +194,13 @@ async def api_select(request: web.Request) -> web.Response:
     if isinstance(entry, dict) and entry.get('sha256') == sha:
       model_catalog.register_remote(entry)
       break
+  else:
+    # Built-in big models (shind0/LFS) are not in the remote catalog; register
+    # them the same way so they can be picked on a device that has no entry yet.
+    for entry in builtin_manifests():
+      if isinstance(entry, dict) and entry.get('sha256') == sha:
+        model_catalog.register_remote(entry)
+        break
 
   if not model_catalog.select(sha):
     return web.json_response({'ok': False, 'error': 'unknown model'}, status=404)

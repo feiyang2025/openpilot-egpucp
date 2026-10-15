@@ -29,6 +29,7 @@ from openpilot.selfdrive.modeld.fill_model_msg import fill_model_msg, fill_drivi
 from openpilot.common.file_chunker import open_file_chunked
 from openpilot.selfdrive.modeld.constants import ModelConstants, Plan
 from openpilot.selfdrive.modeld.helpers import (get_tg_input_devices, load_oob, modeld_pkl_path,
+                                        active_manifest, MODELS_DIR,
                                                 refresh_usbgpu_device_cache, select_vision_streams, usbgpu_compiled_path,
                                                 usbgpu_pcie_not_ready, usbgpu_present, wait_for_usbgpu_present)
 from openpilot.selfdrive.modeld.camera_calibration import CalibrationCache, compose_camera_euler
@@ -199,8 +200,22 @@ class ModelState:
     self.trt_policy = None
     _trt_engine = os.getenv('MODEL_TRT_ENGINE')
     if not _trt_engine and os.getenv('MODEL_TRT_DISABLE') != '1':
-      _default_trt_engine = '/data/openpilot/openpilot/selfdrive/modeld/models/big_driving_fp16.plan'
-      if os.path.isfile(_default_trt_engine):
+      # TRT engine follows the active model: big_driving_<sha16>.plan wins,
+      # falling back to the legacy fp16 plan for the pinned chunked model.
+      _default_trt_engine = None
+      try:
+        _active = active_manifest()
+        if _active is not None:
+          _cand = MODELS_DIR / f'big_driving_{_active.sha256[:16]}.plan'
+          if _cand.is_file():
+            _default_trt_engine = str(_cand)
+      except Exception:
+        _default_trt_engine = None
+      if _default_trt_engine is None:
+        _legacy = '/data/openpilot/openpilot/selfdrive/modeld/models/big_driving_fp16.plan'
+        if os.path.isfile(_legacy):
+          _default_trt_engine = _legacy
+      if _default_trt_engine is not None:
         _trt_engine = _default_trt_engine
     if _trt_engine and self.usbgpu:
       self.trt_policy = TensorRTPolicyRunner(_trt_engine, self.input_shapes, self.frame_skip)
