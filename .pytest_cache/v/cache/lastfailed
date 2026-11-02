@@ -1,0 +1,4 @@
+{
+  "openpilot/selfdrive/modeld/tests/test_egpu_patches.py::test_power_limit_file_governs_only_the_precompiled_worker": true,
+  "openpilot/selfdrive/modeld/tests/test_egpu_patches.py::test_sitecustomize_applies_the_patches_in_a_new_process": true
+}

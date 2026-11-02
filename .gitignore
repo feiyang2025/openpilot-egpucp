@@ -1,0 +1,7 @@
+openpilot/selfdrive/modeld/models/*.onnx
+openpilot/selfdrive/modeld/models/big_driving_*
+openpilot/selfdrive/modeld/models/.big_model_build_stamp
+openpilot/selfdrive/carrot/amapnavi/nav_params.json
+openpilot/selfdrive/carrot/amapnavi/nav_params.json/
+openpilot/selfdrive/carrot/xiaoge/v_asm_config.json
+openpilot/selfdrive/carrot/xiaoge/v_asm_config.json/
