@@ -187,6 +187,16 @@ async def api_library(request: web.Request) -> web.Response:
     if action != 'select' or not isinstance(key, str) or key not in catalog.available():
       raise ValueError('unknown model action')
     await asyncio.to_thread(catalog.select, key)
+    # Keep the eGPU picker's index in step: its "selected" badge and its reboot
+    # banner read that field, so a pick made here otherwise left the other page
+    # claiming a different model was waiting for a restart.
+    try:
+      sha = catalog.catalog()[key]['egpu']['sha256']
+    except (KeyError, TypeError):
+      sha = None
+    if isinstance(sha, str):
+      from openpilot.selfdrive.modeld import model_catalog
+      await asyncio.to_thread(model_catalog.select, sha)
     return web.json_response({'ok': True, 'library': await asyncio.to_thread(library.status)})
   except (ValueError, OSError) as exc:
     return web.json_response({'ok': False, 'error': str(exc)}, status=409)
