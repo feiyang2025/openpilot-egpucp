@@ -484,7 +484,7 @@
         var paramConfig = {
             "EnableCruiseStateShow": {
                 chineseName: "显示巡航小蓝灯(1)",
-                defaultValue: 1,
+                defaultValue: 0,
                 description: "0:不显示,1:显示",
                 inputRange: [0, 1],
                 uiType: "select",
@@ -712,42 +712,6 @@
                 ],
                 category: "原车前侧盲区"
             },
-            "StockFrontLatMin": {
-                chineseName: "横向下限(x0.1m)",
-                defaultValue: 12,
-                description: "横向偏移小于该值视为还在本车道（前车），不算前侧盲区；实际取该值与半个车道宽的较大者",
-                inputRange: [0, 30],
-                step: 1,
-                uiType: "number",
-                category: "原车前侧盲区"
-            },
-            "StockFrontLatMax": {
-                chineseName: "横向上限硬顶(x0.1m)",
-                defaultValue: 50,
-                description: "横向偏移的绝对上限，防止把远处车道的车算进来",
-                inputRange: [20, 100],
-                step: 1,
-                uiType: "number",
-                category: "原车前侧盲区"
-            },
-            "StockFrontLatLaneFactor": {
-                chineseName: "横向上限倍数(x0.1倍车道宽)",
-                defaultValue: 18,
-                description: "横向上限 = 该倍数 x 车道宽（1.8=只认相邻车道），与上面的硬顶取较小者",
-                inputRange: [10, 30],
-                step: 1,
-                uiType: "number",
-                category: "原车前侧盲区"
-            },
-            "StockFrontDrelMin": {
-                chineseName: "纵向窗口-身后(x0.1m)",
-                defaultValue: -200,
-                description: "负值表示在本车身后多少米以内才纳入判断（如 -200 = 身后20米）",
-                inputRange: [-500, 0],
-                step: 10,
-                uiType: "number",
-                category: "原车前侧盲区"
-            },
             "StockFrontDrelMax": {
                 chineseName: "纵向窗口-前方(x0.1m)",
                 defaultValue: 800,
@@ -759,9 +723,9 @@
             },
             "StockFrontTimeHeadway": {
                 chineseName: "安全时距(x0.1s)",
-                defaultValue: 15,
-                description: "安全纵向间距 = 本车速度 x 该时距，越大越保守",
-                inputRange: [5, 40],
+                defaultValue: 0,
+                description: "安全纵向间距 = 本车速度 x 该时距，越大越保守；设为 0 = 不启用时距，只用下面的「绝对最小间距」判定",
+                inputRange: [0, 40],
                 step: 1,
                 uiType: "number",
                 category: "原车前侧盲区"
@@ -778,7 +742,7 @@
             "StockFrontTtc": {
                 chineseName: "危险TTC(x0.1s)",
                 defaultValue: 25,
-                description: "目标正在接近时，碰撞时间低于该值判定为危险（含后方快速追上来的目标）。只走 TTC 判据，与「预测窗口」无关。越大越保守",
+                description: "正在接近目标时，碰撞时间低于该值判定为危险；越大越保守",
                 inputRange: [10, 60],
                 step: 1,
                 uiType: "number",
@@ -787,7 +751,7 @@
             "StockFrontHorizon": {
                 chineseName: "预测窗口(x0.1s)",
                 defaultValue: 30,
-                description: "把目标的纵向相对位置按相对速度线性外推到该时长，取窗口内的最小间距作为间距判据；若期间会与目标并肩通过（相对位置变号），间距按 0 算。越大越早判定「会追上去/会擦身」，只影响间距判据，不影响「危险TTC」。默认 30=3.0s，建议覆盖一次完整变道（约3s）",
+                description: "把目标位置按相对速度外推到该时长，取窗口内的最小间距判定；越大越早发现接近",
                 inputRange: [10, 80],
                 step: 1,
                 uiType: "number",

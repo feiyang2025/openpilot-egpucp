@@ -18,13 +18,24 @@
 
 判据（单侧）::
 
-  1) 雷达目标有效（status）
-  2) 横向：出本车道、且在 ~1.8 倍车道宽以内 → 只认相邻车道
-  3) 纵向：dRel 落在 [-后向, +前向] 窗口内
-  4) 风险（满足其一）：
-       * 预测窗口内的最小纵向间距 < 安全间距(max(v_ego*时距, 最小间距))
-       * TTC < 阈值（前方目标被追上 / 后方目标追上来）
-  5) 去抖：连续 risky 达 on_time 才置位，连续不 risky 达 off_time 才清除
+  1) 雷达目标有效（present）
+  2) 纵向：0 < dRel <= 前向窗口（原车前雷达只可能报前方目标）
+  3) 风险（满足其一）：
+       * 预测窗口后的剩余间距 < 安全间距(max(v_ego*时距, 最小间距))
+       * 当前间距 < 安全间距
+       * TTC < 阈值
+  4) 去抖：连续 risky 达 on_time 才置位，连续不 risky 达 off_time 才清除
+
+**横向不再判定**：``radarState.leadLeft/leadRight`` 由
+``selfdrive/controls/lib/side_leads.py`` 产出，那里已经用 ``dPath``（雷达点到
+**模型预测路径**的法向距离）把本车道目标（``|dPath| < 1.8``）和再外侧目标
+（``|dPath| >= 3.5``）都滤掉了，并且提前做了 ``dRel > 5.0`` 的近距过滤。
+
+所以这里既不需要按车道宽再判一次横向，也不需要"身后"窗口：
+原先的 ``lat_min/lat_max/lat_lane_factor`` 门槛比 upstream 宽，
+直路上永远不会触发（上游保证 ``|dPath| ∈ [1.8, 3.5)``，而门槛是
+``[1.75, 5.0]``）；而 ``drel_min = -20m`` 更是不可能命中，因为上游已经
+保证 ``dRel > 5.0``。
 
 参数全部走 amapnavi 自己的参数模块（``config.py`` 的 ``UnifiedParams``），
 不往 openpilot 的 ``params_keys.h`` 里加东西。
@@ -37,21 +48,18 @@ from openpilot.selfdrive.carrot.amapnavi.config import unified_params
 # 单位换算：参数以 0.1 为单位存储（与 amapnavi 其它参数一致）
 _SCALE = 0.1
 
-DEFAULT_LANE_WIDTH_M = 3.5
-
-
 @dataclass
 class StockFrontBlindConfig:
-  """原车前侧盲区的判据参数。"""
+  """原车前侧盲区的判据参数。
+
+  横向筛选不在这里：``side_leads`` 已经用 dPath 把范围限定在 [1.8, 3.5) m
+  并把 dRel <= 5.0 的目标滤掉了，这里只负责纵向窗口与风险评估。
+  """
 
   enable: bool = True
-  lat_min_m: float = 1.2          # 横向下限（小于此值视为本车道内）
-  lat_max_m: float = 5.0          # 横向上限（硬上限）
-  lat_lane_factor: float = 1.8    # 横向上限 = factor * 车道宽
-  drel_min_m: float = -20.0       # 纵向窗口：后向（负=在身后）
-  drel_max_m: float = 80.0        # 纵向窗口：前向
-  time_headway_s: float = 1.5     # 安全时距
-  min_clearance_m: float = 4.0    # 绝对最小纵向间距
+  drel_max_m: float = 80.0        # 纵向窗口：前向（上游已保证 dRel > 5.0）
+  time_headway_s: float = 0.0     # 安全时距（0 = 不启用，danger 退化为 min_clearance）
+  min_clearance_m: float = 4.0    # 绝对最小纵向间距（时距算出的下限兜底）
   ttc_threshold_s: float = 2.5    # TTC 阈值
   horizon_s: float = 3.0          # 预测窗口（一次完整变道）
   on_time_s: float = 0.3          # 置位需要持续 risky 的时间
@@ -68,12 +76,8 @@ class StockFrontBlindConfig:
 
     return cls(
       enable=bool(i("StockFrontBlindEnable", 1)),
-      lat_min_m=max(0.0, i("StockFrontLatMin", 12) * _SCALE),
-      lat_max_m=max(0.1, i("StockFrontLatMax", 50) * _SCALE),
-      lat_lane_factor=max(1.0, i("StockFrontLatLaneFactor", 18) * _SCALE),
-      drel_min_m=float(i("StockFrontDrelMin", -200) * _SCALE),
       drel_max_m=float(i("StockFrontDrelMax", 800) * _SCALE),
-      time_headway_s=max(0.1, i("StockFrontTimeHeadway", 15) * _SCALE),
+      time_headway_s=max(0.0, i("StockFrontTimeHeadway", 0) * _SCALE),
       min_clearance_m=max(0.5, i("StockFrontMinClearance", 40) * _SCALE),
       ttc_threshold_s=max(0.1, i("StockFrontTtc", 25) * _SCALE),
       horizon_s=max(0.5, i("StockFrontHorizon", 30) * _SCALE),
@@ -116,27 +120,32 @@ def lateral_offset(lead) -> float:
   return float(getattr(lead, "yRel", 0.0) or 0.0)
 
 
-def evaluate_side(lead, v_ego_mps: float, lane_width_m: float,
-                  cfg: StockFrontBlindConfig) -> SideDecision:
-  """评估单侧原车前雷达目标是否构成「前侧盲区」。"""
-  if lead is None or not bool(getattr(lead, "status", False)):
+def _lead_present(lead) -> bool:
+  """LeadData 里到底有没有目标。
+
+  上游 capnp 的字段名是 ``present``；carrot 原版代码写的是 ``status``（旧字段名），
+  直接照搬过来会永远取到 False —— 表现为"前侧盲区从来没触发过"。两个都兼容。
+  """
+  if lead is None:
+    return False
+  return bool(getattr(lead, "present", False) or getattr(lead, "status", False))
+
+
+def evaluate_side(lead, v_ego_mps: float, cfg: StockFrontBlindConfig) -> SideDecision:
+  """评估单侧原车前雷达目标是否构成「前侧盲区」。
+
+  横向筛选已由 ``side_leads`` 完成（``|dPath| ∈ [1.8, 3.5)``、``dRel > 5.0``），
+  这里不再重复判定，只做纵向窗口与风险评估。
+  """
+  if lead is None or not _lead_present(lead):
     return SideDecision(reason="no_target")
 
   drel = float(getattr(lead, "dRel", 0.0) or 0.0)
   vrel = float(getattr(lead, "vRel", 0.0) or 0.0)
-  lat = abs(lateral_offset(lead))
+  lat = abs(lateral_offset(lead))            # 仅用于诊断，不参与判定
 
-  # ---- 横向门限：必须出了本车道、且没有远到第二条车道之外 ----
-  lane_width = lane_width_m if lane_width_m and lane_width_m > 0.5 else DEFAULT_LANE_WIDTH_M
-  lat_min = max(cfg.lat_min_m, lane_width * 0.5)
-  lat_max = min(cfg.lat_max_m, lane_width * cfg.lat_lane_factor)
-  if lat < lat_min:
-    return SideDecision(raw=False, lateral_m=lat, drel_m=drel, vrel_mps=vrel, reason="same_lane")
-  if lat > lat_max:
-    return SideDecision(raw=False, lateral_m=lat, drel_m=drel, vrel_mps=vrel, reason="far_lane")
-
-  # ---- 纵向窗口 ----
-  if drel < cfg.drel_min_m or drel > cfg.drel_max_m:
+  # ---- 纵向窗口：原车前雷达只可能探测到前方目标 ----
+  if drel <= 0.0 or drel > cfg.drel_max_m:
     return SideDecision(raw=False, lateral_m=lat, drel_m=drel, vrel_mps=vrel, reason="out_of_range")
 
   # ---- 风险：预测窗口内的最小间距 + TTC ----
@@ -145,16 +154,26 @@ def evaluate_side(lead, v_ego_mps: float, lane_width_m: float,
     clearance = 0.0
   else:
     clearance = min(abs(drel), abs(d_end))
+  # 安全间距：时距为主、绝对距离兜底。time_headway_s = 0 表示不启用时距，
+  # 此时 safe 恒等于 min_clearance_m（纯绝对距离判据）。
   safe = max(v_ego_mps * cfg.time_headway_s, cfg.min_clearance_m)
 
   ttc = None
-  if vrel < 0 and drel > 0:                  # 前方目标在被追上
+  if vrel < 0.0:                             # 正在被追上（drel 已保证 > 0）
     ttc = drel / -vrel
-  elif vrel > 0 and drel < 0:                # 后方目标在追上来
-    ttc = abs(drel) / vrel
 
   ttc_risk = ttc is not None and 0.0 <= ttc < cfg.ttc_threshold_s
-  clearance_risk = clearance < safe
+
+  # 目标在前方、且比本车快 → 纵向间距在**变大**。
+  # 这时拿 safe = v_ego × 时距 去比较是错的尺度：它衡量的是"我多久会追上去"，
+  # 而间距在扩大时这个风险根本不成立。实测表现就是侧前车已经加速远离到
+  # 二三十米外、盲区图标还挂着不放（高速下 safe 可到 30m 以上）。
+  # 间距在变大时，只有已经小到"快要并肩"才算真冲突（min_clearance 兜底）。
+  receding_ahead = drel > 0.0 and vrel > 0.0
+  if receding_ahead:
+    clearance_risk = drel < cfg.min_clearance_m
+  else:
+    clearance_risk = clearance < safe
   raw = bool(ttc_risk or clearance_risk)
 
   reason = "clear"
@@ -162,6 +181,8 @@ def evaluate_side(lead, v_ego_mps: float, lane_width_m: float,
     reason = "ttc"
   elif clearance_risk:
     reason = "clearance"
+  elif receding_ahead:
+    reason = "receding"
 
   return SideDecision(raw=raw, lateral_m=lat, drel_m=drel, vrel_mps=vrel,
                       clearance_m=clearance, ttc_s=ttc, reason=reason)
@@ -190,9 +211,7 @@ class StockFrontBlindMonitor:
       self.cfg = StockFrontBlindConfig.from_params(self.params)
 
   # ------------------------------------------------------------------ 主入口
-  def update(self, dt: float, v_ego_mps: float, leads: dict,
-             lane_width_left_m: float = DEFAULT_LANE_WIDTH_M,
-             lane_width_right_m: float = DEFAULT_LANE_WIDTH_M) -> dict:
+  def update(self, dt: float, v_ego_mps: float, leads: dict) -> dict:
     """:param leads: ``{"left": LeadData|None, "right": LeadData|None}``
        :return: ``{"left": bool, "right": bool}``"""
     if not self.cfg.enable:
@@ -203,11 +222,9 @@ class StockFrontBlindMonitor:
         st.last = SideDecision(reason="disabled")
       return {"left": False, "right": False}
 
-    widths = {"left": lane_width_left_m, "right": lane_width_right_m}
     out = {}
     for side, st in self._sides.items():
-      decision = evaluate_side(leads.get(side), v_ego_mps,
-                               widths.get(side, DEFAULT_LANE_WIDTH_M), self.cfg)
+      decision = evaluate_side(leads.get(side), v_ego_mps, self.cfg)
       st.last = decision
 
       if decision.raw:
@@ -266,14 +283,7 @@ def apply_stock_front_blind(shared_data, sm, dt: float,
     leads["left"] = getattr(radar, "leadLeft", None)
     leads["right"] = getattr(radar, "leadRight", None)
 
-  lane_left = DEFAULT_LANE_WIDTH_M
-  lane_right = DEFAULT_LANE_WIDTH_M
-  if sm.alive['modelV2']:
-    meta = sm['modelV2'].meta
-    lane_left = float(getattr(meta, "laneWidthLeft", 0.0) or 0.0) or DEFAULT_LANE_WIDTH_M
-    lane_right = float(getattr(meta, "laneWidthRight", 0.0) or 0.0) or DEFAULT_LANE_WIDTH_M
-
-  result = monitor.update(dt, v_ego, leads, lane_left, lane_right)
+  result = monitor.update(dt, v_ego, leads)
 
   shared_data.leftFrontBlind = bool(result["left"]) or _model_front_blind(sm, "left")
   shared_data.rightFrontBlind = bool(result["right"]) or _model_front_blind(sm, "right")

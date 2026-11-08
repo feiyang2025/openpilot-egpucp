@@ -136,7 +136,7 @@ class UnifiedParams:
             "DynamicBlindRange": 0,
             "DynamicBlindDistance": 0,
             "DisableBlindSpot": 0,
-            "EnableCruiseStateShow": 1,
+            "EnableCruiseStateShow": 0,
 
             # 盲区合并来源：选择哪些 amapnavi 盲区源并入 carState（位掩码之和）
             #   1 摄像头 / 2 激光侧方 / 4 激光前角 / 8 激光后角 / 16 车身 / 64 原车前雷达前侧
@@ -172,13 +172,14 @@ class UnifiedParams:
             "BsdCommitTime": 25,       # x0.1s -> 2.5s
 
             # 原车前雷达的「前侧盲区」(stock_front_blind)
+            # 横向筛选不在这里配：leadLeft/leadRight 由 controls/lib/side_leads.py
+            # 产出，那里已经用 dPath 限定 |dPath| ∈ [1.8, 3.5) m 并滤掉 dRel <= 5.0
+            # 的目标，本模块再判一遍是重复的。原 StockFrontLatMin/LatMax/
+            # LatLaneFactor 门槛比上游宽（直路上永不触发）、StockFrontDrelMin
+            # 更是不可能命中，四个一并移除。
             "StockFrontBlindEnable": 1,
-            "StockFrontLatMin": 12,       # x0.1m -> 1.2m（横向下限，小于此值算本车道）
-            "StockFrontLatMax": 50,       # x0.1m -> 5.0m（横向上限硬顶）
-            "StockFrontLatLaneFactor": 18, # x0.1 -> 1.8 倍车道宽（横向上限）
-            "StockFrontDrelMin": -200,    # x0.1m -> -20m（纵向窗口：身后）
             "StockFrontDrelMax": 800,     # x0.1m -> 80m（纵向窗口：前方）
-            "StockFrontTimeHeadway": 15,  # x0.1s -> 1.5s
+            "StockFrontTimeHeadway": 0,   # x0.1s -> 0s（0 = 不启用时距判据，只用绝对距离）
             "StockFrontMinClearance": 40, # x0.1m -> 4.0m
             "StockFrontTtc": 25,          # x0.1s -> 2.5s
             "StockFrontHorizon": 30,      # x0.1s -> 3.0s
