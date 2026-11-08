@@ -42,6 +42,9 @@ class PacketHandler:
     self.trackers = {corner: TrackedTarget(cfg) for corner in CORNERS}
     # 每个角的原始危险标志（未经去抖）
     self.object_detected = {corner: False for corner in CORNERS}
+    # 最近一次 side_object_risky 的完整结果（含 clearance/danger_dist/closing），
+    # 只给 debug_log 复盘用，不参与任何判定。
+    self.last_risk = {corner: None for corner in CORNERS}
     # 每个角最后一次拿到有效测量的时刻（monotonic），用于数据超时复位
     self.last_measured_mono = {corner: None for corner in CORNERS}
     # 迟滞：上一帧该角是否已判定危险
@@ -266,6 +269,7 @@ class PacketHandler:
       )
       self.risk_latch[corner] = res.risky
       self.object_detected[corner] = bool(res.risky)
+      self.last_risk[corner] = res
 
     if detect_side & 1:
       if lidar_id in (0, 1):

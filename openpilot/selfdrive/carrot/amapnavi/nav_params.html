@@ -550,6 +550,18 @@
                 uiType: "number",
                 category: "公共参数设置"
             },
+            "LogDebugData": {
+                chineseName: "记录实测数据",
+                defaultValue: 1,
+                description: "把前雷达/激光雷达的原始距离、相对速度和判定结果写进 /data/amapnavi_debug/，用于事后复盘；关掉填 0",
+                inputRange: [0, 1],
+                uiType: "select",
+                options: [
+                    { value: 0, text: "不记录" },
+                    { value: 1, text: "记录" }
+                ],
+                category: "公共参数设置"
+            },
 
             "LidarBsdDelayTime": {
                 chineseName: "激光雷达侧面车道有车延时(x0.1s)",

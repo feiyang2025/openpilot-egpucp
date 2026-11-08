@@ -72,6 +72,7 @@ from openpilot.selfdrive.carrot.amapnavi.transport import (
   refresh_timeouts,
 )
 from openpilot.selfdrive.carrot.amapnavi.config import unified_params
+from openpilot.selfdrive.carrot.amapnavi.debug_log import DebugLogger
 from openpilot.selfdrive.carrot.amapnavi.stock_front_blind import (
   StockFrontBlindMonitor,
   apply_stock_front_blind,
@@ -81,6 +82,14 @@ from openpilot.selfdrive.carrot.amapnavi.vehicle_state import update_from_submas
 CORNERS = ("lf", "lb", "rf", "rb")
 DATA_HZ = 20
 CLIENT_TIMEOUT_FRAMES = 60   # 计数器下限（秒 / DT）
+
+# 各角在 shared_data 上的最终盲区字段（实测日志里记为 fin）
+LIDAR_BLIND_ATTR = {
+    "lf": "lidar_lfblind",
+    "lb": "lidar_lbblind",
+    "rf": "lidar_rfblind",
+    "rb": "lidar_rbblind",
+}
 
 ATC_TURN = ("turn left", "turn right")
 ATC_FORK = ("fork left", "fork right")
@@ -137,6 +146,10 @@ class AmapNaviServ:
     # _data_deal_thread 吞掉后，这一帧后面的实线判定/距离汇总等都会被跳过）。
     self.stock_front_blind = StockFrontBlindMonitor(params=self.params)
 
+    # 实测数据日志（/data/amapnavi_debug/）。开关由 LogDebugData 控制，
+    # 写盘失败只打印、绝不抛异常影响主循环。
+    self.debug_logger = DebugLogger(enabled=False)
+
     self.transport.start()
     threading.Thread(target=self._data_deal_thread, daemon=True).start()
 
@@ -174,6 +187,12 @@ class AmapNaviServ:
       self.dynamicBlindRange = unified_params.get_int("DynamicBlindRange")
       self.dynamicBlindDistance = unified_params.get_int("DynamicBlindDistance")
       self.disableBlindSpot = unified_params.get_bool("DisableBlindSpot")
+      # 实测数据日志开关：关掉时立即关闭文件句柄
+      log_on = bool(unified_params.get_int("LogDebugData"))
+      if log_on != self.debug_logger.enabled:
+        self.debug_logger.enabled = log_on
+        if not log_on:
+          self.debug_logger.close()
       self._update_advisor_config()
 
       # 外部(carrotMan)没有设置调试标志时，使用Web页面设置的值
@@ -221,11 +240,64 @@ class AmapNaviServ:
           # 造成设备断电后仍然持续误报盲区。
           self._clear_client_state()
 
+        self._log_debug()
         self.public_amap_navi()
         rk.keep_time()
       except Exception as e:
         print(f"_data_deal_thread error: {e}")
         time.sleep(1)
+
+  def _log_debug(self):
+    """把两套盲区判定的输入与结果写进实测日志（LogDebugData 打开时）。
+
+    必须在 ``lidar_object_blind`` 与 ``_aggregate_clients`` 之后调用，
+    否则 ``blind_mask`` / ``corner_active`` / ``lidar_*blind`` 还是上一帧的值。
+    """
+    lg = self.debug_logger
+    if not lg.enabled:
+      return
+    shared = self.shared_data
+    try:
+      lg.heartbeat(shared.v_ego_m, shared.lidar_l, shared.lidar_r,
+                   self.dynamicBlindRange, self.dynamicBlindDistance)
+
+      # 原车前雷达：leadLeft / leadRight 的原始量 + evaluate_side 判定 + 最终标志
+      if self.sm.alive['radarState']:
+        radar = self.sm['radarState']
+        for side, attr in (("left", "leadLeft"), ("right", "leadRight")):
+          lg.stock(side, getattr(radar, attr, None),
+                   self.stock_front_blind.detail(side), shared.v_ego_m,
+                   final=getattr(shared, f"{side}FrontBlind", False))
+
+      # 激光雷达四角：距离/相对速度/风险中间量/横向屏蔽/去抖/最终输出
+      handler = self.packet_handler
+      for corner in CORNERS:
+        lg.lidar(
+          corner,
+          getattr(shared, f"main_{corner}_drel", None),
+          getattr(shared, f"main_{corner}_xrel", None),
+          getattr(shared, f"{corner}_vrel", None),
+          handler.object_detected[corner],
+          handler.last_risk[corner],
+          self.blind_mask.get(corner, False),
+          shared.standstill,
+          self.corner_active(corner),
+          getattr(shared, LIDAR_BLIND_ATTR[corner], False),
+        )
+
+      # 侧一级聚合标志：UI 每侧画的那几个圈（激光侧方/车身/前侧/模块/实线）
+      for side, s in (("left", "l"), ("right", "r")):
+        lg.side(
+          side,
+          getattr(shared, f"lidar_{s}blind", False),
+          getattr(shared, f"lidar_car_{s}blind", False),
+          getattr(shared, f"{side}FrontBlind", False),
+          getattr(shared, f"{side}_blind", False),
+          getattr(shared, f"{side}_lane_blind", False),
+        )
+    except Exception as e:
+      # 日志出问题绝不能影响主循环
+      print(f"_log_debug error: {e}")
 
   def _clear_client_state(self):
     """清空所有由外挂设备上报派生出来的状态（设备全部掉线时调用）。"""
