@@ -482,18 +482,6 @@
     <script>
         // 使用ES5兼容的语法
         var paramConfig = {
-            "DisableBlindSpot": {
-                chineseName: "禁用原车盲区信号(0)",
-                defaultValue: 0,
-                description: "0:不禁用,1:禁用",
-                inputRange: [0, 1],
-                uiType: "select",
-                options: [
-                    { value: 0, text: "不禁用原车盲区" },
-                    { value: 1, text: "禁用原车盲区" }
-                ],
-                category: "公共参数设置"
-            },
             "EnableCruiseStateShow": {
                 chineseName: "显示巡航小蓝灯(1)",
                 defaultValue: 1,
@@ -517,7 +505,7 @@
                     { value: 1, text: "导航时动态调整盲区宽度" },
                     { value: 2, text: "动态调整盲区宽度" }
                 ],
-                category: "公共参数设置"
+                category: "盲区风险评估(激光)"
             },
             "DynamicBlindDistance": {
                 chineseName: "动态盲区距离",
@@ -530,52 +518,7 @@
                     { value: 1, text: "导航变道时动态盲区距离" },
                     { value: 2, text: "车速时距动态盲区距离" }
                 ],
-                category: "公共参数设置"
-            },
-            "LidarBsdDelayTime": {
-                chineseName: "激光雷达侧面车道有车延时(x0.1s)",
-                defaultValue: 10,
-                description: "当激光雷达探测侧面车道有车信号消失后，经过延时的秒数后允许变道",
-                inputRange: [0, 100],
-                step: 1,
-                uiType: "number",
-                category: "公共参数设置"
-            },
-            "LidarFrontVDistTime": {
-                chineseName: "激光雷达侧前方有车允许变道绝对速度时距(x0.1s)",
-                defaultValue: -50,
-                description: "当与激光雷达侧前方车辆的距离大于'本车速度x时间'时允许变道，单位0.1秒;如果设置为负值，表示绝对距离(单位为0.1m)，如-100，表示绝对距离大于10米时允许变道",
-                inputRange: [-500, 50],
-                step: 1,
-                uiType: "number",
-                category: "公共参数设置"
-            },
-            "LidarFrontVRelDistTime": {
-                chineseName: "激光雷达侧前方有车允许变道相对速度时距(x0.1s)",
-                defaultValue: 40,
-                description: "当'本车相对于侧前方车辆的速度差x时间'小于两车距离时，允许变道，单位0.1秒",
-                inputRange: [0, 200],
-                step: 1,
-                uiType: "number",
-                category: "公共参数设置"
-            },
-            "LidarBehindVDistTime": {
-                chineseName: "激光雷达侧后方有车允许变道的绝对速度时距(x0.1s)",
-                defaultValue: -100,
-                description: "当与激光雷达侧后方车辆的距离大于'对方速度x时间'时允许变道，单位0.1秒;如果设置为负值，表示绝对距离(单位为0.1m)，如-100，表示绝对距离大于10米时允许变道",
-                inputRange: [-500, 50],
-                step: 1,
-                uiType: "number",
-                category: "公共参数设置"
-            },
-            "LidarBehindVRelDistTime": {
-                chineseName: "激光雷达侧后方有车允许变道的相对速度时距(x0.1s)",
-                defaultValue: 40,
-                description: "当'侧后方车辆的相对于本车的速度差x时间'小于两车距离时，允许变道，单位0.1秒",
-                inputRange: [0, 200],
-                step: 1,
-                uiType: "number",
-                category: "公共参数设置"
+                category: "盲区风险评估(激光)"
             },
             "LaneLineDelayTime": {
                 chineseName: "实线阻止变道延时(x0.1s)",
@@ -608,32 +551,50 @@
                 category: "公共参数设置"
             },
 
-            "LidarMinClearance": {
-                chineseName: "侧向目标最小安全间距(x0.1m)",
-                defaultValue: 40,
-                description: "侧向目标与本车的最小纵向间距，低于该值判定为危险；速度时距算出的安全距离也不会小于这个值",
-                inputRange: [10, 150],
-                step: 5,
-                uiType: "number",
-                category: "盲区风险评估"
-            },
-            "LidarTtcThreshold": {
-                chineseName: "侧向目标危险TTC(x0.1s)",
-                defaultValue: 25,
-                description: "侧向目标正在接近时，碰撞时间(TTC)低于该值判定为危险；越大越保守",
-                inputRange: [10, 60],
+            "LidarBsdDelayTime": {
+                chineseName: "激光雷达侧面车道有车延时(x0.1s)",
+                defaultValue: 5,
+                description: "当激光雷达探测侧面车道有车信号消失后，经过延时的秒数后允许变道",
+                inputRange: [0, 100],
                 step: 1,
                 uiType: "number",
-                category: "盲区风险评估"
+                category: "盲区风险评估(激光)"
             },
-            "LidarRiskHorizon": {
-                chineseName: "侧向目标预测窗口(x0.1s)",
-                defaultValue: 30,
-                description: "预测侧向目标未来多少秒内的最近距离，应覆盖一次完整变道所需时间",
-                inputRange: [10, 80],
+            "LidarFrontVDistTime": {
+                chineseName: "激光雷达侧前方有车允许变道绝对速度时距(x0.1s)",
+                defaultValue: -30,
+                description: "当与激光雷达侧前方车辆的距离大于'本车速度x时间'时允许变道，单位0.1秒;如果设置为负值，表示绝对距离(单位为0.1m)，如-100，表示绝对距离大于10米时允许变道",
+                inputRange: [-500, 50],
                 step: 1,
                 uiType: "number",
-                category: "盲区风险评估"
+                category: "盲区风险评估(激光)"
+            },
+            "LidarFrontVRelDistTime": {
+                chineseName: "激光雷达侧前方有车允许变道相对速度时距(x0.1s)",
+                defaultValue: 20,
+                description: "当'本车相对于侧前方车辆的速度差x时间'小于两车距离时，允许变道，单位0.1秒",
+                inputRange: [0, 200],
+                step: 1,
+                uiType: "number",
+                category: "盲区风险评估(激光)"
+            },
+            "LidarBehindVDistTime": {
+                chineseName: "激光雷达侧后方有车允许变道的绝对速度时距(x0.1s)",
+                defaultValue: -80,
+                description: "当与激光雷达侧后方车辆的距离大于'对方速度x时间'时允许变道，单位0.1秒;如果设置为负值，表示绝对距离(单位为0.1m)，如-100，表示绝对距离大于10米时允许变道",
+                inputRange: [-500, 50],
+                step: 1,
+                uiType: "number",
+                category: "盲区风险评估(激光)"
+            },
+            "LidarBehindVRelDistTime": {
+                chineseName: "激光雷达侧后方有车允许变道的相对速度时距(x0.1s)",
+                defaultValue: 20,
+                description: "当'侧后方车辆的相对于本车的速度差x时间'小于两车距离时，允许变道，单位0.1秒",
+                inputRange: [0, 200],
+                step: 1,
+                uiType: "number",
+                category: "盲区风险评估(激光)"
             },
 
             "BsdTimeHeadway": {
@@ -643,7 +604,7 @@
                 inputRange: [5, 30],
                 step: 1,
                 uiType: "number",
-                category: "盲区让行参数"
+                category: "盲区让行参数(激光)"
             },
             "BsdMinGap": {
                 chineseName: "变道所需绝对最小空档(x0.1m)",
@@ -652,7 +613,7 @@
                 inputRange: [30, 200],
                 step: 5,
                 uiType: "number",
-                category: "盲区让行参数"
+                category: "盲区让行参数(激光)"
             },
             "BsdMergeMargin": {
                 chineseName: "变道额外余量(x0.1m)",
@@ -661,7 +622,7 @@
                 inputRange: [0, 100],
                 step: 5,
                 uiType: "number",
-                category: "盲区让行参数"
+                category: "盲区让行参数(激光)"
             },
             "BsdRearDangerGap": {
                 chineseName: "后车贴太近禁止减速的距离(x0.1m)",
@@ -670,7 +631,7 @@
                 inputRange: [20, 150],
                 step: 5,
                 uiType: "number",
-                category: "盲区让行参数"
+                category: "盲区让行参数(激光)"
             },
             "BsdSpeedMargin": {
                 chineseName: "与目标车的期望速度差(km/h)",
@@ -679,7 +640,7 @@
                 inputRange: [0, 20],
                 step: 1,
                 uiType: "number",
-                category: "盲区让行参数"
+                category: "盲区让行参数(激光)"
             },
             "BsdMaxSpeedup": {
                 chineseName: "最大加速让行幅度(km/h)",
@@ -688,7 +649,7 @@
                 inputRange: [0, 30],
                 step: 1,
                 uiType: "number",
-                category: "盲区让行参数"
+                category: "盲区让行参数(激光)"
             },
             "BsdMaxSlowdown": {
                 chineseName: "最大减速让行幅度(km/h)",
@@ -697,7 +658,7 @@
                 inputRange: [0, 40],
                 step: 1,
                 uiType: "number",
-                category: "盲区让行参数"
+                category: "盲区让行参数(激光)"
             },
             "BsdAccelLimit": {
                 chineseName: "让行加速变化率(x0.1 km/h/s)",
@@ -706,7 +667,7 @@
                 inputRange: [3, 50],
                 step: 1,
                 uiType: "number",
-                category: "盲区让行参数"
+                category: "盲区让行参数(激光)"
             },
             "BsdDecelLimit": {
                 chineseName: "让行减速变化率(x0.1 km/h/s)",
@@ -715,7 +676,7 @@
                 inputRange: [3, 60],
                 step: 1,
                 uiType: "number",
-                category: "盲区让行参数"
+                category: "盲区让行参数(激光)"
             },
             "BsdCommitTime": {
                 chineseName: "让行决策保持时间(x0.1s)",
@@ -724,9 +685,21 @@
                 inputRange: [0, 80],
                 step: 1,
                 uiType: "number",
-                category: "盲区让行参数"
+                category: "盲区让行参数(激光)"
             },
 
+            "DisableBlindSpot": {
+                chineseName: "禁用原车盲区信号(0)",
+                defaultValue: 0,
+                description: "0:不禁用,1:禁用",
+                inputRange: [0, 1],
+                uiType: "select",
+                options: [
+                    { value: 0, text: "不禁用原车盲区" },
+                    { value: 1, text: "禁用原车盲区" }
+                ],
+                category: "原车前侧盲区"
+            },
             "StockFrontBlindEnable": {
                 chineseName: "原车前侧盲区检测",
                 defaultValue: 1,
@@ -857,8 +830,8 @@
 
         var categoryColors = {
             "公共参数设置": "#3F51B5",
-            "盲区风险评估": "#2196F3",
-            "盲区让行参数": "#FF5722",
+            "盲区风险评估(激光)": "#2196F3",
+            "盲区让行参数(激光)": "#FF5722",
             "高速公路参数": "#E91E63",
             "普通公路参数": "#9C27B0",
             "ATC参数": "#009688",

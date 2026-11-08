@@ -52,7 +52,8 @@ class PacketHandler:
     self.min_front_vrel_vego_time = 3.0
     self.min_behind_drel_vego_time = 3.0
     self.min_behind_vrel_vego_time = 3.0
-    self.risk_horizon_s = 3.0
+    # 固定阈值，不开放配置：TTC 判据在 horizon(4.0s) > ttc(2.5s) 时不可能独立
+    # 触发，最小间距 4.0m 也总被 |min_*_drel_vego_time| 压过，做成参数只会误导。
     self.ttc_threshold_s = 2.5
     self.min_clearance_m = 4.0
     # 是否处于导航变道（由 AmapNaviServ 每帧刷新）

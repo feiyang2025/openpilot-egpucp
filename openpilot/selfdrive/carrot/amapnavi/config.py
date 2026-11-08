@@ -146,17 +146,18 @@ class UnifiedParams:
             #       不并入盲区(见 amap_navi.public_amap_navi 的说明)
             "XiaogeBlindSources": 95,
 
-            "LidarBsdDelayTime": 10,
-            "LidarFrontVDistTime": -50,
-            "LidarFrontVRelDistTime": 40,
-            "LidarBehindVDistTime": -100,
-            "LidarBehindVRelDistTime": 40,
+            "LidarBsdDelayTime": 5,           # x0.1s -> 0.5s
+            "LidarFrontVDistTime": -30,        # x0.1m -> 绝对距离 3.0m
+            "LidarFrontVRelDistTime": 20,      # x0.1s -> 2.0s
+            "LidarBehindVDistTime": -80,       # x0.1m -> 绝对距离 8.0m
+            "LidarBehindVRelDistTime": 20,     # x0.1s -> 2.0s
             "LaneLineDelayTime": 10,
 
-            # 风险评估（blindspot）：最小间距 4.0m / TTC 2.5s / 预测窗口 3.0s
-            "LidarMinClearance": 40,
-            "LidarTtcThreshold": 25,
-            "LidarRiskHorizon": 30,
+            # 风险评估阈值不在这里配：最小间距 4.0m、TTC 阈值 2.5s 固定写在
+            # protocol.BlindSpotPacketHandler 里。原来有 LidarMinClearance /
+            # LidarTtcThreshold / LidarRiskHorizon 三个参数，经核实都不影响结果
+            # ——前者被 LidarFrontVDistTime 的绝对值压过、中者被判据数学上完全
+            # 覆盖（horizon 4.0s > TTC 2.5s，永不先触发）、后者从未被读取。
 
             # 让行速度规划（decel_advisor）
             "BsdTimeHeadway": 12,      # x0.1s -> 1.2s

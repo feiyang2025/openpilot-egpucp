@@ -166,9 +166,10 @@ class AmapNaviServ:
       handler.min_front_vrel_vego_time = unified_params.get_int("LidarFrontVRelDistTime") * 0.1
       handler.min_behind_drel_vego_time = unified_params.get_int("LidarBehindVDistTime") * 0.1
       handler.min_behind_vrel_vego_time = unified_params.get_int("LidarBehindVRelDistTime") * 0.1
-      handler.min_clearance_m = max(1.0, unified_params.get_int("LidarMinClearance") * 0.1)
-      handler.ttc_threshold_s = max(0.5, unified_params.get_int("LidarTtcThreshold") * 0.1)
-      handler.risk_horizon_s = max(1.0, unified_params.get_int("LidarRiskHorizon") * 0.1)
+      # 风险评估阈值不再由参数下发：min_clearance_m(4.0m) / ttc_threshold_s(2.5s)
+      # 沿用 protocol.BlindSpotPacketHandler 里的固定值。原来那三个参数
+      # (LidarMinClearance/LidarTtcThreshold/LidarRiskHorizon) 都不影响结果，
+      # 已移除，原因见 config.py 的注释。
 
       self.dynamicBlindRange = unified_params.get_int("DynamicBlindRange")
       self.dynamicBlindDistance = unified_params.get_int("DynamicBlindDistance")
