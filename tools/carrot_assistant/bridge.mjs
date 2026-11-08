@@ -21,7 +21,7 @@ export function allowedWebOrigin(origin) {
 
 // Only screen navigation is supported. No values, device credentials or log files.
 // Persist only paired capability hashes. Pending commands never survive restart.
-export function createBridge({ now = Date.now, maxSessions = 1000, statePath, isAccountLinked = () => false } = {}) {
+export function createBridge({ now = Date.now, maxSessions = 1000, statePath, isAccountLinked = () => false, accountActivity = () => 0 } = {}) {
   const settings = createSettingBridge(now);
   const toolJobs = createToolsBridge(now);
   const driving = createDriveBridge(now), waiters = new Map();
@@ -91,18 +91,26 @@ export function createBridge({ now = Date.now, maxSessions = 1000, statePath, is
       }
       return this.browser(key, origin, 'poll');
     },
-    async accountDriveStatus(id, wait = false) {
-      this.accountStatus(id);
-      const deadline = Date.now() + (wait ? 8000 : 0);
-      while (Date.now() < deadline && ['queued', 'active'].includes(driving.status(id).status)) await new Promise(resolve => setTimeout(resolve, 100));
+    accountDriveStatus(id) {
       this.accountStatus(id);
       return driving.status(id);
     },
     async accountDriveAction(id, fields) {
       const state = this.accountStatus(id);
       if (!state.browser_online) fail('Carrot Web is offline. Do not retry automatically.', 409);
-      driving.queue(id, fields); wake(id);
-      return this.accountDriveStatus(id, true);
+      const queued = driving.queue(id, fields);
+      if (queued.submitted === false) return queued;
+      wake(id);
+      // Give a fast local acknowledgement a chance to arrive. A voice reply
+      // need not wait for the vehicle to finish a maneuver.
+      const deadline = performance.now() + 400;
+      let status = queued;
+      while (status.status === 'queued' && performance.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 25));
+        status = this.accountDriveStatus(id);
+        if (status.request_id !== queued.request_id) return { status: 'none' };
+      }
+      return status;
     },
     accountSettingStatus(id) { this.accountStatus(id); return settings.status(id); },
     accountToolsStatus(id) { this.accountStatus(id); return toolJobs.status(id); },
@@ -186,7 +194,21 @@ export function createBridge({ now = Date.now, maxSessions = 1000, statePath, is
     },
     browser(key, origin, operation, body = {}) {
       const s = lookup(browsers, key);
+      if (operation === 'relocate') {
+        if (!s.controlHash || !allowedWebOrigin(origin) || !allowedWebOrigin(body.previous_origin)
+          || ![origin, body.previous_origin].includes(s.origin)) fail('Connection move is not authorized.', 403);
+        if (s.origin !== origin) {
+          const next = { ...s, origin, label: new URL(origin).host };
+          persist(next); Object.assign(s, next);
+          // A new address is not permission to replay old commands.
+          settings.remove(s.id); driving.remove(s.id); toolJobs.remove(s.id);
+          s.command = null; s.lastSeen = 0; s.pollAt = -Infinity; wake(s.id);
+          for (const [hash, code] of accountCodes) if (code.id === s.id) accountCodes.delete(hash);
+        }
+        return status(s);
+      }
       if (s.origin !== origin) fail('Browser origin mismatch.', 403);
+      if (operation === 'inspect') return { ...status(s), account_activity_at: accountActivity(s.id) };
       if (operation === 'disconnect') { remove(s); return { disconnected: true }; }
       if (operation === 'drive_ack') return driving.ack(s.id, body.id, body.result);
       if (operation === 'settings_ack') return settings.ack(s.id, body.id, body.result);
