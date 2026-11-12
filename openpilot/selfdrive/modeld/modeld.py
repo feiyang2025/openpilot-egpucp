@@ -1,9 +1,34 @@
 #!/usr/bin/env python3
 import os
-os.environ['GMMU'] = '0' # for usbgpu fast loading, noop for qcom
+
+# [JETSON] Force CUDA backend before tinygrad import
+os.environ.setdefault('DEV', 'CUDA')
+
+# [JETSON GPU SERIALIZE]: Pause encoderd BEFORE tinygrad creates CUDA context.
+# On Jetson AGX Orin, encoderd holds NvMedia/CUDA contexts that deadlock modeld
+# during pickle.load (cuMemcpyHtoDAsync_v2 H2D copyin contention).
+# CUDA context creation happens at tinygrad import time (line 3 originally).
+_gpu_pids = []
+try:
+    import subprocess as _sp, signal as _sig
+    for _pat in ("./encoderd", "encoderd --carrot-vision-road"):
+        _out = _sp.run(["pgrep", "-f", _pat], capture_output=True, text=True, timeout=2)
+        for _pid in _out.stdout.strip().split():
+            if _pid.isdigit() and int(_pid) != os.getpid():
+                try:
+                    os.kill(int(_pid), _sig.SIGSTOP)
+                    _gpu_pids.append(int(_pid))
+                except Exception:
+                    pass
+except Exception as _e:
+    pass
+
 from tinygrad.tensor import Tensor
+from tinygrad.device import Device
 import time
 import threading
+import signal
+import subprocess
 import numpy as np
 import openpilot.cereal.messaging as messaging
 from openpilot.cereal import car, log
@@ -21,17 +46,13 @@ from openpilot.common.transformations.camera import DEVICE_CAMERAS
 from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
 from openpilot.common.transformations.model import get_warp_matrix
 from openpilot.selfdrive.controls.lib.desire_helper import DesireHelper
-from openpilot.selfdrive.controls.lib.desire_lib.boundary_observer import BoundaryObserver
-from openpilot.selfdrive.controls.lib.desire_lib.tesla_turn import turn_signal_context
 from openpilot.selfdrive.controls.lib.drive_helpers import get_accel_from_plan, smooth_value, get_curvature_from_plan
 from openpilot.selfdrive.modeld.parse_model_outputs import Parser
 from openpilot.selfdrive.modeld.compile_modeld import make_input_queues, WARP_INPUTS, POLICY_INPUTS
 from openpilot.selfdrive.modeld.fill_model_msg import fill_model_msg, fill_driving_model_data, fill_pose_msg, PublishState
 from openpilot.common.file_chunker import open_file_chunked
-from openpilot.selfdrive.modeld.camera_sync import FrameMeta
-from openpilot.selfdrive.modeld.camera_gap import CameraGapTrace
+from openpilot.selfdrive.modeld.camera_sync import FrameMeta, receive_camera_pair
 from openpilot.selfdrive.modeld.constants import ModelConstants, Plan
-from openpilot.selfdrive.navigation.map_client import MapInput
 from openpilot.selfdrive.modeld.signal_shadow import ShadowClient
 from openpilot.selfdrive.modeld.helpers import (get_tg_input_devices, load_oob, modeld_pkl_path,
                                                 refresh_usbgpu_device_cache, select_vision_streams, usbgpu_compiled_path,
@@ -112,7 +133,7 @@ def get_action_from_model(model_output: dict[str, np.ndarray], prev_action: log.
                                                 lat_action_t)
   else:
     desired_accel = model_output['action'][0,1]
-    desired_curvature = model_output['action'][0,0] / (max(2.5, v_ego))**2
+    desired_curvature = model_output['action'][0,0] / (max(1.0, v_ego))**2
     #should_stop = (v_ego < 0.3 and desired_accel < 0.1)
   desired_accel = smooth_value(desired_accel, prev_action.desiredAcceleration, LONG_SMOOTH_SECONDS)
   desired_velocity_now = smooth_value(desired_velocity_now, prev_action.desiredVelocity, LONG_SMOOTH_SECONDS)
@@ -130,7 +151,7 @@ def get_action_from_model(model_output: dict[str, np.ndarray], prev_action: log.
 class ModelState:
   prev_desire: np.ndarray  # for tracking the rising edge of the pulse
 
-  def __init__(self, cam_w: int, cam_h: int, usbgpu: bool, pkl_path=None, *, enable_shadow=True):
+  def __init__(self, cam_w: int, cam_h: int, usbgpu: bool, pkl_path=None):
     input_devices = get_tg_input_devices(PROCESS_NAME, usbgpu)
     self.WARP_DEV, self.QUEUE_DEV = input_devices['WARP_DEV'], input_devices['QUEUE_DEV']
     jits = load_oob(open_file_chunked(pkl_path or modeld_pkl_path(usbgpu)))
@@ -145,12 +166,15 @@ class ModelState:
     self.frame_skip = ModelConstants.MODEL_RUN_FREQ // ModelConstants.MODEL_CONTEXT_FREQ
     self.input_queues, self.npy = make_input_queues(self.input_shapes, self.frame_skip, device=self.QUEUE_DEV)
     self.full_frames: dict[str, Tensor] = {}
+    self._packed_bufs: dict[str, np.ndarray] = {}
+    # 每路相机固定一块设备侧帧缓冲 (见 run() 中的说明)
+    self._frame_tensors: dict[str, Tensor] = {}
     self._blob_cache: dict[int, Tensor] = {}
     self.parser = Parser()
     self.frame_buf_params = {k: get_nv12_info(cam_w, cam_h) for k in ('img', 'big_img')}
     self.run_policy = jits['run_policy']
     self.warp = jits[(cam_w,cam_h)]
-    self.signal_shadow = ShadowClient.optional(modeld_pkl_path(False).parent / 'driving_supercombo.onnx') if enable_shadow and not usbgpu else None
+    self.signal_shadow = ShadowClient.optional(modeld_pkl_path(False).parent / 'driving_supercombo.onnx') if not usbgpu else None
 
   def slice_outputs(self, model_outputs: np.ndarray, output_slices: dict[str, slice]) -> dict[str, np.ndarray]:
     parsed_model_outputs = {k: model_outputs[np.newaxis, v] for k,v in output_slices.items()}
@@ -175,22 +199,40 @@ class ModelState:
         # incorrectly treat their address as a GPU pointer and fault.
         uv_offset = stride * y_height
         if len(frame_data) != yuv_size or bufs[key].stride != stride or bufs[key].uv_offset != uv_offset:
-          # PC camera sources may provide tightly packed NV12. Convert them to
-          # the Venus layout expected by the compiled model warp.
+          # Strided sources (perfD dmabuf stride=2048 / tightly-packed PC camera) are
+          # repacked on CPU to the Venus layout expected by the compiled model warp.
+          # 实测: GPU(tinygrad slice/pad) 方案 ~11ms/帧 (H2D 4.4ms + lazy ops),
+          # CPU repack 仅 ~0.8ms —— 保持 CPU 方案, 缓冲区复用避免每帧 3.1MB 分配。
+          packed = self._packed_bufs.get(key)
+          if packed is None:
+            packed = self._packed_bufs[key] = np.zeros(yuv_size, dtype=np.uint8)
           src_stride = bufs[key].stride
           src_uv_offset = bufs[key].uv_offset
-          packed_frame = np.zeros(yuv_size, dtype=np.uint8)
           src_y_height = min(bufs[key].height, src_uv_offset // src_stride)
           src_uv_height = min(bufs[key].height // 2, max(0, len(frame_data) - src_uv_offset) // src_stride)
           copy_width = min(bufs[key].width, src_stride, stride)
           src_y = frame_data[:src_stride * src_y_height].reshape(src_y_height, src_stride)
           src_uv = frame_data[src_uv_offset:src_uv_offset + src_stride * src_uv_height].reshape(src_uv_height, src_stride)
-          dst_y = packed_frame[:uv_offset].reshape(y_height, stride)
-          dst_uv = packed_frame[uv_offset:uv_offset + stride * uv_height].reshape(uv_height, stride)
+          dst_y = packed[:uv_offset].reshape(y_height, stride)
+          dst_uv = packed[uv_offset:uv_offset + stride * uv_height].reshape(uv_height, stride)
           dst_y[:src_y_height, :copy_width] = src_y[:, :copy_width]
           dst_uv[:src_uv_height, :copy_width] = src_uv[:, :copy_width]
-          frame_data = packed_frame
-        self.full_frames[key] = Tensor(frame_data, device=self.WARP_DEV).realize()
+          frame_data = packed
+        # 每帧新建 Tensor 会让 CUDA 显存单调增长: 实测 RSS +80MB/s, 约 6 分钟吃光
+        # 30GB 统一内存, 之后 gnome-shell 的 GPU 作业连续触发 nvgpu WDT 超时。
+        # 原因是被 JIT 图捕获的输入缓冲不随 Python 引用释放。改为每路相机固定
+        # 一块设备缓冲, 每帧只做一次 H2D copyin, 显存占用恒定。
+        frame_tensor = self._frame_tensors.get(key)
+        if frame_tensor is None:
+          frame_tensor = Tensor(np.zeros(yuv_size, dtype=np.uint8), device=self.WARP_DEV).realize()
+          self._frame_tensors[key] = frame_tensor
+        frame_tensor._buffer().copyin(memoryview(frame_data))
+        # tinygrad CUDA _copyin: 每次拷贝会 new 一块 pinned host 暂存并挂到
+        # pending_copyin, 只有 Device.synchronize() 才释放。不排空则每帧泄漏
+        # 一块帧大小共享内存 (实测 ~5MB/帧, 6 分钟 26GB Shared_Dirty)。
+        # 每次 copyin 后同步排空, 内存占用恒定。
+        Device[self.WARP_DEV.split(":")[0]].synchronize()
+        self.full_frames[key] = frame_tensor
       else:
         ptr = frame_data.ctypes.data
         # Integrated GPUs can access the VisionIPC ringbuffer directly.
@@ -260,7 +302,14 @@ def main(demo=False):
     queue_usbgpu_error_tmux(params, "USB present but eGPU model unavailable at startup")
   use_wide_camera = bool(params.get("UseWideCamera", return_default=True))
 
-  config_realtime_process(7, 54)
+  # [JETSON] 单核绑定会让 CUDA 驱动内部线程继承同一 CPU 掩码;
+  # cuCtxCreate 时主线程在独享核上自旋(实测 ~95% CPU), 驱动回调线程被饿死,
+  # CUDA 上下文创建死锁 -> GR engine watchdog 超时 -> Xorg/gnome-shell 被连带冻死。
+  # 给 modeld 一组核 (7-11) 而不是单核, 保证驱动线程有核可跑。
+  if os.cpu_count() is not None and os.cpu_count() <= 8:
+    config_realtime_process(7, 54)
+  else:
+    config_realtime_process([7, 8, 9, 10, 11], 54)
 
   # visionipc clients
   while True:
@@ -341,11 +390,24 @@ def main(demo=False):
   # Keep the internal-GPU model ready so a USB disconnect or runtime error does
   # not take modeld down while driving.
   phase_start = time.monotonic()
-  # A standby model must not spawn a separate experimental ONNX observer that
-  # receives no live samples. Keep standby inference/warmup and fallback intact;
-  # optional comparison remains available when internal inference starts active.
-  small_model = ModelState(vipc_client_main.width, vipc_client_main.height, False,
-                           enable_shadow=not usbgpu_model_loaded) if model is None or USBGPU else None
+
+  # GPU procs already paused at file import time (global _gpu_pids above).
+  # Just use the pre-paused list here for cleanup in the finally block below.
+  _gpu_paused = list(_gpu_pids) if not USBGPU else []
+  if _gpu_paused:
+    cloudlog.warning(f"modeld: {len(_gpu_paused)} GPU procs already paused at import")
+
+  try:
+    small_model = ModelState(vipc_client_main.width, vipc_client_main.height, False) if model is None or USBGPU else None
+  finally:
+    for _pid in _gpu_paused:
+      try:
+        os.kill(_pid, signal.SIGCONT)
+      except Exception:
+        pass
+    if _gpu_paused:
+      cloudlog.warning(f"modeld: resumed {len(_gpu_paused)} GPU procs after .pkl load")
+
   if usbgpu_model_loaded:
     from openpilot.selfdrive.modeld.internal_model_warmup import warm_internal_model_from_camera
     warm_internal_model_from_camera(small_model, vipc_client_main)
@@ -383,8 +445,7 @@ def main(demo=False):
 
   # messaging
   pm = PubMaster(["modelV2", "drivingModelData", "cameraOdometry"])
-  sm = SubMaster(["deviceState", "carState", "roadCameraState", "liveCalibration", "driverMonitoringState", "carControl",
-                  "selfdriveState", "livePose", "liveDelay", "carrotMan", "radarState", "navInstructionCarrot", "navRoute"])
+  sm = SubMaster(["deviceState", "carState", "roadCameraState", "liveCalibration", "driverMonitoringState", "carControl", "selfdriveState", "liveDelay", "carrotMan", "radarState"])
 
   publish_state = PublishState()
   params = Params()
@@ -415,14 +476,7 @@ def main(demo=False):
   long_delay = CP.longitudinalActuatorDelay + LONG_SMOOTH_SECONDS
   prev_action = log.ModelDataV2.Action()
 
-  from opendbc.car.tesla.values import TeslaFlags
-  from openpilot.selfdrive.car.voice_indicator import native_indicator
-  DH = DesireHelper(fingerprint=CP.carFingerprint, native_voice_signal=native_indicator(CP) is not None,
-                    tesla_auto_signals=CP.brand == "tesla" and bool(CP.flags & TeslaFlags.AUTO_TURN_SIGNALS),
-                    boundary_indicator_supported=CP.carFingerprint == 'HYUNDAI_IONIQ_5_PE')
-  boundary_observer = BoundaryObserver(cloudlog.event) if DH.boundary_indicator_supported else None
-  nav_input = MapInput()
-
+  DH = DesireHelper()
 
   frame = 0
   custom_lat_delay = 0.0
@@ -431,7 +485,6 @@ def main(demo=False):
   camera_yaw_trim_deg = params.get_float("CameraYawTrimDeg") * 0.01
   lat_delay_dynamic = lat_smooth_seconds
   diagnostics = RuntimeDiagnostics('modeld', cloudlog.event)
-  camera_gap = CameraGapTrace(cloudlog.event)
   while True:
     loop_start, cpu_start = time.monotonic(), time.thread_time()
     frame += 1
@@ -449,7 +502,7 @@ def main(demo=False):
         params.put_bool_nonblocking("UsbGpuHardwareSeen", True)
       params.put_bool_nonblocking("UsbGpuCompiled", usbgpu_compiled_path() is not None)
 
-    frames = camera_gap.receive(vipc_client_main, vipc_client_extra if use_extra_client else None)
+    frames = receive_camera_pair(vipc_client_main, vipc_client_extra if use_extra_client else None)
     if frames is None:
       cloudlog.debug("camera pair unavailable or out of sync")
       continue
@@ -511,11 +564,8 @@ def main(demo=False):
       'action_t': np.array([lat_action_t, long_action_t], dtype=np.float32),
     }
 
-    inputs.update(nav_input.update(model, sm, v_ego))
-
-    inference_started = time.monotonic()
     mt1 = time.perf_counter()
-    camera_age_at_run_ms = (inference_started - meta_main.timestamp_eof * 1e-9) * 1000
+    camera_age_at_run_ms = (time.monotonic() - meta_main.timestamp_eof * 1e-9) * 1000
     inference_cpu_start = time.thread_time()
     try:
       model_output = model.run(bufs, transforms, inputs, prepare_only)
@@ -580,65 +630,12 @@ def main(demo=False):
       l_lane_change_prob = desire_state[log.Desire.laneChangeLeft]
       r_lane_change_prob = desire_state[log.Desire.laneChangeRight]
       lane_change_prob = l_lane_change_prob + r_lane_change_prob
-      indicator_now = time.monotonic()
-      indicator_valid = modelv2_send.valid and all(
-        sm.valid[k] and sm.alive[k] and 0 <= indicator_now-sm.recv_time[k] < .35
-        for k in ('carState', 'carControl'))
-      turn_hold_allowed, turn_pose = False, None
-      pose = sm['livePose']
-      indicator_yaw_rate = (pose.angularVelocityDevice.z if sm.valid['livePose'] and sm.alive['livePose'] and
-                            0 <= indicator_now-sm.recv_time['livePose'] < .2 and pose.inputsOK and pose.sensorsOK and
-                            0 <= time.clock_gettime_ns(getattr(time, "CLOCK_BOOTTIME", time.CLOCK_MONOTONIC)) -
-                            sm.logMonoTime['livePose'] < 200_000_000 and
-                            pose.posenetOK and pose.angularVelocityDevice.valid else None)
-      if DH.tesla_auto_signals:
-        turn_hold_allowed, turn_pose = turn_signal_context(sm, sm['carState'], indicator_now,
-          time.clock_gettime_ns(getattr(time, "CLOCK_BOOTTIME", time.CLOCK_MONOTONIC)),
-          not sm['carControl'].latActive and params.get_bool("AlwaysLateral"))
-        turn_hold_allowed &= indicator_valid
-      DH.update(sm['carState'], modelv2_send.modelV2, sm['carControl'].latActive, lane_change_prob, sm['carrotMan'], sm['radarState'],
-                indicator_valid=indicator_valid, indicator_curvature=sm['carControl'].actuators.curvature,
-                indicator_yaw_rate=indicator_yaw_rate,
-                assistant_valid=indicator_valid and sm.valid['radarState'] and sm.alive['radarState'] and
-                0 <= indicator_now-sm.recv_time['radarState'] < .35,
-                turn_hold_allowed=turn_hold_allowed, turn_pose=turn_pose)
+      DH.update(sm['carState'], modelv2_send.modelV2, sm['carControl'].latActive, lane_change_prob, sm['carrotMan'], sm['radarState'])
       modelv2_send.modelV2.meta.laneChangeState = DH.lane_change_state
       modelv2_send.modelV2.meta.laneChangeDirection = DH.lane_change_direction
       modelv2_send.modelV2.meta.desireLog = DH.desireLog #carrot
       modelv2_send.modelV2.meta.laneChangeBlinkerHold = DH.blinker_hold_direction
       modelv2_send.modelV2.meta.leverTurn = DH.lever_turn
-      modelv2_send.modelV2.meta.autoTurnSignal = DH.auto_turn_signal
-      modelv2_send.modelV2.meta.autoTurnSignalLaneChange = DH.auto_turn_signal_lane_change
-      modelv2_send.modelV2.meta.assistantLaneSignalId = DH.assistant_lane.signal_id
-      modelv2_send.modelV2.meta.assistantLaneSignalRoute = DH.assistant_lane.signal_route
-      modelv2_send.modelV2.meta.autoTurnSignalDirection = DH.auto_signal_direction
-      modelv2_send.modelV2.meta.autoTurnSignalRequestId = DH.auto_signal_request_id
-      modelv2_send.modelV2.meta.manualLaneIndicator = DH.boundary_indicator.request_direction
-      modelv2_send.modelV2.meta.manualLaneIndicatorMonoTime = int(DH.boundary_indicator.request_time * 1e9)
-      observation = DH.model_indicator.active
-      modelv2_send.modelV2.meta.observedIndicator = observation.direction if observation else 0
-      modelv2_send.modelV2.meta.observedIndicatorMonoTime = int(DH.model_indicator.request_time * 1e9)
-      modelv2_send.modelV2.meta.observedIndicatorSource = DH.model_indicator.reason
-      modelv2_send.modelV2.meta.indicatorIsolationMask = DH.boundary_indicator.blocked
-      modelv2_send.modelV2.meta.indicatorJournalMonoTime = int(DH.indicator_journal_time * 1e9)
-      preparation = DH.model_indicator.candidate
-      if preparation and not (DH.model_path_indicator_enabled if preparation[1] == 'model_path' else DH.model_desire_indicator_enabled):
-        preparation = None
-      if DH.boundary_indicator_enabled and DH.boundary_indicator.episode:
-        preparation = (DH.boundary_indicator.episode['direction'], 'manual')
-      if DH.manual_turn_indicator_enabled and DH.model_indicator.manual_turn.candidate:
-        preparation = DH.model_indicator.manual_turn.candidate
-      modelv2_send.modelV2.meta.indicatorPrepareDirection = preparation[0] if preparation and not observation else 0
-      modelv2_send.modelV2.meta.indicatorPrepareSource = preparation[1] if preparation and not observation else ''
-      if boundary_observer is not None:
-        # Read-only experiment: independent of navigation freshness, no request/desire assignment.
-        boundary_observer.observe(indicator_now, sm['carState'], modelv2_send.modelV2,
-          enabled=DH.boundary_indicator_enabled,
-          valid=modelv2_send.valid and sm.valid['carState'] and sm.alive['carState'] and
-                0 <= indicator_now-sm.recv_time['carState'] < .35,
-          busy=DH.lane_change_state in (log.LaneChangeState.laneChangeStarting, log.LaneChangeState.laneChangeFinishing),
-          legacy_direction=DH.boundary_indicator.request_direction)
-
       drivingdata_send.drivingModelData.meta.laneChangeState = DH.lane_change_state
       drivingdata_send.drivingModelData.meta.laneChangeDirection = DH.lane_change_direction
 
@@ -694,12 +691,6 @@ def main(demo=False):
         if egpu_recovery.task is not None:
           egpu_recovery.task.cancel.set()
         egpu_recovery = None
-    camera_gap.record(meta_main.frame_id, vipc_dropped_frames, inference_backend,
-                      camera_wait=(camera_ready - loop_start) * 1000,
-                      before_inference=(inference_started - camera_ready) * 1000,
-                      inference=model_execution_time * 1000,
-                      postprocess=(time.perf_counter() - mt2) * 1000,
-                      loop=(time.monotonic() - loop_start) * 1000)
     diagnostics.record(
       context={'backend': inference_backend, 'usbgpu': inference_usbgpu, 'frame_id': meta_main.frame_id},
       camera_wait_ms=(camera_ready - loop_start) * 1000,

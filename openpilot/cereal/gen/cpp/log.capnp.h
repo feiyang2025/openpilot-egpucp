@@ -157,6 +157,8 @@ enum class EventName_91f1992a1f77fb03: uint16_t {
   SYSTEM_READY,
   IMPACT_DETECTED,
   IMPACT_DASHCAM_REBOOT,
+  TESLA_TRAFFIC_STOP_WARNING,
+  TESLA_TRAFFIC_STOP_TAKEOVER,
 };
 CAPNP_DECLARE_ENUM(EventName, 91f1992a1f77fb03);
 CAPNP_DECLARE_SCHEMA(d692e23d1a247d99);
@@ -190,6 +192,7 @@ enum class ImageSensor_d810b1e7705dd69c: uint16_t {
   AR0231,
   OX03C10,
   OS04C10,
+  IMX390,
 };
 CAPNP_DECLARE_ENUM(ImageSensor, d810b1e7705dd69c);
 CAPNP_DECLARE_SCHEMA(d12afc512f9cda94);
@@ -1568,7 +1571,7 @@ struct ModelDataV2::MetaData {
   struct Deprecated;
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(d1646ab3b45cfabd, 9, 4)
+    CAPNP_DECLARE_STRUCT_HEADER(d1646ab3b45cfabd, 12, 8)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -1583,7 +1586,7 @@ struct ModelDataV2::MetaData::Deprecated {
   class Pipeline;
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(b9c3b1cb0f417c88, 9, 4)
+    CAPNP_DECLARE_STRUCT_HEADER(b9c3b1cb0f417c88, 12, 8)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -10215,6 +10218,28 @@ public:
 
   inline  ::uint64_t getManualLaneIndicatorMonoTime() const;
 
+  inline  ::cereal::LaneChangeDirection getObservedIndicator() const;
+
+  inline  ::uint64_t getObservedIndicatorMonoTime() const;
+
+  inline bool hasObservedIndicatorSource() const;
+  inline  ::capnp::Text::Reader getObservedIndicatorSource() const;
+
+  inline  ::uint8_t getIndicatorIsolationMask() const;
+
+  inline  ::uint64_t getIndicatorJournalMonoTime() const;
+
+  inline  ::cereal::LaneChangeDirection getIndicatorPrepareDirection() const;
+
+  inline bool hasIndicatorPrepareSource() const;
+  inline  ::capnp::Text::Reader getIndicatorPrepareSource() const;
+
+  inline bool hasAssistantLaneSignalId() const;
+  inline  ::capnp::Text::Reader getAssistantLaneSignalId() const;
+
+  inline bool hasAssistantLaneSignalRoute() const;
+  inline  ::capnp::Text::Reader getAssistantLaneSignalRoute() const;
+
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -10338,6 +10363,49 @@ public:
 
   inline  ::uint64_t getManualLaneIndicatorMonoTime();
   inline void setManualLaneIndicatorMonoTime( ::uint64_t value);
+
+  inline  ::cereal::LaneChangeDirection getObservedIndicator();
+  inline void setObservedIndicator( ::cereal::LaneChangeDirection value);
+
+  inline  ::uint64_t getObservedIndicatorMonoTime();
+  inline void setObservedIndicatorMonoTime( ::uint64_t value);
+
+  inline bool hasObservedIndicatorSource();
+  inline  ::capnp::Text::Builder getObservedIndicatorSource();
+  inline void setObservedIndicatorSource( ::capnp::Text::Reader value);
+  inline  ::capnp::Text::Builder initObservedIndicatorSource(unsigned int size);
+  inline void adoptObservedIndicatorSource(::capnp::Orphan< ::capnp::Text>&& value);
+  inline ::capnp::Orphan< ::capnp::Text> disownObservedIndicatorSource();
+
+  inline  ::uint8_t getIndicatorIsolationMask();
+  inline void setIndicatorIsolationMask( ::uint8_t value);
+
+  inline  ::uint64_t getIndicatorJournalMonoTime();
+  inline void setIndicatorJournalMonoTime( ::uint64_t value);
+
+  inline  ::cereal::LaneChangeDirection getIndicatorPrepareDirection();
+  inline void setIndicatorPrepareDirection( ::cereal::LaneChangeDirection value);
+
+  inline bool hasIndicatorPrepareSource();
+  inline  ::capnp::Text::Builder getIndicatorPrepareSource();
+  inline void setIndicatorPrepareSource( ::capnp::Text::Reader value);
+  inline  ::capnp::Text::Builder initIndicatorPrepareSource(unsigned int size);
+  inline void adoptIndicatorPrepareSource(::capnp::Orphan< ::capnp::Text>&& value);
+  inline ::capnp::Orphan< ::capnp::Text> disownIndicatorPrepareSource();
+
+  inline bool hasAssistantLaneSignalId();
+  inline  ::capnp::Text::Builder getAssistantLaneSignalId();
+  inline void setAssistantLaneSignalId( ::capnp::Text::Reader value);
+  inline  ::capnp::Text::Builder initAssistantLaneSignalId(unsigned int size);
+  inline void adoptAssistantLaneSignalId(::capnp::Orphan< ::capnp::Text>&& value);
+  inline ::capnp::Orphan< ::capnp::Text> disownAssistantLaneSignalId();
+
+  inline bool hasAssistantLaneSignalRoute();
+  inline  ::capnp::Text::Builder getAssistantLaneSignalRoute();
+  inline void setAssistantLaneSignalRoute( ::capnp::Text::Reader value);
+  inline  ::capnp::Text::Builder initAssistantLaneSignalRoute(unsigned int size);
+  inline void adoptAssistantLaneSignalRoute(::capnp::Orphan< ::capnp::Text>&& value);
+  inline ::capnp::Orphan< ::capnp::Text> disownAssistantLaneSignalRoute();
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -35844,6 +35912,212 @@ inline  ::uint64_t ModelDataV2::MetaData::Builder::getManualLaneIndicatorMonoTim
 inline void ModelDataV2::MetaData::Builder::setManualLaneIndicatorMonoTime( ::uint64_t value) {
   _builder.setDataField< ::uint64_t>(
       ::capnp::bounded<8>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::cereal::LaneChangeDirection ModelDataV2::MetaData::Reader::getObservedIndicator() const {
+  return _reader.getDataField< ::cereal::LaneChangeDirection>(
+      ::capnp::bounded<36>() * ::capnp::ELEMENTS);
+}
+
+inline  ::cereal::LaneChangeDirection ModelDataV2::MetaData::Builder::getObservedIndicator() {
+  return _builder.getDataField< ::cereal::LaneChangeDirection>(
+      ::capnp::bounded<36>() * ::capnp::ELEMENTS);
+}
+inline void ModelDataV2::MetaData::Builder::setObservedIndicator( ::cereal::LaneChangeDirection value) {
+  _builder.setDataField< ::cereal::LaneChangeDirection>(
+      ::capnp::bounded<36>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint64_t ModelDataV2::MetaData::Reader::getObservedIndicatorMonoTime() const {
+  return _reader.getDataField< ::uint64_t>(
+      ::capnp::bounded<10>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint64_t ModelDataV2::MetaData::Builder::getObservedIndicatorMonoTime() {
+  return _builder.getDataField< ::uint64_t>(
+      ::capnp::bounded<10>() * ::capnp::ELEMENTS);
+}
+inline void ModelDataV2::MetaData::Builder::setObservedIndicatorMonoTime( ::uint64_t value) {
+  _builder.setDataField< ::uint64_t>(
+      ::capnp::bounded<10>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool ModelDataV2::MetaData::Reader::hasObservedIndicatorSource() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS).isNull();
+}
+inline bool ModelDataV2::MetaData::Builder::hasObservedIndicatorSource() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::Text::Reader ModelDataV2::MetaData::Reader::getObservedIndicatorSource() const {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_reader.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS));
+}
+inline  ::capnp::Text::Builder ModelDataV2::MetaData::Builder::getObservedIndicatorSource() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS));
+}
+inline void ModelDataV2::MetaData::Builder::setObservedIndicatorSource( ::capnp::Text::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::set(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::Text::Builder ModelDataV2::MetaData::Builder::initObservedIndicatorSource(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::init(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS), size);
+}
+inline void ModelDataV2::MetaData::Builder::adoptObservedIndicatorSource(
+    ::capnp::Orphan< ::capnp::Text>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::adopt(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::Text> ModelDataV2::MetaData::Builder::disownObservedIndicatorSource() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::disown(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS));
+}
+
+inline  ::uint8_t ModelDataV2::MetaData::Reader::getIndicatorIsolationMask() const {
+  return _reader.getDataField< ::uint8_t>(
+      ::capnp::bounded<17>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint8_t ModelDataV2::MetaData::Builder::getIndicatorIsolationMask() {
+  return _builder.getDataField< ::uint8_t>(
+      ::capnp::bounded<17>() * ::capnp::ELEMENTS);
+}
+inline void ModelDataV2::MetaData::Builder::setIndicatorIsolationMask( ::uint8_t value) {
+  _builder.setDataField< ::uint8_t>(
+      ::capnp::bounded<17>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint64_t ModelDataV2::MetaData::Reader::getIndicatorJournalMonoTime() const {
+  return _reader.getDataField< ::uint64_t>(
+      ::capnp::bounded<11>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint64_t ModelDataV2::MetaData::Builder::getIndicatorJournalMonoTime() {
+  return _builder.getDataField< ::uint64_t>(
+      ::capnp::bounded<11>() * ::capnp::ELEMENTS);
+}
+inline void ModelDataV2::MetaData::Builder::setIndicatorJournalMonoTime( ::uint64_t value) {
+  _builder.setDataField< ::uint64_t>(
+      ::capnp::bounded<11>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::cereal::LaneChangeDirection ModelDataV2::MetaData::Reader::getIndicatorPrepareDirection() const {
+  return _reader.getDataField< ::cereal::LaneChangeDirection>(
+      ::capnp::bounded<37>() * ::capnp::ELEMENTS);
+}
+
+inline  ::cereal::LaneChangeDirection ModelDataV2::MetaData::Builder::getIndicatorPrepareDirection() {
+  return _builder.getDataField< ::cereal::LaneChangeDirection>(
+      ::capnp::bounded<37>() * ::capnp::ELEMENTS);
+}
+inline void ModelDataV2::MetaData::Builder::setIndicatorPrepareDirection( ::cereal::LaneChangeDirection value) {
+  _builder.setDataField< ::cereal::LaneChangeDirection>(
+      ::capnp::bounded<37>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool ModelDataV2::MetaData::Reader::hasIndicatorPrepareSource() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<5>() * ::capnp::POINTERS).isNull();
+}
+inline bool ModelDataV2::MetaData::Builder::hasIndicatorPrepareSource() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<5>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::Text::Reader ModelDataV2::MetaData::Reader::getIndicatorPrepareSource() const {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_reader.getPointerField(
+      ::capnp::bounded<5>() * ::capnp::POINTERS));
+}
+inline  ::capnp::Text::Builder ModelDataV2::MetaData::Builder::getIndicatorPrepareSource() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_builder.getPointerField(
+      ::capnp::bounded<5>() * ::capnp::POINTERS));
+}
+inline void ModelDataV2::MetaData::Builder::setIndicatorPrepareSource( ::capnp::Text::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::set(_builder.getPointerField(
+      ::capnp::bounded<5>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::Text::Builder ModelDataV2::MetaData::Builder::initIndicatorPrepareSource(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::init(_builder.getPointerField(
+      ::capnp::bounded<5>() * ::capnp::POINTERS), size);
+}
+inline void ModelDataV2::MetaData::Builder::adoptIndicatorPrepareSource(
+    ::capnp::Orphan< ::capnp::Text>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::adopt(_builder.getPointerField(
+      ::capnp::bounded<5>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::Text> ModelDataV2::MetaData::Builder::disownIndicatorPrepareSource() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::disown(_builder.getPointerField(
+      ::capnp::bounded<5>() * ::capnp::POINTERS));
+}
+
+inline bool ModelDataV2::MetaData::Reader::hasAssistantLaneSignalId() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<6>() * ::capnp::POINTERS).isNull();
+}
+inline bool ModelDataV2::MetaData::Builder::hasAssistantLaneSignalId() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<6>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::Text::Reader ModelDataV2::MetaData::Reader::getAssistantLaneSignalId() const {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_reader.getPointerField(
+      ::capnp::bounded<6>() * ::capnp::POINTERS));
+}
+inline  ::capnp::Text::Builder ModelDataV2::MetaData::Builder::getAssistantLaneSignalId() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_builder.getPointerField(
+      ::capnp::bounded<6>() * ::capnp::POINTERS));
+}
+inline void ModelDataV2::MetaData::Builder::setAssistantLaneSignalId( ::capnp::Text::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::set(_builder.getPointerField(
+      ::capnp::bounded<6>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::Text::Builder ModelDataV2::MetaData::Builder::initAssistantLaneSignalId(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::init(_builder.getPointerField(
+      ::capnp::bounded<6>() * ::capnp::POINTERS), size);
+}
+inline void ModelDataV2::MetaData::Builder::adoptAssistantLaneSignalId(
+    ::capnp::Orphan< ::capnp::Text>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::adopt(_builder.getPointerField(
+      ::capnp::bounded<6>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::Text> ModelDataV2::MetaData::Builder::disownAssistantLaneSignalId() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::disown(_builder.getPointerField(
+      ::capnp::bounded<6>() * ::capnp::POINTERS));
+}
+
+inline bool ModelDataV2::MetaData::Reader::hasAssistantLaneSignalRoute() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS).isNull();
+}
+inline bool ModelDataV2::MetaData::Builder::hasAssistantLaneSignalRoute() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::Text::Reader ModelDataV2::MetaData::Reader::getAssistantLaneSignalRoute() const {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_reader.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS));
+}
+inline  ::capnp::Text::Builder ModelDataV2::MetaData::Builder::getAssistantLaneSignalRoute() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS));
+}
+inline void ModelDataV2::MetaData::Builder::setAssistantLaneSignalRoute( ::capnp::Text::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::set(_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::Text::Builder ModelDataV2::MetaData::Builder::initAssistantLaneSignalRoute(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::init(_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS), size);
+}
+inline void ModelDataV2::MetaData::Builder::adoptAssistantLaneSignalRoute(
+    ::capnp::Orphan< ::capnp::Text>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::adopt(_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::Text> ModelDataV2::MetaData::Builder::disownAssistantLaneSignalRoute() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::disown(_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS));
 }
 
 inline float ModelDataV2::MetaData::Deprecated::Reader::getBrakeDisengageProb() const {
