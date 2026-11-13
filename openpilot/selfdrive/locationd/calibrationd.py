@@ -18,6 +18,7 @@ from openpilot.common.constants import CV
 from openpilot.common.params import Params
 from openpilot.common.realtime import config_realtime_process
 from openpilot.common.transformations.orientation import rot_from_euler, euler_from_rot
+from openpilot.common.transformations.camera_calib import CameraCalibSet, Cam, build_factory_set, write_live_calibration
 from openpilot.common.swaglog import cloudlog
 
 MIN_SPEED_FILTER = 15 * CV.MPH_TO_MS
@@ -63,6 +64,7 @@ def moving_avg_with_linear_decay(prev_mean: np.ndarray, new_val: np.ndarray, idx
 class Calibrator:
   def __init__(self, param_put: bool = False):
     self.param_put = param_put
+    self.calib_set: CameraCalibSet | None = None
 
     self.not_car = False
 
@@ -87,6 +89,9 @@ class Calibrator:
 
     self.reset(rpy_init, valid_blocks, wide_from_device_euler, height)
     self.update_status()
+
+  def set_calib_set(self, s: CameraCalibSet) -> None:
+    self.calib_set = s
 
   def reset(self, rpy_init: np.ndarray = RPY_INIT,
                   valid_blocks: int = 0,
@@ -166,6 +171,12 @@ class Calibrator:
       self.cal_status = log.LiveCalibrationData.Status.recalibrating
 
     write_this_cycle = (self.idx == 0) and (self.block_idx % (INPUTS_WANTED//5) == 5)
+    if write_this_cycle and self.calib_set is not None:
+      self.calib_set.body_from_calib = self.rpy
+      self.calib_set.height = float(self.height[0])
+      if Cam.WIDE in self.calib_set.cams:
+        self.calib_set.cams[Cam.WIDE].rpy = self.wide_from_device_euler
+      self.calib_set.seq += 1
     if self.param_put and write_this_cycle:
       self.params.put_nonblocking("CalibrationParams", self.get_msg(True).to_bytes())
 
@@ -252,6 +263,9 @@ class Calibrator:
       liveCalibration.rpyCalib = [0, 0, 0]
       liveCalibration.rpyCalibSpread = self.calib_spread.tolist()
 
+    if self.calib_set is not None:
+      write_live_calibration(liveCalibration, self.calib_set)
+
     return msg
 
   def send_data(self, pm: messaging.PubMaster, valid: bool) -> None:
@@ -262,7 +276,7 @@ def main() -> NoReturn:
   config_realtime_process([0, 1, 2, 3], 5)
 
   pm = messaging.PubMaster(['liveCalibration'])
-  sm = messaging.SubMaster(['cameraOdometry', 'carState'], poll='cameraOdometry')
+  sm = messaging.SubMaster(['cameraOdometry', 'carState', 'deviceState', 'roadCameraState'], poll='cameraOdometry')
 
   params_reader = Params()
   CP = messaging.log_from_bytes(params_reader.get("CarParams", block=True), car.CarParams)
@@ -273,6 +287,9 @@ def main() -> NoReturn:
   while 1:
     timeout = 0 if sm.frame == -1 else 100
     sm.update(timeout)
+
+    if sm.updated['roadCameraState'] and calibrator.calib_set is None:
+      calibrator.set_calib_set(build_factory_set(HARDWARE.get_device_type(), str(sm['roadCameraState'].sensor)))
 
     if sm.updated['cameraOdometry']:
       calibrator.handle_v_ego(sm['carState'].vEgo)
@@ -297,7 +314,7 @@ def main() -> NoReturn:
 
     # 4Hz driven by cameraOdometry
     if sm.frame % 5 == 0:
-      calibrator.send_data(pm, sm.all_checks())
+      calibrator.send_data(pm, sm.all_checks(['cameraOdometry', 'carState']))
 
 
 if __name__ == "__main__":
