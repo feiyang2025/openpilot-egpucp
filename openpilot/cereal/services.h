@@ -92,6 +92,8 @@ static std::map<std::string, service> services = {
   { "customReservedRawData0", {"customReservedRawData0", true, 0.000000, -1, 256000}},
   { "customReservedRawData1", {"customReservedRawData1", true, 0.000000, -1, 256000}},
   { "customReservedRawData2", {"customReservedRawData2", true, 0.000000, -1, 256000}},
+  { "cameraCalibCandidate", {"cameraCalibCandidate", true, 5.000000, 1, 256000}},
+  { "cameraSyncState", {"cameraSyncState", true, 10.000000, 1, 256000}},
 };
 #endif
 

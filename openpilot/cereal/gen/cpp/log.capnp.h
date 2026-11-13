@@ -391,6 +391,15 @@ enum class Status_caaa029466ad394d: uint16_t {
 };
 CAPNP_DECLARE_ENUM(Status, caaa029466ad394d);
 CAPNP_DECLARE_SCHEMA(c593e8bf980ad645);
+CAPNP_DECLARE_SCHEMA(847078bcb02a66d7);
+CAPNP_DECLARE_SCHEMA(8ab8f3ba448901cf);
+enum class Source_8ab8f3ba448901cf: uint16_t {
+  FACTORY,
+  PRIOR,
+  AUTO,
+  MANUAL,
+};
+CAPNP_DECLARE_ENUM(Source, 8ab8f3ba448901cf);
 CAPNP_DECLARE_SCHEMA(b52430dc48f4a83b);
 CAPNP_DECLARE_SCHEMA(dbe58b96d2d1ac61);
 enum class OpenpilotState_dbe58b96d2d1ac61: uint16_t {
@@ -1267,7 +1276,7 @@ struct LiveCalibrationData {
   struct Deprecated;
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(96df70754d8390bc, 2, 8)
+    CAPNP_DECLARE_STRUCT_HEADER(96df70754d8390bc, 3, 9)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -1282,7 +1291,24 @@ struct LiveCalibrationData::Deprecated {
   class Pipeline;
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(c593e8bf980ad645, 2, 8)
+    CAPNP_DECLARE_STRUCT_HEADER(c593e8bf980ad645, 3, 9)
+    #if !CAPNP_LITE
+    static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
+    #endif  // !CAPNP_LITE
+  };
+};
+
+struct CameraCalib {
+  CameraCalib() = delete;
+
+  class Reader;
+  class Builder;
+  class Pipeline;
+  typedef ::capnp::schemas::Source_8ab8f3ba448901cf Source;
+
+
+  struct _capnpPrivate {
+    CAPNP_DECLARE_STRUCT_HEADER(847078bcb02a66d7, 4, 5)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -3225,8 +3251,8 @@ struct Event {
     CARROT_NAVI,
     CARROT_NAVI_MEDIA,
     AMAP_NAVI,
-    CUSTOM_RESERVED4,
-    CUSTOM_RESERVED5,
+    CAMERA_CALIB_CANDIDATE,
+    CAMERA_SYNC_STATE,
     CUSTOM_RESERVED6,
     CUSTOM_RESERVED7,
     CUSTOM_RESERVED8,
@@ -7538,6 +7564,13 @@ public:
   inline bool hasHeight() const;
   inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Reader getHeight() const;
 
+  inline  ::uint16_t getCalibSchemaVersion() const;
+
+  inline  ::uint32_t getCalibSeq() const;
+
+  inline bool hasCams() const;
+  inline  ::capnp::List< ::cereal::CameraCalib,  ::capnp::Kind::STRUCT>::Reader getCams() const;
+
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -7620,6 +7653,19 @@ public:
   inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Builder initHeight(unsigned int size);
   inline void adoptHeight(::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>&& value);
   inline ::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>> disownHeight();
+
+  inline  ::uint16_t getCalibSchemaVersion();
+  inline void setCalibSchemaVersion( ::uint16_t value);
+
+  inline  ::uint32_t getCalibSeq();
+  inline void setCalibSeq( ::uint32_t value);
+
+  inline bool hasCams();
+  inline  ::capnp::List< ::cereal::CameraCalib,  ::capnp::Kind::STRUCT>::Builder getCams();
+  inline void setCams( ::capnp::List< ::cereal::CameraCalib,  ::capnp::Kind::STRUCT>::Reader value);
+  inline  ::capnp::List< ::cereal::CameraCalib,  ::capnp::Kind::STRUCT>::Builder initCams(unsigned int size);
+  inline void adoptCams(::capnp::Orphan< ::capnp::List< ::cereal::CameraCalib,  ::capnp::Kind::STRUCT>>&& value);
+  inline ::capnp::Orphan< ::capnp::List< ::cereal::CameraCalib,  ::capnp::Kind::STRUCT>> disownCams();
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -7744,6 +7790,181 @@ private:
 class LiveCalibrationData::Deprecated::Pipeline {
 public:
   typedef Deprecated Pipelines;
+
+  inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
+  inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
+      : _typeless(kj::mv(typeless)) {}
+
+private:
+  ::capnp::AnyPointer::Pipeline _typeless;
+  friend class ::capnp::PipelineHook;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+};
+#endif  // !CAPNP_LITE
+
+class CameraCalib::Reader {
+public:
+  typedef CameraCalib Reads;
+
+  Reader() = default;
+  inline explicit Reader(::capnp::_::StructReader base): _reader(base) {}
+
+  inline ::capnp::MessageSize totalSize() const {
+    return _reader.totalSize().asPublic();
+  }
+
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const {
+    return ::capnp::_::structString(_reader, *_capnpPrivate::brand());
+  }
+#endif  // !CAPNP_LITE
+
+  inline  ::uint8_t getId() const;
+
+  inline bool hasUid() const;
+  inline  ::capnp::Text::Reader getUid() const;
+
+  inline  ::uint16_t getWidth() const;
+
+  inline  ::uint16_t getHeight() const;
+
+  inline bool hasIntrinsics() const;
+  inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Reader getIntrinsics() const;
+
+  inline bool hasDistortion() const;
+  inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Reader getDistortion() const;
+
+  inline bool hasRpy() const;
+  inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Reader getRpy() const;
+
+  inline bool getValid() const;
+
+  inline  ::cereal::CameraCalib::Source getSource() const;
+
+  inline  ::int32_t getBlocks() const;
+
+  inline float getRmsReproj() const;
+
+  inline bool hasSpread() const;
+  inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Reader getSpread() const;
+
+  inline  ::uint64_t getUpdatedAtNs() const;
+
+  inline float getMountHeight() const;
+
+  inline bool getExtrinsicValid() const;
+
+private:
+  ::capnp::_::StructReader _reader;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::List;
+  friend class ::capnp::MessageBuilder;
+  friend class ::capnp::Orphanage;
+};
+
+class CameraCalib::Builder {
+public:
+  typedef CameraCalib Builds;
+
+  Builder() = delete;  // Deleted to discourage incorrect usage.
+                       // You can explicitly initialize to nullptr instead.
+  inline Builder(decltype(nullptr)) {}
+  inline explicit Builder(::capnp::_::StructBuilder base): _builder(base) {}
+  inline operator Reader() const { return Reader(_builder.asReader()); }
+  inline Reader asReader() const { return *this; }
+
+  inline ::capnp::MessageSize totalSize() const { return asReader().totalSize(); }
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const { return asReader().toString(); }
+#endif  // !CAPNP_LITE
+
+  inline  ::uint8_t getId();
+  inline void setId( ::uint8_t value);
+
+  inline bool hasUid();
+  inline  ::capnp::Text::Builder getUid();
+  inline void setUid( ::capnp::Text::Reader value);
+  inline  ::capnp::Text::Builder initUid(unsigned int size);
+  inline void adoptUid(::capnp::Orphan< ::capnp::Text>&& value);
+  inline ::capnp::Orphan< ::capnp::Text> disownUid();
+
+  inline  ::uint16_t getWidth();
+  inline void setWidth( ::uint16_t value);
+
+  inline  ::uint16_t getHeight();
+  inline void setHeight( ::uint16_t value);
+
+  inline bool hasIntrinsics();
+  inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Builder getIntrinsics();
+  inline void setIntrinsics( ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Reader value);
+  inline void setIntrinsics(::kj::ArrayPtr<const float> value);
+  inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Builder initIntrinsics(unsigned int size);
+  inline void adoptIntrinsics(::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>&& value);
+  inline ::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>> disownIntrinsics();
+
+  inline bool hasDistortion();
+  inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Builder getDistortion();
+  inline void setDistortion( ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Reader value);
+  inline void setDistortion(::kj::ArrayPtr<const float> value);
+  inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Builder initDistortion(unsigned int size);
+  inline void adoptDistortion(::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>&& value);
+  inline ::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>> disownDistortion();
+
+  inline bool hasRpy();
+  inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Builder getRpy();
+  inline void setRpy( ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Reader value);
+  inline void setRpy(::kj::ArrayPtr<const float> value);
+  inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Builder initRpy(unsigned int size);
+  inline void adoptRpy(::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>&& value);
+  inline ::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>> disownRpy();
+
+  inline bool getValid();
+  inline void setValid(bool value);
+
+  inline  ::cereal::CameraCalib::Source getSource();
+  inline void setSource( ::cereal::CameraCalib::Source value);
+
+  inline  ::int32_t getBlocks();
+  inline void setBlocks( ::int32_t value);
+
+  inline float getRmsReproj();
+  inline void setRmsReproj(float value);
+
+  inline bool hasSpread();
+  inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Builder getSpread();
+  inline void setSpread( ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Reader value);
+  inline void setSpread(::kj::ArrayPtr<const float> value);
+  inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Builder initSpread(unsigned int size);
+  inline void adoptSpread(::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>&& value);
+  inline ::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>> disownSpread();
+
+  inline  ::uint64_t getUpdatedAtNs();
+  inline void setUpdatedAtNs( ::uint64_t value);
+
+  inline float getMountHeight();
+  inline void setMountHeight(float value);
+
+  inline bool getExtrinsicValid();
+  inline void setExtrinsicValid(bool value);
+
+private:
+  ::capnp::_::StructBuilder _builder;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  friend class ::capnp::Orphanage;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+};
+
+#if !CAPNP_LITE
+class CameraCalib::Pipeline {
+public:
+  typedef CameraCalib Pipelines;
 
   inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
   inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
@@ -23160,13 +23381,13 @@ public:
   inline bool hasAmapNavi() const;
   inline  ::cereal::AmapNavi::Reader getAmapNavi() const;
 
-  inline bool isCustomReserved4() const;
-  inline bool hasCustomReserved4() const;
-  inline  ::cereal::CustomReserved4::Reader getCustomReserved4() const;
+  inline bool isCameraCalibCandidate() const;
+  inline bool hasCameraCalibCandidate() const;
+  inline  ::cereal::CameraCalibCandidate::Reader getCameraCalibCandidate() const;
 
-  inline bool isCustomReserved5() const;
-  inline bool hasCustomReserved5() const;
-  inline  ::cereal::CustomReserved5::Reader getCustomReserved5() const;
+  inline bool isCameraSyncState() const;
+  inline bool hasCameraSyncState() const;
+  inline  ::cereal::CameraSyncState::Reader getCameraSyncState() const;
 
   inline bool isCustomReserved6() const;
   inline bool hasCustomReserved6() const;
@@ -24243,21 +24464,21 @@ public:
   inline void adoptAmapNavi(::capnp::Orphan< ::cereal::AmapNavi>&& value);
   inline ::capnp::Orphan< ::cereal::AmapNavi> disownAmapNavi();
 
-  inline bool isCustomReserved4();
-  inline bool hasCustomReserved4();
-  inline  ::cereal::CustomReserved4::Builder getCustomReserved4();
-  inline void setCustomReserved4( ::cereal::CustomReserved4::Reader value);
-  inline  ::cereal::CustomReserved4::Builder initCustomReserved4();
-  inline void adoptCustomReserved4(::capnp::Orphan< ::cereal::CustomReserved4>&& value);
-  inline ::capnp::Orphan< ::cereal::CustomReserved4> disownCustomReserved4();
+  inline bool isCameraCalibCandidate();
+  inline bool hasCameraCalibCandidate();
+  inline  ::cereal::CameraCalibCandidate::Builder getCameraCalibCandidate();
+  inline void setCameraCalibCandidate( ::cereal::CameraCalibCandidate::Reader value);
+  inline  ::cereal::CameraCalibCandidate::Builder initCameraCalibCandidate();
+  inline void adoptCameraCalibCandidate(::capnp::Orphan< ::cereal::CameraCalibCandidate>&& value);
+  inline ::capnp::Orphan< ::cereal::CameraCalibCandidate> disownCameraCalibCandidate();
 
-  inline bool isCustomReserved5();
-  inline bool hasCustomReserved5();
-  inline  ::cereal::CustomReserved5::Builder getCustomReserved5();
-  inline void setCustomReserved5( ::cereal::CustomReserved5::Reader value);
-  inline  ::cereal::CustomReserved5::Builder initCustomReserved5();
-  inline void adoptCustomReserved5(::capnp::Orphan< ::cereal::CustomReserved5>&& value);
-  inline ::capnp::Orphan< ::cereal::CustomReserved5> disownCustomReserved5();
+  inline bool isCameraSyncState();
+  inline bool hasCameraSyncState();
+  inline  ::cereal::CameraSyncState::Builder getCameraSyncState();
+  inline void setCameraSyncState( ::cereal::CameraSyncState::Reader value);
+  inline  ::cereal::CameraSyncState::Builder initCameraSyncState();
+  inline void adoptCameraSyncState(::capnp::Orphan< ::cereal::CameraSyncState>&& value);
+  inline ::capnp::Orphan< ::cereal::CameraSyncState> disownCameraSyncState();
 
   inline bool isCustomReserved6();
   inline bool hasCustomReserved6();
@@ -31268,6 +31489,68 @@ inline ::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>> LiveCal
       ::capnp::bounded<7>() * ::capnp::POINTERS));
 }
 
+inline  ::uint16_t LiveCalibrationData::Reader::getCalibSchemaVersion() const {
+  return _reader.getDataField< ::uint16_t>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint16_t LiveCalibrationData::Builder::getCalibSchemaVersion() {
+  return _builder.getDataField< ::uint16_t>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS);
+}
+inline void LiveCalibrationData::Builder::setCalibSchemaVersion( ::uint16_t value) {
+  _builder.setDataField< ::uint16_t>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint32_t LiveCalibrationData::Reader::getCalibSeq() const {
+  return _reader.getDataField< ::uint32_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint32_t LiveCalibrationData::Builder::getCalibSeq() {
+  return _builder.getDataField< ::uint32_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+inline void LiveCalibrationData::Builder::setCalibSeq( ::uint32_t value) {
+  _builder.setDataField< ::uint32_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool LiveCalibrationData::Reader::hasCams() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<8>() * ::capnp::POINTERS).isNull();
+}
+inline bool LiveCalibrationData::Builder::hasCams() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<8>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::List< ::cereal::CameraCalib,  ::capnp::Kind::STRUCT>::Reader LiveCalibrationData::Reader::getCams() const {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::CameraCalib,  ::capnp::Kind::STRUCT>>::get(_reader.getPointerField(
+      ::capnp::bounded<8>() * ::capnp::POINTERS));
+}
+inline  ::capnp::List< ::cereal::CameraCalib,  ::capnp::Kind::STRUCT>::Builder LiveCalibrationData::Builder::getCams() {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::CameraCalib,  ::capnp::Kind::STRUCT>>::get(_builder.getPointerField(
+      ::capnp::bounded<8>() * ::capnp::POINTERS));
+}
+inline void LiveCalibrationData::Builder::setCams( ::capnp::List< ::cereal::CameraCalib,  ::capnp::Kind::STRUCT>::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::CameraCalib,  ::capnp::Kind::STRUCT>>::set(_builder.getPointerField(
+      ::capnp::bounded<8>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::List< ::cereal::CameraCalib,  ::capnp::Kind::STRUCT>::Builder LiveCalibrationData::Builder::initCams(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::CameraCalib,  ::capnp::Kind::STRUCT>>::init(_builder.getPointerField(
+      ::capnp::bounded<8>() * ::capnp::POINTERS), size);
+}
+inline void LiveCalibrationData::Builder::adoptCams(
+    ::capnp::Orphan< ::capnp::List< ::cereal::CameraCalib,  ::capnp::Kind::STRUCT>>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::CameraCalib,  ::capnp::Kind::STRUCT>>::adopt(_builder.getPointerField(
+      ::capnp::bounded<8>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::List< ::cereal::CameraCalib,  ::capnp::Kind::STRUCT>> LiveCalibrationData::Builder::disownCams() {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::CameraCalib,  ::capnp::Kind::STRUCT>>::disown(_builder.getPointerField(
+      ::capnp::bounded<8>() * ::capnp::POINTERS));
+}
+
 inline bool LiveCalibrationData::Deprecated::Reader::hasWarpMatrix() const {
   return !_reader.getPointerField(
       ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
@@ -31394,6 +31677,332 @@ inline void LiveCalibrationData::Deprecated::Builder::adoptWarpMatrixBig(
 inline ::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>> LiveCalibrationData::Deprecated::Builder::disownWarpMatrixBig() {
   return ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::disown(_builder.getPointerField(
       ::capnp::bounded<3>() * ::capnp::POINTERS));
+}
+
+inline  ::uint8_t CameraCalib::Reader::getId() const {
+  return _reader.getDataField< ::uint8_t>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint8_t CameraCalib::Builder::getId() {
+  return _builder.getDataField< ::uint8_t>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+inline void CameraCalib::Builder::setId( ::uint8_t value) {
+  _builder.setDataField< ::uint8_t>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool CameraCalib::Reader::hasUid() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline bool CameraCalib::Builder::hasUid() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::Text::Reader CameraCalib::Reader::getUid() const {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline  ::capnp::Text::Builder CameraCalib::Builder::getUid() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline void CameraCalib::Builder::setUid( ::capnp::Text::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::set(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::Text::Builder CameraCalib::Builder::initUid(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::init(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), size);
+}
+inline void CameraCalib::Builder::adoptUid(
+    ::capnp::Orphan< ::capnp::Text>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::adopt(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::Text> CameraCalib::Builder::disownUid() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::disown(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+
+inline  ::uint16_t CameraCalib::Reader::getWidth() const {
+  return _reader.getDataField< ::uint16_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint16_t CameraCalib::Builder::getWidth() {
+  return _builder.getDataField< ::uint16_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
+}
+inline void CameraCalib::Builder::setWidth( ::uint16_t value) {
+  _builder.setDataField< ::uint16_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint16_t CameraCalib::Reader::getHeight() const {
+  return _reader.getDataField< ::uint16_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint16_t CameraCalib::Builder::getHeight() {
+  return _builder.getDataField< ::uint16_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+inline void CameraCalib::Builder::setHeight( ::uint16_t value) {
+  _builder.setDataField< ::uint16_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool CameraCalib::Reader::hasIntrinsics() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS).isNull();
+}
+inline bool CameraCalib::Builder::hasIntrinsics() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Reader CameraCalib::Reader::getIntrinsics() const {
+  return ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::get(_reader.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS));
+}
+inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Builder CameraCalib::Builder::getIntrinsics() {
+  return ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::get(_builder.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS));
+}
+inline void CameraCalib::Builder::setIntrinsics( ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::set(_builder.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS), value);
+}
+inline void CameraCalib::Builder::setIntrinsics(::kj::ArrayPtr<const float> value) {
+  ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::set(_builder.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Builder CameraCalib::Builder::initIntrinsics(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::init(_builder.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS), size);
+}
+inline void CameraCalib::Builder::adoptIntrinsics(
+    ::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::adopt(_builder.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>> CameraCalib::Builder::disownIntrinsics() {
+  return ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::disown(_builder.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS));
+}
+
+inline bool CameraCalib::Reader::hasDistortion() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS).isNull();
+}
+inline bool CameraCalib::Builder::hasDistortion() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Reader CameraCalib::Reader::getDistortion() const {
+  return ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::get(_reader.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS));
+}
+inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Builder CameraCalib::Builder::getDistortion() {
+  return ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::get(_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS));
+}
+inline void CameraCalib::Builder::setDistortion( ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::set(_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS), value);
+}
+inline void CameraCalib::Builder::setDistortion(::kj::ArrayPtr<const float> value) {
+  ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::set(_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Builder CameraCalib::Builder::initDistortion(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::init(_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS), size);
+}
+inline void CameraCalib::Builder::adoptDistortion(
+    ::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::adopt(_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>> CameraCalib::Builder::disownDistortion() {
+  return ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::disown(_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS));
+}
+
+inline bool CameraCalib::Reader::hasRpy() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS).isNull();
+}
+inline bool CameraCalib::Builder::hasRpy() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Reader CameraCalib::Reader::getRpy() const {
+  return ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::get(_reader.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS));
+}
+inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Builder CameraCalib::Builder::getRpy() {
+  return ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::get(_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS));
+}
+inline void CameraCalib::Builder::setRpy( ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::set(_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS), value);
+}
+inline void CameraCalib::Builder::setRpy(::kj::ArrayPtr<const float> value) {
+  ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::set(_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Builder CameraCalib::Builder::initRpy(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::init(_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS), size);
+}
+inline void CameraCalib::Builder::adoptRpy(
+    ::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::adopt(_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>> CameraCalib::Builder::disownRpy() {
+  return ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::disown(_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS));
+}
+
+inline bool CameraCalib::Reader::getValid() const {
+  return _reader.getDataField<bool>(
+      ::capnp::bounded<8>() * ::capnp::ELEMENTS);
+}
+
+inline bool CameraCalib::Builder::getValid() {
+  return _builder.getDataField<bool>(
+      ::capnp::bounded<8>() * ::capnp::ELEMENTS);
+}
+inline void CameraCalib::Builder::setValid(bool value) {
+  _builder.setDataField<bool>(
+      ::capnp::bounded<8>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::cereal::CameraCalib::Source CameraCalib::Reader::getSource() const {
+  return _reader.getDataField< ::cereal::CameraCalib::Source>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+
+inline  ::cereal::CameraCalib::Source CameraCalib::Builder::getSource() {
+  return _builder.getDataField< ::cereal::CameraCalib::Source>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+inline void CameraCalib::Builder::setSource( ::cereal::CameraCalib::Source value) {
+  _builder.setDataField< ::cereal::CameraCalib::Source>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::int32_t CameraCalib::Reader::getBlocks() const {
+  return _reader.getDataField< ::int32_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+
+inline  ::int32_t CameraCalib::Builder::getBlocks() {
+  return _builder.getDataField< ::int32_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+inline void CameraCalib::Builder::setBlocks( ::int32_t value) {
+  _builder.setDataField< ::int32_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS, value);
+}
+
+inline float CameraCalib::Reader::getRmsReproj() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+
+inline float CameraCalib::Builder::getRmsReproj() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+inline void CameraCalib::Builder::setRmsReproj(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool CameraCalib::Reader::hasSpread() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS).isNull();
+}
+inline bool CameraCalib::Builder::hasSpread() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Reader CameraCalib::Reader::getSpread() const {
+  return ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::get(_reader.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS));
+}
+inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Builder CameraCalib::Builder::getSpread() {
+  return ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::get(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS));
+}
+inline void CameraCalib::Builder::setSpread( ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::set(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS), value);
+}
+inline void CameraCalib::Builder::setSpread(::kj::ArrayPtr<const float> value) {
+  ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::set(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Builder CameraCalib::Builder::initSpread(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::init(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS), size);
+}
+inline void CameraCalib::Builder::adoptSpread(
+    ::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::adopt(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>> CameraCalib::Builder::disownSpread() {
+  return ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::disown(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS));
+}
+
+inline  ::uint64_t CameraCalib::Reader::getUpdatedAtNs() const {
+  return _reader.getDataField< ::uint64_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint64_t CameraCalib::Builder::getUpdatedAtNs() {
+  return _builder.getDataField< ::uint64_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+inline void CameraCalib::Builder::setUpdatedAtNs( ::uint64_t value) {
+  _builder.setDataField< ::uint64_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS, value);
+}
+
+inline float CameraCalib::Reader::getMountHeight() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS);
+}
+
+inline float CameraCalib::Builder::getMountHeight() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS);
+}
+inline void CameraCalib::Builder::setMountHeight(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool CameraCalib::Reader::getExtrinsicValid() const {
+  return _reader.getDataField<bool>(
+      ::capnp::bounded<9>() * ::capnp::ELEMENTS);
+}
+
+inline bool CameraCalib::Builder::getExtrinsicValid() {
+  return _builder.getDataField<bool>(
+      ::capnp::bounded<9>() * ::capnp::ELEMENTS);
+}
+inline void CameraCalib::Builder::setExtrinsicValid(bool value) {
+  _builder.setDataField<bool>(
+      ::capnp::bounded<9>() * ::capnp::ELEMENTS, value);
 }
 
 inline  ::cereal::SelfdriveState::OpenpilotState SelfdriveState::Reader::getState() const {
@@ -58956,111 +59565,111 @@ inline ::capnp::Orphan< ::cereal::AmapNavi> Event::Builder::disownAmapNavi() {
       ::capnp::bounded<0>() * ::capnp::POINTERS));
 }
 
-inline bool Event::Reader::isCustomReserved4() const {
-  return which() == Event::CUSTOM_RESERVED4;
+inline bool Event::Reader::isCameraCalibCandidate() const {
+  return which() == Event::CAMERA_CALIB_CANDIDATE;
 }
-inline bool Event::Builder::isCustomReserved4() {
-  return which() == Event::CUSTOM_RESERVED4;
+inline bool Event::Builder::isCameraCalibCandidate() {
+  return which() == Event::CAMERA_CALIB_CANDIDATE;
 }
-inline bool Event::Reader::hasCustomReserved4() const {
-  if (which() != Event::CUSTOM_RESERVED4) return false;
+inline bool Event::Reader::hasCameraCalibCandidate() const {
+  if (which() != Event::CAMERA_CALIB_CANDIDATE) return false;
   return !_reader.getPointerField(
       ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
 }
-inline bool Event::Builder::hasCustomReserved4() {
-  if (which() != Event::CUSTOM_RESERVED4) return false;
+inline bool Event::Builder::hasCameraCalibCandidate() {
+  if (which() != Event::CAMERA_CALIB_CANDIDATE) return false;
   return !_builder.getPointerField(
       ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
 }
-inline  ::cereal::CustomReserved4::Reader Event::Reader::getCustomReserved4() const {
-  KJ_IREQUIRE((which() == Event::CUSTOM_RESERVED4),
+inline  ::cereal::CameraCalibCandidate::Reader Event::Reader::getCameraCalibCandidate() const {
+  KJ_IREQUIRE((which() == Event::CAMERA_CALIB_CANDIDATE),
               "Must check which() before get()ing a union member.");
-  return ::capnp::_::PointerHelpers< ::cereal::CustomReserved4>::get(_reader.getPointerField(
+  return ::capnp::_::PointerHelpers< ::cereal::CameraCalibCandidate>::get(_reader.getPointerField(
       ::capnp::bounded<0>() * ::capnp::POINTERS));
 }
-inline  ::cereal::CustomReserved4::Builder Event::Builder::getCustomReserved4() {
-  KJ_IREQUIRE((which() == Event::CUSTOM_RESERVED4),
+inline  ::cereal::CameraCalibCandidate::Builder Event::Builder::getCameraCalibCandidate() {
+  KJ_IREQUIRE((which() == Event::CAMERA_CALIB_CANDIDATE),
               "Must check which() before get()ing a union member.");
-  return ::capnp::_::PointerHelpers< ::cereal::CustomReserved4>::get(_builder.getPointerField(
+  return ::capnp::_::PointerHelpers< ::cereal::CameraCalibCandidate>::get(_builder.getPointerField(
       ::capnp::bounded<0>() * ::capnp::POINTERS));
 }
-inline void Event::Builder::setCustomReserved4( ::cereal::CustomReserved4::Reader value) {
+inline void Event::Builder::setCameraCalibCandidate( ::cereal::CameraCalibCandidate::Reader value) {
   _builder.setDataField<Event::Which>(
-      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::CUSTOM_RESERVED4);
-  ::capnp::_::PointerHelpers< ::cereal::CustomReserved4>::set(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::CAMERA_CALIB_CANDIDATE);
+  ::capnp::_::PointerHelpers< ::cereal::CameraCalibCandidate>::set(_builder.getPointerField(
       ::capnp::bounded<0>() * ::capnp::POINTERS), value);
 }
-inline  ::cereal::CustomReserved4::Builder Event::Builder::initCustomReserved4() {
+inline  ::cereal::CameraCalibCandidate::Builder Event::Builder::initCameraCalibCandidate() {
   _builder.setDataField<Event::Which>(
-      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::CUSTOM_RESERVED4);
-  return ::capnp::_::PointerHelpers< ::cereal::CustomReserved4>::init(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::CAMERA_CALIB_CANDIDATE);
+  return ::capnp::_::PointerHelpers< ::cereal::CameraCalibCandidate>::init(_builder.getPointerField(
       ::capnp::bounded<0>() * ::capnp::POINTERS));
 }
-inline void Event::Builder::adoptCustomReserved4(
-    ::capnp::Orphan< ::cereal::CustomReserved4>&& value) {
+inline void Event::Builder::adoptCameraCalibCandidate(
+    ::capnp::Orphan< ::cereal::CameraCalibCandidate>&& value) {
   _builder.setDataField<Event::Which>(
-      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::CUSTOM_RESERVED4);
-  ::capnp::_::PointerHelpers< ::cereal::CustomReserved4>::adopt(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::CAMERA_CALIB_CANDIDATE);
+  ::capnp::_::PointerHelpers< ::cereal::CameraCalibCandidate>::adopt(_builder.getPointerField(
       ::capnp::bounded<0>() * ::capnp::POINTERS), kj::mv(value));
 }
-inline ::capnp::Orphan< ::cereal::CustomReserved4> Event::Builder::disownCustomReserved4() {
-  KJ_IREQUIRE((which() == Event::CUSTOM_RESERVED4),
+inline ::capnp::Orphan< ::cereal::CameraCalibCandidate> Event::Builder::disownCameraCalibCandidate() {
+  KJ_IREQUIRE((which() == Event::CAMERA_CALIB_CANDIDATE),
               "Must check which() before get()ing a union member.");
-  return ::capnp::_::PointerHelpers< ::cereal::CustomReserved4>::disown(_builder.getPointerField(
+  return ::capnp::_::PointerHelpers< ::cereal::CameraCalibCandidate>::disown(_builder.getPointerField(
       ::capnp::bounded<0>() * ::capnp::POINTERS));
 }
 
-inline bool Event::Reader::isCustomReserved5() const {
-  return which() == Event::CUSTOM_RESERVED5;
+inline bool Event::Reader::isCameraSyncState() const {
+  return which() == Event::CAMERA_SYNC_STATE;
 }
-inline bool Event::Builder::isCustomReserved5() {
-  return which() == Event::CUSTOM_RESERVED5;
+inline bool Event::Builder::isCameraSyncState() {
+  return which() == Event::CAMERA_SYNC_STATE;
 }
-inline bool Event::Reader::hasCustomReserved5() const {
-  if (which() != Event::CUSTOM_RESERVED5) return false;
+inline bool Event::Reader::hasCameraSyncState() const {
+  if (which() != Event::CAMERA_SYNC_STATE) return false;
   return !_reader.getPointerField(
       ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
 }
-inline bool Event::Builder::hasCustomReserved5() {
-  if (which() != Event::CUSTOM_RESERVED5) return false;
+inline bool Event::Builder::hasCameraSyncState() {
+  if (which() != Event::CAMERA_SYNC_STATE) return false;
   return !_builder.getPointerField(
       ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
 }
-inline  ::cereal::CustomReserved5::Reader Event::Reader::getCustomReserved5() const {
-  KJ_IREQUIRE((which() == Event::CUSTOM_RESERVED5),
+inline  ::cereal::CameraSyncState::Reader Event::Reader::getCameraSyncState() const {
+  KJ_IREQUIRE((which() == Event::CAMERA_SYNC_STATE),
               "Must check which() before get()ing a union member.");
-  return ::capnp::_::PointerHelpers< ::cereal::CustomReserved5>::get(_reader.getPointerField(
+  return ::capnp::_::PointerHelpers< ::cereal::CameraSyncState>::get(_reader.getPointerField(
       ::capnp::bounded<0>() * ::capnp::POINTERS));
 }
-inline  ::cereal::CustomReserved5::Builder Event::Builder::getCustomReserved5() {
-  KJ_IREQUIRE((which() == Event::CUSTOM_RESERVED5),
+inline  ::cereal::CameraSyncState::Builder Event::Builder::getCameraSyncState() {
+  KJ_IREQUIRE((which() == Event::CAMERA_SYNC_STATE),
               "Must check which() before get()ing a union member.");
-  return ::capnp::_::PointerHelpers< ::cereal::CustomReserved5>::get(_builder.getPointerField(
+  return ::capnp::_::PointerHelpers< ::cereal::CameraSyncState>::get(_builder.getPointerField(
       ::capnp::bounded<0>() * ::capnp::POINTERS));
 }
-inline void Event::Builder::setCustomReserved5( ::cereal::CustomReserved5::Reader value) {
+inline void Event::Builder::setCameraSyncState( ::cereal::CameraSyncState::Reader value) {
   _builder.setDataField<Event::Which>(
-      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::CUSTOM_RESERVED5);
-  ::capnp::_::PointerHelpers< ::cereal::CustomReserved5>::set(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::CAMERA_SYNC_STATE);
+  ::capnp::_::PointerHelpers< ::cereal::CameraSyncState>::set(_builder.getPointerField(
       ::capnp::bounded<0>() * ::capnp::POINTERS), value);
 }
-inline  ::cereal::CustomReserved5::Builder Event::Builder::initCustomReserved5() {
+inline  ::cereal::CameraSyncState::Builder Event::Builder::initCameraSyncState() {
   _builder.setDataField<Event::Which>(
-      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::CUSTOM_RESERVED5);
-  return ::capnp::_::PointerHelpers< ::cereal::CustomReserved5>::init(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::CAMERA_SYNC_STATE);
+  return ::capnp::_::PointerHelpers< ::cereal::CameraSyncState>::init(_builder.getPointerField(
       ::capnp::bounded<0>() * ::capnp::POINTERS));
 }
-inline void Event::Builder::adoptCustomReserved5(
-    ::capnp::Orphan< ::cereal::CustomReserved5>&& value) {
+inline void Event::Builder::adoptCameraSyncState(
+    ::capnp::Orphan< ::cereal::CameraSyncState>&& value) {
   _builder.setDataField<Event::Which>(
-      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::CUSTOM_RESERVED5);
-  ::capnp::_::PointerHelpers< ::cereal::CustomReserved5>::adopt(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::CAMERA_SYNC_STATE);
+  ::capnp::_::PointerHelpers< ::cereal::CameraSyncState>::adopt(_builder.getPointerField(
       ::capnp::bounded<0>() * ::capnp::POINTERS), kj::mv(value));
 }
-inline ::capnp::Orphan< ::cereal::CustomReserved5> Event::Builder::disownCustomReserved5() {
-  KJ_IREQUIRE((which() == Event::CUSTOM_RESERVED5),
+inline ::capnp::Orphan< ::cereal::CameraSyncState> Event::Builder::disownCameraSyncState() {
+  KJ_IREQUIRE((which() == Event::CAMERA_SYNC_STATE),
               "Must check which() before get()ing a union member.");
-  return ::capnp::_::PointerHelpers< ::cereal::CustomReserved5>::disown(_builder.getPointerField(
+  return ::capnp::_::PointerHelpers< ::cereal::CameraSyncState>::disown(_builder.getPointerField(
       ::capnp::bounded<0>() * ::capnp::POINTERS));
 }
 
