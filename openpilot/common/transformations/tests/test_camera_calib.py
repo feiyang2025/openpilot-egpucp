@@ -5,7 +5,7 @@ from openpilot.common.transformations.camera import view_frame_from_device_frame
 from openpilot.common.transformations.orientation import rot_from_euler
 from openpilot.common.transformations.model import get_warp_matrix
 from openpilot.common.transformations.camera_calib import (Cam, CalibSource, CameraCalib, CameraCalibSet, CalibIdentity,
-                                                           build_factory_set, from_legacy_values,
+                                                           DEFAULT_MOUNT_HEIGHT, build_factory_set, from_legacy_values,
                                                            from_live_calibration, write_live_calibration, to_json)
 
 
@@ -90,6 +90,32 @@ def test_legacy_composition_matches_doc():
   assert np.allclose(s.cams[Cam.WIDE].rpy, wide)
   assert s.height == 1.22 and s.cams[Cam.WIDE].mount_height is None
 
+def test_factory_set_omits_absent_cameras():
+  # ("neo","unknown") 的 ecam 是 _NoneCameraConfig：WIDE 既不在 cams 也不在 identity.sizes
+  s = build_factory_set("neo", "unknown")
+  assert Cam.WIDE not in s.cams
+  assert {Cam.ROAD, Cam.DCAM} <= set(s.cams)
+  for cam in s.cams:
+    assert s.cams[cam].width > 0 and s.cams[cam].height > 0
+    assert s.K(cam)[0, 0] > 0
+  assert int(Cam.WIDE) not in s.identity.sizes
+
+def test_factory_set_road_height_is_prior():
+  s = build_factory_set("pc", "imx390")
+  assert s.cams[Cam.ROAD].mount_height == DEFAULT_MOUNT_HEIGHT
+  assert s.height == s.cams[Cam.ROAD].mount_height
+  assert s.cams[Cam.WIDE].mount_height is None
+  assert s.cams[Cam.DCAM].mount_height is None
+
+def test_legacy_values_neo_without_wide():
+  s = from_legacy_values(np.zeros(3), np.array([1.22]), np.array([0., 0., 0.03]), "neo", "unknown")
+  assert Cam.WIDE not in s.cams
+  assert s.cams[Cam.ROAD].mount_height == 1.22
+
+def test_legacy_values_empty_height_uses_zero():
+  s = from_legacy_values(np.zeros(3), np.zeros(0), np.zeros(3), "pc", "imx390")
+  assert s.height == 0.0
+
 def test_live_calibration_roundtrip_preserves_values():
   s0 = from_legacy_values(np.array([0., 0.05, 0.01]), np.array([1.22]),
                           np.array([0., 0., 0.03]), "pc", "imx390")
@@ -102,6 +128,13 @@ def test_live_calibration_roundtrip_preserves_values():
     assert (a.fx, a.fy, a.cx, a.cy) == (b.fx, b.fy, b.cx, b.cy)
     assert np.allclose(a.rpy if a.rpy is not None else [], b.rpy if b.rpy is not None else [])
     assert a.valid == b.valid and a.source == b.source
+    assert (a.mount_height is None) == (b.mount_height is None)
+    if a.mount_height is not None:
+      # mountHeight 在线上是 Float32：1.22 轮询回来是 1.2200000286…
+      assert np.isclose(a.mount_height, b.mount_height, rtol=0, atol=1e-6)
+    assert a.extrinsic_valid == b.extrinsic_valid
+  # DCAM 无外参：rpy 必须明确为 None，而不是空数组伪装成零旋转
+  assert s1.cams[Cam.DCAM].rpy is None
 
 def test_legacy_bytes_without_cams_falls_back():
   # 构造一个只有旧字段的 liveCalibration 消息

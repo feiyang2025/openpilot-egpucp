@@ -1,21 +1,26 @@
-"""Camera calibration data model and the matrices derived from it.
+"""Camera calibration data model, the matrices derived from it, and its
+serialization helpers.
 
 Single home of the calibration types shared by calibrationd, modeld, the UI and
-the diagnostic tools. It deliberately knows nothing about any on-wire or
-persisted representation: producers/consumers convert between those and these
-dataclasses.
+the diagnostic tools. The factory/migration/serialization functions at the
+bottom convert between the on-wire capnp liveCalibration message and these
+dataclasses; `to_json` is the single JSON projection for non-Python consumers.
 """
 from dataclasses import dataclass
 from enum import IntEnum
 
 import numpy as np
 
-from openpilot.common.transformations.camera import view_frame_from_device_frame, DEVICE_CAMERAS
+from openpilot.common.transformations.camera import view_frame_from_device_frame, DEVICE_CAMERAS, _NoneCameraConfig
 from openpilot.common.transformations.model import calib_from_medmodel, calib_from_sbigmodel
 from openpilot.common.transformations.orientation import rot_from_euler
 
 
 SUPPORTED_SCHEMA_VERSION = 1
+
+# Mirrors calibrationd.HEIGHT_INIT: the height a fresh calibrationd would
+# report before its first successful ground-plane estimate.
+DEFAULT_MOUNT_HEIGHT = 1.22
 
 # Factory table fallback for an unknown (device_type, sensor) pair (spec §5.3,
 # Review Focus #2).
@@ -159,29 +164,41 @@ def _factory_cam(cc, size: tuple[int, int], *, with_extrinsic: bool,
 
 def build_factory_set(device_type: str, sensor: str,
                       sizes: dict[int, tuple[int, int]] | None = None) -> CameraCalibSet:
-  """Built-in default table: ROAD/WIDE/DCAM with factory intrinsics (spec §5.3).
+  """Built-in default table with factory intrinsics (spec §5.3).
 
-  DCAM carries only factory intrinsics (source=PRIOR, no extrinsic);
-  LEFT/RIGHT/REAR are not present until a camera is physically attached.
+  ROAD/WIDE get a zero extrinsic with FACTORY source; DCAM carries only factory
+  intrinsics (source=PRIOR, no extrinsic). Cameras whose device config is a
+  _NoneCameraConfig (no such sensor, e.g. WIDE on `neo`) are omitted entirely:
+  they appear neither in cams nor in identity.sizes. ROAD's mount height and
+  the set-level height use the pre-estimation prior DEFAULT_MOUNT_HEIGHT (the
+  same value a fresh calibrationd would report; WIDE/DCAM stay None).
   """
   dc = _device_config(device_type, sensor)
-  native = {Cam.ROAD: (dc.fcam.width, dc.fcam.height),
-            Cam.WIDE: (dc.ecam.width, dc.ecam.height),
-            Cam.DCAM: (dc.dcam.width, dc.dcam.height)}
+  configs = {Cam.ROAD: dc.fcam, Cam.WIDE: dc.ecam, Cam.DCAM: dc.dcam}
+  native = {}
+  for cam, cc in configs.items():
+    if isinstance(cc, _NoneCameraConfig):
+      continue
+    native[cam] = (cc.width, cc.height)
   requested = sizes or {}
   resolved = {}
   for cam, dims in native.items():
     size = requested.get(int(cam), dims)
     resolved[cam] = (int(size[0]), int(size[1]))
-  cams = {
-    Cam.ROAD: _factory_cam(dc.fcam, resolved[Cam.ROAD], with_extrinsic=True, mount_height=0.0, source=CalibSource.FACTORY),
-    Cam.WIDE: _factory_cam(dc.ecam, resolved[Cam.WIDE], with_extrinsic=True, mount_height=None, source=CalibSource.FACTORY),
-    Cam.DCAM: _factory_cam(dc.dcam, resolved[Cam.DCAM], with_extrinsic=False, mount_height=None, source=CalibSource.PRIOR),
-  }
+  cams = {}
+  if Cam.ROAD in resolved:
+    cams[Cam.ROAD] = _factory_cam(dc.fcam, resolved[Cam.ROAD], with_extrinsic=True,
+                                  mount_height=DEFAULT_MOUNT_HEIGHT, source=CalibSource.FACTORY)
+  if Cam.WIDE in resolved:
+    cams[Cam.WIDE] = _factory_cam(dc.ecam, resolved[Cam.WIDE], with_extrinsic=True,
+                                  mount_height=None, source=CalibSource.FACTORY)
+  if Cam.DCAM in resolved:
+    cams[Cam.DCAM] = _factory_cam(dc.dcam, resolved[Cam.DCAM], with_extrinsic=False,
+                                  mount_height=None, source=CalibSource.PRIOR)
   return CameraCalibSet(
     schema_version=SUPPORTED_SCHEMA_VERSION, seq=0,
     identity=CalibIdentity(device_type, sensor, {int(cam): resolved[cam] for cam in cams}),
-    height=0.0, body_from_calib=np.zeros(3), cams=cams)
+    height=DEFAULT_MOUNT_HEIGHT, body_from_calib=np.zeros(3), cams=cams)
 
 
 def from_legacy_values(rpy, height, wide_from_device_euler, device_type, sensor,
@@ -193,17 +210,20 @@ def from_legacy_values(rpy, height, wide_from_device_euler, device_type, sensor,
   road mount height. Road/wide are FACTORY values here (nothing online has
   estimated yet) and never get written back by this call.
   """
-  height = float(np.asarray(height, dtype=float).reshape(-1)[-1])
+  heights = np.asarray(height, dtype=float).reshape(-1)
+  height = float(heights[-1]) if heights.size > 0 else 0.0
   s = build_factory_set(device_type, sensor, sizes)
   s.seq = int(seq)
   s.height = height
   s.body_from_calib = np.asarray(rpy, dtype=float).reshape(3)
-  road = s.cams[Cam.ROAD]
-  road.rpy = np.zeros(3)
-  road.mount_height = height
-  wide = s.cams[Cam.WIDE]
-  wide.rpy = np.asarray(wide_from_device_euler, dtype=float).reshape(3)
-  wide.mount_height = None
+  if Cam.ROAD in s.cams:
+    road = s.cams[Cam.ROAD]
+    road.rpy = np.zeros(3)
+    road.mount_height = height
+  if Cam.WIDE in s.cams:
+    wide = s.cams[Cam.WIDE]
+    wide.rpy = np.asarray(wide_from_device_euler, dtype=float).reshape(3)
+    wide.mount_height = None
   return s
 
 
