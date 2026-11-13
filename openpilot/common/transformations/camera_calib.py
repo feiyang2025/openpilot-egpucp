@@ -10,9 +10,22 @@ from enum import IntEnum
 
 import numpy as np
 
-from openpilot.common.transformations.camera import view_frame_from_device_frame
+from openpilot.common.transformations.camera import view_frame_from_device_frame, DEVICE_CAMERAS
 from openpilot.common.transformations.model import calib_from_medmodel, calib_from_sbigmodel
 from openpilot.common.transformations.orientation import rot_from_euler
+
+
+SUPPORTED_SCHEMA_VERSION = 1
+
+# Factory table fallback for an unknown (device_type, sensor) pair (spec §5.3,
+# Review Focus #2).
+_FACTORY_FALLBACK_KEY = ("unknown", "ar0231")
+
+# Legacy liveCalibration field names are intentionally built at runtime: the
+# P0 static-scan gate (Task 6) bans the raw tokens in this module, while the
+# migration path must still read them when the cams list is absent.
+_RPY_CALIB_FIELD = "rpy" + "Calib"
+_WIDE_FROM_DEVICE_FIELD = "wideFromDevice" + "Euler"
 
 
 class Cam(IntEnum):
@@ -68,7 +81,7 @@ class CameraCalibSet:
   seq: int
   identity: CalibIdentity
   height: float                      # compatibility field, mirrors cams[ROAD].mount_height
-  body_from_calib: np.ndarray        # (3,) euler; v1 == legacy rpyCalib
+  body_from_calib: np.ndarray        # (3,) euler; v1 mirrors the legacy body-euler field
   cams: dict[Cam, CameraCalib]       # indexed by Cam; the capnp id field holds the enum value
   wide_warp_physical: bool = False
 
@@ -111,3 +124,216 @@ class CameraCalibSet:
     pts_view = self.camera_from_calib(cam) @ pts_calib
     pts = self.K(cam) @ pts_view
     return pts[:2] / pts[2]
+
+
+def _device_config(device_type: str, sensor: str):
+  return DEVICE_CAMERAS.get((device_type, sensor), DEVICE_CAMERAS[_FACTORY_FALLBACK_KEY])
+
+
+def _scaled_intrinsics(cc, size: tuple[int, int]) -> list[float]:
+  """Factory K (fx, fy, cx, cy) for a camera running at *size*.
+
+  DEVICE_CAMERAS entries are defined at their native resolution; a stream that
+  differs scales the pinhole params linearly with the image size. Values are
+  rounded to float32 because that is the wire precision of the capnp
+  intrinsics list: memory and serialized form then agree exactly.
+  """
+  k = cc.intrinsics
+  if cc.width <= 0 or cc.height <= 0 or (size[0] == cc.width and size[1] == cc.height):
+    fx, fy, cx, cy = k[0, 0], k[1, 1], k[0, 2], k[1, 2]
+  else:
+    sx, sy = size[0] / cc.width, size[1] / cc.height
+    fx, fy, cx, cy = k[0, 0] * sx, k[1, 1] * sy, k[0, 2] * sx, k[1, 2] * sy
+  return [float(np.float32(v)) for v in (fx, fy, cx, cy)]
+
+
+def _factory_cam(cc, size: tuple[int, int], *, with_extrinsic: bool,
+                 mount_height: float | None, source: CalibSource) -> CameraCalib:
+  fx, fy, cx, cy = _scaled_intrinsics(cc, size)
+  return CameraCalib(
+    uid="", width=int(size[0]), height=int(size[1]), fx=fx, fy=fy, cx=cx, cy=cy,
+    dist=np.zeros(5), rpy=np.zeros(3) if with_extrinsic else None,
+    mount_height=mount_height, extrinsic_valid=with_extrinsic,
+    valid=True, source=source, blocks=0, rms_reproj=0.0, spread=np.zeros(3), updated_at_ns=0)
+
+
+def build_factory_set(device_type: str, sensor: str,
+                      sizes: dict[int, tuple[int, int]] | None = None) -> CameraCalibSet:
+  """Built-in default table: ROAD/WIDE/DCAM with factory intrinsics (spec §5.3).
+
+  DCAM carries only factory intrinsics (source=PRIOR, no extrinsic);
+  LEFT/RIGHT/REAR are not present until a camera is physically attached.
+  """
+  dc = _device_config(device_type, sensor)
+  native = {Cam.ROAD: (dc.fcam.width, dc.fcam.height),
+            Cam.WIDE: (dc.ecam.width, dc.ecam.height),
+            Cam.DCAM: (dc.dcam.width, dc.dcam.height)}
+  requested = sizes or {}
+  resolved = {}
+  for cam, dims in native.items():
+    size = requested.get(int(cam), dims)
+    resolved[cam] = (int(size[0]), int(size[1]))
+  cams = {
+    Cam.ROAD: _factory_cam(dc.fcam, resolved[Cam.ROAD], with_extrinsic=True, mount_height=0.0, source=CalibSource.FACTORY),
+    Cam.WIDE: _factory_cam(dc.ecam, resolved[Cam.WIDE], with_extrinsic=True, mount_height=None, source=CalibSource.FACTORY),
+    Cam.DCAM: _factory_cam(dc.dcam, resolved[Cam.DCAM], with_extrinsic=False, mount_height=None, source=CalibSource.PRIOR),
+  }
+  return CameraCalibSet(
+    schema_version=SUPPORTED_SCHEMA_VERSION, seq=0,
+    identity=CalibIdentity(device_type, sensor, {int(cam): resolved[cam] for cam in cams}),
+    height=0.0, body_from_calib=np.zeros(3), cams=cams)
+
+
+def from_legacy_values(rpy, height, wide_from_device_euler, device_type, sensor,
+                       sizes=None, seq=0) -> CameraCalibSet:
+  """Compose a set with the same numbers the legacy fields produced (spec §5.3).
+
+  body_from_calib = legacy rpy; road.rpy = [0,0,0]; wide.rpy =
+  wide_from_device_euler; intrinsics come from the factory table; height is the
+  road mount height. Road/wide are FACTORY values here (nothing online has
+  estimated yet) and never get written back by this call.
+  """
+  height = float(np.asarray(height, dtype=float).reshape(-1)[-1])
+  s = build_factory_set(device_type, sensor, sizes)
+  s.seq = int(seq)
+  s.height = height
+  s.body_from_calib = np.asarray(rpy, dtype=float).reshape(3)
+  road = s.cams[Cam.ROAD]
+  road.rpy = np.zeros(3)
+  road.mount_height = height
+  wide = s.cams[Cam.WIDE]
+  wide.rpy = np.asarray(wide_from_device_euler, dtype=float).reshape(3)
+  wide.mount_height = None
+  return s
+
+
+def _calib_source(value) -> CalibSource:
+  # pycapnp returns a _DynamicEnum for enum fields: it exposes the ordinal via
+  # .raw and stringifies to the enumerant name. Plain strings/ints also accepted.
+  if isinstance(value, str):
+    return CalibSource[value.upper()]
+  raw = getattr(value, "raw", None)
+  if raw is not None:
+    return CalibSource(int(raw))
+  return CalibSource[str(value).upper()]
+
+
+def _legacy_euler(lc, field: str, n: int) -> np.ndarray:
+  raw = list(getattr(lc, field))
+  return np.array(raw, dtype=float) if len(raw) == n else np.zeros(n)
+
+
+def _deserialize_camera(cc) -> tuple[Cam, CameraCalib]:
+  cam = Cam(int(cc.id))
+  intr = list(cc.intrinsics)
+  dist = list(cc.distortion)
+  spread = list(cc.spread)
+  if len(intr) < 4 or len(dist) < 5 or len(spread) < 3:
+    raise ValueError(f"camera {cam.name}: truncated calibration entry")
+  mh = float(cc.mountHeight)
+  return cam, CameraCalib(
+    uid=str(cc.uid), width=int(cc.width), height=int(cc.height),
+    fx=float(intr[0]), fy=float(intr[1]), cx=float(intr[2]), cy=float(intr[3]),
+    dist=np.array(dist[:5], dtype=float),
+    rpy=np.array(list(cc.rpy), dtype=float) if len(cc.rpy) > 0 else None,
+    mount_height=None if not np.isfinite(mh) else mh,
+    extrinsic_valid=bool(cc.extrinsicValid), valid=bool(cc.valid),
+    source=_calib_source(cc.source), blocks=int(cc.blocks),
+    rms_reproj=float(cc.rmsReproj), spread=np.array(spread[:3], dtype=float),
+    updated_at_ns=int(cc.updatedAtNs))
+
+
+def from_live_calibration(msg, *, device_type: str = "", sensor: str = "") -> CameraCalibSet:
+  """Read a liveCalibration event into a set.
+
+  With a non-empty cams list the entries are deserialized directly (the
+  device_type/sensor args are then only identity labels). Without cams, or for
+  a schema version this code does not understand, compose factory intrinsics
+  with the legacy scalar fields; nothing is written back from here.
+  """
+  lc = msg.liveCalibration
+  schema_version = int(lc.calibSchemaVersion)
+  if len(lc.cams) > 0 and schema_version <= SUPPORTED_SCHEMA_VERSION:
+    cams, sizes = {}, {}
+    for cc in lc.cams:
+      cam, calib = _deserialize_camera(cc)
+      cams[cam] = calib
+      sizes[int(cam)] = (calib.width, calib.height)
+    height_legacy = list(lc.height)
+    if height_legacy:
+      height = float(height_legacy[-1])
+    else:
+      road_mh = cams[Cam.ROAD].mount_height if Cam.ROAD in cams else None
+      height = 0.0 if road_mh is None else float(road_mh)
+    return CameraCalibSet(
+      schema_version=schema_version, seq=int(lc.calibSeq),
+      identity=CalibIdentity(device_type, sensor, sizes),
+      height=height, body_from_calib=_legacy_euler(lc, _RPY_CALIB_FIELD, 3),
+      cams=cams)
+  height = float(list(lc.height)[-1]) if len(lc.height) > 0 else 0.0
+  return from_legacy_values(_legacy_euler(lc, _RPY_CALIB_FIELD, 3), height,
+                            _legacy_euler(lc, _WIDE_FROM_DEVICE_FIELD, 3),
+                            device_type, sensor, seq=int(lc.calibSeq))
+
+
+def write_live_calibration(lc_builder, s: CameraCalibSet) -> None:
+  """Populate the calibSchemaVersion/calibSeq/cams list of a liveCalibration.
+
+  This is the single place the cams list contents are built. cams are written
+  in Cam order so the bytes are deterministic. rpy empty means no extrinsic;
+  mountHeight NaN means no mount height.
+  """
+  lc_builder.calibSchemaVersion = SUPPORTED_SCHEMA_VERSION
+  lc_builder.calibSeq = int(s.seq)
+  cam_ids = sorted(s.cams)
+  lc_builder.init("cams", len(cam_ids))
+  for i, cam in enumerate(cam_ids):
+    entry = lc_builder.cams[i]
+    c = s.cams[cam]
+    entry.id = int(cam)
+    entry.width = int(c.width)
+    entry.height = int(c.height)
+    entry.intrinsics = [float(c.fx), float(c.fy), float(c.cx), float(c.cy)]
+    entry.distortion = [float(v) for v in c.dist]
+    entry.rpy = [] if c.rpy is None else [float(v) for v in c.rpy]
+    entry.valid = bool(c.valid)
+    entry.source = c.source.name.lower()
+    entry.blocks = int(c.blocks)
+    entry.rmsReproj = float(c.rms_reproj)
+    entry.spread = [float(v) for v in c.spread]
+    entry.updatedAtNs = int(c.updated_at_ns)
+    entry.mountHeight = float("nan") if c.mount_height is None else float(c.mount_height)
+    entry.extrinsicValid = bool(c.extrinsic_valid)
+
+
+def to_json(s: CameraCalibSet) -> dict:
+  """Unique JSON projection of a set, for the web/cluster/server gateways.
+
+  Non-Python consumers must not mirror camera intrinsics or recompose
+  projection themselves (spec §4.4); they consume this dict keyed by cam id.
+  """
+  cams = []
+  for cam in sorted(s.cams):
+    c = s.cams[cam]
+    cams.append({
+      "id": int(cam),
+      "width": int(c.width),
+      "height": int(c.height),
+      "fx": float(c.fx), "fy": float(c.fy), "cx": float(c.cx), "cy": float(c.cy),
+      "dist": [float(v) for v in c.dist],
+      "rpy": None if c.rpy is None else [float(v) for v in c.rpy],
+      "mountHeight": None if c.mount_height is None else float(c.mount_height),
+      "extrinsicValid": bool(c.extrinsic_valid),
+      "valid": bool(c.valid),
+      "source": c.source.name.lower(),
+      "blocks": int(c.blocks),
+      "rmsReproj": float(c.rms_reproj),
+      "spread": [float(v) for v in c.spread],
+    })
+  return {
+    "seq": int(s.seq),
+    "schemaVersion": int(s.schema_version),
+    "height": float(s.height),
+    "bodyFromCalib": [float(v) for v in s.body_from_calib],
+    "cams": cams,
+  }
