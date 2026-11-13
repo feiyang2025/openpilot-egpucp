@@ -790,6 +790,9 @@ struct LiveCalibrationData {
   rpyCalibSpread @8 :List(Float32);
   wideFromDeviceEuler @10 :List(Float32);
   height @12 :List(Float32);
+  calibSchemaVersion @13 :UInt16;
+  calibSeq @14 :UInt32;
+  cams @15 :List(CameraCalib);
 
 
   enum Status {
@@ -805,6 +808,15 @@ struct LiveCalibrationData {
     warpMatrix2 @5 :List(Float32);
     warpMatrixBig @6 :List(Float32);
   }
+}
+
+struct CameraCalib {
+  id @0 :UInt8;  uid @1 :Text;  width @2 :UInt16;  height @3 :UInt16;
+  intrinsics @4 :List(Float32);  distortion @5 :List(Float32);
+  rpy @6 :List(Float32);  valid @7 :Bool;  source @8 :Source;
+  blocks @9 :Int32;  rmsReproj @10 :Float32;  spread @11 :List(Float32);
+  updatedAtNs @12 :UInt64;  mountHeight @13 :Float32;  extrinsicValid @14 :Bool;
+  enum Source { factory @0; prior @1; auto @2; manual @3; }
 }
 
 struct SelfdriveState {
@@ -2757,7 +2769,7 @@ struct Event {
     carrotNavi @108 :Custom.CarrotNaviState;
     carrotNaviMedia @109 :Custom.CarrotNaviMedia;
     amapNavi @110 :Custom.AmapNavi;
-    customReserved4 @111 :Custom.CustomReserved4;
+    cameraCalibCandidate @111 :Custom.CameraCalibCandidate;
     customReserved5 @112 :Custom.CustomReserved5;
     customReserved6 @113 :Custom.CustomReserved6;
     customReserved7 @114 :Custom.CustomReserved7;

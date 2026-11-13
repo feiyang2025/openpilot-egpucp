@@ -275,7 +275,19 @@ struct AmapNavi @0xda96579883444c35 {
 	xiaogeRightLine @35 :Int32;
 }
 
-struct CustomReserved4 @0x80ae746ee2596b11 {
+struct CameraCalibCandidate @0x80ae746ee2596b11 {
+  generation @0 :UInt32;
+  cam @1 :List(CamEntry);
+  struct CamEntry {
+    id @0 :UInt8;
+    intrinsics @1 :List(Float32);   # [fx,fy,cx,cy]
+    rpy @2 :List(Float32);          # cam_from_body 候选
+    blocks @3 :Int32;
+    rmsReproj @4 :Float32;
+    mode @5 :Text;
+    std @6 :Float32;
+    span @7 :Float32;
+  }
 }
 
 struct CustomReserved5 @0xa5cd762cd951a455 {
