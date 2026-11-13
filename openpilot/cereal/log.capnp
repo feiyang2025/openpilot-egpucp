@@ -2770,7 +2770,7 @@ struct Event {
     carrotNaviMedia @109 :Custom.CarrotNaviMedia;
     amapNavi @110 :Custom.AmapNavi;
     cameraCalibCandidate @111 :Custom.CameraCalibCandidate;
-    customReserved5 @112 :Custom.CustomReserved5;
+    cameraSyncState @112 :Custom.CameraSyncState;
     customReserved6 @113 :Custom.CustomReserved6;
     customReserved7 @114 :Custom.CustomReserved7;
     customReserved8 @115 :Custom.CustomReserved8;

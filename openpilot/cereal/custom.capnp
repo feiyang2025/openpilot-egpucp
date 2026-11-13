@@ -290,7 +290,22 @@ struct CameraCalibCandidate @0x80ae746ee2596b11 {
   }
 }
 
-struct CustomReserved5 @0xa5cd762cd951a455 {
+struct CameraSyncState @0xa5cd762cd951a455 {
+  cam @0 :UInt8;
+  deltaNs @1 :Int64;
+  deltaP50Ns @2 :Int64;
+  deltaP99Ns @3 :Int64;
+  jitterNs @4 :Int64;
+  skewPpm @5 :Float32;
+  missingFrames @6 :UInt32;
+  streamEpoch @7 :UInt64;
+  synced @8 :Bool;
+  timebase @9 :Timebase;
+  timestampSource @10 :TimestampSource;
+  quantizationNs @11 :UInt32;
+  alignedResidualNs @12 :Int64;
+  enum Timebase { systemClock @0; fsin @1; hwTs @2; }
+  enum TimestampSource { kernelRecv @0; driver @1; vipc @2; }
 }
 
 struct CustomReserved6 @0xf98d843bfd7004a3 {

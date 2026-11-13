@@ -53,3 +53,12 @@ def test_camera_calib_candidate_struct():
 def test_services_registered():
   assert "cameraCalibCandidate" in SERVICE_LIST
   assert "cameraSyncState" in SERVICE_LIST
+
+
+def test_camera_sync_state_struct():
+  sync = _new_event('cameraSyncState').cameraSyncState
+  sync.cam = 0
+  sync.deltaNs = 13_000_000
+  sync.synced = True
+  sync.timebase = 'systemClock'
+  sync.alignedResidualNs = 1_000_000
