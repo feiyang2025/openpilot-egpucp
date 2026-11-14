@@ -302,6 +302,21 @@ async def get_stream(request: web.Request):
 
     try:
       answer = await session.get_answer()
+      try:
+        import time as _t
+        with open(f"/tmp/cv_offer_{int(_t.time())}.sdp", "w") as f:
+            f.write(raw_body["sdp"])
+        pc_ = session.stream.peer_connection
+        local_cands = await pc_.getLocalCandidates() if hasattr(pc_, "getLocalCandidates") else []
+        c_lines = [l for l in answer.sdp.splitlines() if l.startswith("c=")]
+        with open("/tmp/cv_answer_last.sdp", "w") as f:
+            f.write(answer.sdp)
+        webrtcd.webrtcd_log("info", "[cv-probe] offer_cands=%d answer_cands=%d localcands=%d gather=%s c_line=%s",
+                            raw_body["sdp"].count("a=candidate:"),
+                            answer.sdp.count("a=candidate:"),
+                            len(local_cands), pc_.iceGatheringState, c_lines)
+      except Exception:
+        webrtcd.webrtcd_log("info", "[cv-probe] probe failed")
     except Exception:
       await session.stop()
       raise
