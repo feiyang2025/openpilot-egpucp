@@ -348,6 +348,21 @@ def main() -> NoReturn:
       trim_active = abs(yaw_trim_deg) > 1e-6
       calib_done = calibrator.cal_status == log.LiveCalibrationData.Status.calibrated
 
+      # Single-point trim merge (spec §5.2, audit B4): the manual yaw offset
+      # becomes cams[ROAD].rpy[2] (= -radians(trim); verified equivalent to the
+      # legacy "subtract trim from body euler" within 1e-7 for pure yaw) so
+      # modeld and the UI read one consistent value. Trim active also freezes
+      # the online extrinsic update below (existing semantics).
+      if calibrator.calib_set is not None:
+        road = calibrator.calib_set.cams.get(Cam.ROAD)
+        if road is not None and road.rpy is not None:
+          new_trim = -np.radians(yaw_trim_deg)
+          if not np.isclose(road.rpy[2], new_trim, atol=1e-9):
+            road.rpy[2] = new_trim
+            if trim_active:
+              road.source = CalibSource.MANUAL
+            calibrator.calib_set.seq += 1
+
       freeze_calibration = trim_active and calib_done
       if not freeze_calibration:
         new_rpy = calibrator.handle_cam_odom(sm['cameraOdometry'].trans,

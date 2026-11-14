@@ -522,7 +522,6 @@ def main(demo=False):
   custom_lat_delay = 0.0
   lat_smooth_seconds = LAT_SMOOTH_SECONDS
   vEgoStopping = get_stopping_speed(params)
-  camera_yaw_trim_deg = params.get_float("CameraYawTrimDeg") * 0.01
   lat_delay_dynamic = lat_smooth_seconds
   diagnostics = RuntimeDiagnostics('modeld', cloudlog.event)
   while True:
@@ -533,7 +532,6 @@ def main(demo=False):
       lat_smooth_seconds = params.get_float("LatSmoothSec") * 0.01
       long_delay = params.get_float("LongActuatorDelay")*0.01
       vEgoStopping = get_stopping_speed(params)
-      camera_yaw_trim_deg = params.get_float("CameraYawTrimDeg") * 0.01
       # eGPU power follows ignition on the vehicle. Keep UI state current when
       # the shared USB hub is connected or removed after modeld starts.
       usbgpu_present_now = usbgpu_present()
@@ -566,16 +564,8 @@ def main(demo=False):
                                         device_type=str(sm['deviceState'].deviceType),
                                         sensor=str(sm['roadCameraState'].sensor))
 
-      # CameraYawTrimDeg stays a modeld-local manual offset until calibrationd
-      # merges it into the set (spec §5.2): applied to body_from_calib yaw only
-      # when the calibration has converged, exactly like the legacy path.
-      calib_done = sm["liveCalibration"].calStatus == log.LiveCalibrationData.Status.calibrated
-      applied_yaw_trim_deg = camera_yaw_trim_deg if calib_done else 0.0
-      if applied_yaw_trim_deg != 0.0:
-        # float32, matching the legacy device_from_calib_euler arithmetic bit-for-bit
-        body_f32 = calib_set.body_from_calib.astype(np.float32)
-        body_f32[2] -= np.radians(applied_yaw_trim_deg)
-        calib_set.body_from_calib = body_f32
+      # CameraYawTrimDeg is merged into road.rpy by calibrationd (spec §5.2);
+      # modeld consumes the set as-is, no second local application (audit B4).
 
       model_transform_main = calib_set.warp_matrix(Cam.WIDE if main_wide_camera else Cam.ROAD, False).astype(np.float32)
       has_wide_camera = use_extra_client or main_wide_camera
