@@ -129,7 +129,7 @@ class CameraView(Widget):
     if self._switching and self._target_stream_type == stream_type:
       return
 
-    cloudlog.debug(f'Preparing switch from {self._stream_type} to {stream_type}')
+    cloudlog.info(f'Preparing switch from {self._stream_type} to {stream_type}')
 
     if self._target_client:
       del self._target_client
@@ -317,7 +317,7 @@ class CameraView(Widget):
 
   def _complete_switch(self) -> None:
     """Instantly switch to target stream."""
-    cloudlog.debug(f"Switching to {self._target_stream_type}")
+    cloudlog.info(f"Switching to {self._target_stream_type}")
     # Clean up current resources
     if self.client:
       del self.client
