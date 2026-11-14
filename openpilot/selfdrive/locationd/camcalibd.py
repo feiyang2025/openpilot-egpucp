@@ -536,7 +536,18 @@ class CamCalibd:
     e.id = int(s.cam)
     # intrinsics candidate: square-pixel pinhole around the current cy (audit B3)
     cy = s.cy if s.cy is not None else 0.0
-    e.intrinsics = [float(info['f']), float(info['f']), cy, cy]
+    if info.get('mode') == 'lane_geom':
+      # constraint B (metric lane geometry): the only candidate allowed to
+      # move the focal (spec §6.3; the vp cannot identify f)
+      e.intrinsics = [float(info['f']), float(info['f']), cy, cy]
+    else:
+      # vp pitch candidate: keep the current intrinsics so the merge cannot
+      # apply a focal the vanishing point cannot identify
+      cur = self.calib_set.cams.get(s.cam) if self.calib_set else None
+      if cur is not None:
+        e.intrinsics = [float(cur.fx), float(cur.fy), float(cur.cx), float(cur.cy)]
+      else:
+        e.intrinsics = [float(info['f']), float(info['f']), cy, cy]
     # mounting pitch offset on this camera's own rpy (spec §6.3: extrinsic layer)
     # mounting pitch offset on this camera's own rpy (§6.3); lane-geometry
     # candidates carry no extrinsic change -> empty rpy (calibrationd keeps
@@ -680,7 +691,7 @@ class CamCalibd:
             t_r = self.sync.last_ts.get(Cam.ROAD)
             if t_w and t_r:
               dt_s = (t_w - t_r) / 1e9
-              pitch_sample = pitch - (self.odo_rot[1] / self.odo_dt) * dt_s
+              pitch_sample = pitch + (self.odo_rot[1] / self.odo_dt) * dt_s
           s.add_sample(v0, pitch_sample, s.cy if s.cy is not None else buf.height / 2.0)
           if abs(dt_s) > 0.02:
             cloudlog.debug(f"[camcalibd][{s.label}] attitude extrapolation {dt_s*1e3:.1f} ms")

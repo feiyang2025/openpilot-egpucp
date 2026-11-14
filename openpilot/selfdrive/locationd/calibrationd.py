@@ -175,6 +175,16 @@ class Calibrator:
     if write_this_cycle and self.calib_set is not None:
       self.calib_set.body_from_calib = self.rpy
       self.calib_set.height = float(self.height[0])
+      # keep the per-camera entry in sync: cams[ROAD].mount_height is what
+      # non-cereal consumers (radar_motion road_calib, JSON gateway) read;
+      # without this it stays at the factory default forever
+      if Cam.ROAD in self.calib_set.cams:
+        self.calib_set.cams[Cam.ROAD].mount_height = float(self.height[0])
+      # keep the per-camera entry in sync: cams[ROAD].mount_height is what
+      # non-cereal consumers (radar_motion road_calib, JSON gateway) read;
+      # without this it stays at the factory default forever
+      if Cam.ROAD in self.calib_set.cams:
+        self.calib_set.cams[Cam.ROAD].mount_height = float(self.height[0])
       if Cam.WIDE in self.calib_set.cams and self.calib_set.cams[Cam.WIDE].source != CalibSource.AUTO:
         # an auto-estimated wide extrinsic (camcalibd candidate) must not be
         # clobbered by the model's wideFromDeviceEuler copy (spec §5.1)
@@ -304,9 +314,14 @@ def apply_calib_candidate(calib_set: CameraCalibSet, cand) -> None:
     fx, fy, cx, cy = (float(v) for v in intr[:4])
     if not all(np.isfinite([fx, fy, cx, cy])) or fx <= 0.0 or fy <= 0.0:
       continue
-    if abs(fx / c.fx - 1.0) > CANDIDATE_FOCAL_LIMIT or abs(fy / c.fy - 1.0) > CANDIDATE_FOCAL_LIMIT:
+    # spec §6.3: only the lane-geometry mode (constraint B) may move the
+    # focal; vp candidates carry the current K and are no-ops on intrinsics
+    lane_geom = str(entry.mode) == 'lane_geom'
+    if lane_geom and (abs(fx / c.fx - 1.0) > CANDIDATE_FOCAL_LIMIT or abs(fy / c.fy - 1.0) > CANDIDATE_FOCAL_LIMIT):
       cloudlog.warning(f"calibrationd: candidate {cam.name} focal {fx:.1f}/{fy:.1f} exceeds limit, dropped")
       continue
+    if not lane_geom:
+      fx, fy, cx, cy = float(c.fx), float(c.fy), float(c.cx), float(c.cy)
     rpy = list(entry.rpy)
     if len(rpy) == 3 and all(np.isfinite(rpy)) and abs(float(rpy[1])) <= CANDIDATE_PITCH_LIMIT:
       # keep the merged manual yaw trim in rpy[2] (the candidate carries no
