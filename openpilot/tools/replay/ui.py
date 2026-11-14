@@ -152,7 +152,11 @@ def ui_thread(addr):
 
     sm.update(0)
 
-    camera = DEVICE_CAMERAS[("tici", str(sm['roadCameraState'].sensor))]
+    # audit B7: key was hardcoded to tici -> KeyError on this fork's rlogs
+    try:
+      camera = DEVICE_CAMERAS[(str(sm['deviceState'].deviceType), str(sm['roadCameraState'].sensor))]
+    except KeyError:
+      camera = DEVICE_CAMERAS[("tici", str(sm['roadCameraState'].sensor))]
     calib_scale = camera.fcam.width / 640.0
 
     if camera_view.frame:
