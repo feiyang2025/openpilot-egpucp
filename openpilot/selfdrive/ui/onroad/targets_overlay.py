@@ -62,11 +62,18 @@ def _with_a(c: rl.Color, a: int) -> rl.Color:
 
 
 class _Row:
-  __slots__ = ("tid", "cls", "d", "y", "px", "status", "ttc", "conf", "score", "age_s")
-  def __init__(self, tid, cls, d, y, px, status, ttc, conf, score, age_s):
+  __slots__ = ("tid", "cls", "d", "y", "px", "status", "ttc", "conf", "score", "age_s", "bbox")
+  def __init__(self, tid, cls, d, y, px, status, ttc, conf, score, age_s, bbox):
     self.tid, self.cls, self.d, self.y = tid, cls, d, y
     self.px, self.status, self.ttc = px, status, ttc
     self.conf, self.score, self.age_s = conf, score, age_s
+    self.bbox = bbox   # 归一化 [x0,y0,x1,y1] 或 None
+
+def _lit(c: rl.Color) -> rl.Color:
+  # v2.9: 字色=框色提亮 30%(黑边保读)
+  return rl.Color(int(c.r + 0.3 * (255 - c.r)),
+                  int(c.g + 0.3 * (255 - c.g)),
+                  int(c.b + 0.3 * (255 - c.b)), 255)
 
 
 class DevTargetsOverlay:
@@ -133,7 +140,15 @@ class DevTargetsOverlay:
             status = "TENT"
           closing = max(tr.vx, 0.05) if tr.x > 0.5 else 0.0
           ttc = (tr.x / closing) if (tr.x > 0.5 and closing > 0.1) else None
-          fresh.append(_Row(tr.trackId, tr.cls, d, tr.y, px, status, ttc, tr.confirmed, tr.score, stale_s))
+          bb = None
+          try:
+            b = tr.bbox
+            if len(b) == 4 and b[2] > b[0]:
+              bb = (min(max(float(b[0]), 0.0), 1.0), min(max(float(b[1]), 0.0), 1.0),
+                    min(max(float(b[2]), 0.0), 1.0), min(max(float(b[3]), 0.0), 1.0))
+          except Exception:
+            bb = None
+          fresh.append(_Row(tr.trackId, tr.cls, d, tr.y, px, status, ttc, tr.confirmed, tr.score, stale_s, bb))
         fresh.sort(key=lambda r: (r.status != "CONF", -(r.d if r.ttc is None else min(r.ttc, 99.0))))
     except Exception as e:                                  # noqa: BLE001
       self._err_streak += 1
@@ -226,24 +241,39 @@ class DevTargetsOverlay:
       c = _cls_color(r.cls)
       alpha = 90 if r.px < PX_GATE else (235 if r.status == "CONF" else (165 if r.status == "COAST" else 140))
       col = _with_a(c, min(alpha + 20, 255))
-      # 底=地面点(高 0), 顶=类高度点 → 透视正确、随距离缩放
-      bot = _proj(r.y, 0.0, r.d)
-      top = _proj(r.y, CLS_H.get(r.cls, 1.0), r.d)
-      if bot is None or top is None:
-        continue
-      ub, vb = bot
-      ut, vt = top
-      if not (x0 <= ub <= x1 and y0 <= vb <= y1):
+      if r.bbox is not None:
+        # v2.9: 消息 bbox(归一化图像坐标)——真实检测数据时此框贴在目标本体上
+        bx0, by0, bx1, by1 = r.bbox
+        bx = rect.x + bx0 * rect.width
+        by = rect.y + by0 * rect.height
+        bw = (bx1 - bx0) * rect.width
+        bh = (by1 - by0) * rect.height
+        ub = bx + bw / 2.0
+        vt = by
+      else:
+        # 退化路径: 底=地面点, 顶=类高度点 → 透视正确、随距离缩放
+        bot = _proj(r.y, 0.0, r.d)
+        top = _proj(r.y, CLS_H.get(r.cls, 1.0), r.d)
+        if bot is None or top is None:
+          continue
+        ub, vb = bot
+        ut, vt = top
+        if not (x0 <= ub <= x1 and y0 <= vb <= y1):
+          if len(pts_diag) < 3:
+            pts_diag.append([round(ub, 1), round(vb, 1), round(r.d, 1), "out"])
+          continue
+        self._road_hits += 1
         if len(pts_diag) < 3:
-          pts_diag.append([round(ub, 1), round(vb, 1), round(r.d, 1), "out"])
-        continue
-      self._road_hits += 1
-      if len(pts_diag) < 3:
-        pts_diag.append([round(ub, 1), round(vb, 1), round(r.d, 1)])
-      bh = max(8.0, vb - vt)                       # 框高(px), 近大远小
-      bw = max(6.0, bh * CLS_AR.get(r.cls, 0.6))    # 框宽
-      bx, by = ub - bw / 2.0, vt
-      rbox = rl.Rectangle(bx, by, bw, bh)
+          pts_diag.append([round(ub, 1), round(vb, 1), round(r.d, 1)])
+        bh = max(8.0, vb - vt)                       # 框高(px), 近大远小
+        bw = max(6.0, bh * CLS_AR.get(r.cls, 0.6))    # 框宽
+        bx = ub - bw / 2.0
+        rbox = rl.Rectangle(bx, by, bw, bh)
+      if r.bbox is not None:
+        self._road_hits += 1
+        rbox = rl.Rectangle(bx, by, bw, bh)
+        if len(pts_diag) < 3:
+          pts_diag.append([round(ub, 1), round(by, 1), round(r.d, 1), "bbox"])
       if r.status == "COAST":
         rl.draw_rectangle_lines_ex(rbox, 3, _with_a(c, 150))   # 断续感以细线+低亮度表达
       else:
@@ -253,8 +283,7 @@ class DevTargetsOverlay:
       if r.px < PX_GATE:
         lbl += " <px"
       try:
-        draw_text_ui_style(lbl, ub - 14.0, by - 30.0, 22.0,
-                           _with_a(rl.Color(0xFF, 0xFF, 0xFF, 255), min(alpha + 40, 255)))
+        draw_text_ui_style(lbl, ub - 14.0, by - 30.0, 22.0, _lit(c))
       except Exception as e:                                   # noqa: BLE001
         self._probe("EXC_roadtext %s" % repr(e)[:120])
     self._diag = {"m": [round(float(v), 2) for v in np.asarray(M).flatten()[:6]],
