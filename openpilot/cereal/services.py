@@ -76,13 +76,13 @@ _services: dict[str, tuple] = {
   "lateralPlan": (True, 20., 5),
   "onroadEvents": (True, 1., 1),
   "carParams": (True, 0.02, 1),
-  "roadCameraState": (True, 20., 20),
-  "driverCameraState": (True, 20., 20),
+  "roadCameraState": (True, 30., 20),
+  "driverCameraState": (True, 30., 20),
   "driverEncodeIdx": (False, 20., 1),
   "driverStateV2": (True, 20., 10),
   "driverMonitoringState": (True, 20., 10),
   "wideRoadEncodeIdx": (False, 20., 1),
-  "wideRoadCameraState": (True, 20., 20),
+  "wideRoadCameraState": (True, 30., 20),
   "drivingModelData": (True, 20., 10),
   "modelV2": (True, 20., None, QueueSize.BIG),
   "managerState": (True, 2., 1),
@@ -122,6 +122,8 @@ _services: dict[str, tuple] = {
   "customReservedRawData0": (True, 0.),
   "customReservedRawData1": (True, 0.),
   "customReservedRawData2": (True, 0.),
+  "cameraCalibCandidate": (True, 5., 1),
+  "cameraSyncState": (True, 10., 1),
 }
 SERVICE_LIST = {name: Service(*vals) for
                 idx, (name, vals) in enumerate(_services.items())}

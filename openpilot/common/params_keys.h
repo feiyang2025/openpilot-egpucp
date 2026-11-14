@@ -143,6 +143,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"UsbGpuActive", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION | CLEAR_ON_IGNITION_ON, BOOL}},
     {"UsbGpuStartupFailed", {CLEAR_ON_MANAGER_START | CLEAR_ON_IGNITION_ON, BOOL}},
     {"UseWideCamera", {PERSISTENT, BOOL, "1"}},
+    {"CarrotLocalModel", {PERSISTENT, STRING, "auto"}},
+    {"LocalModelRunning", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION, STRING}},
     {"Version", {PERSISTENT, STRING}},
 
     // carrot
@@ -382,6 +384,9 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
 
     {"PathOffset", {PERSISTENT, INT, "0"}},
     {"CameraYawTrimDeg", {PERSISTENT, INT, "0"}},
+    {"EnableCameraIntrinsicsAutoCalib", {PERSISTENT, BOOL, "0"}},
+    {"EnableCameraCalibShadow", {PERSISTENT, BOOL, "0"}},
+    {"CalibWideWarpPhysical", {PERSISTENT, BOOL, "0"}},
 
     {"LateralTorqueCustom", {PERSISTENT, INT, "0"}},
     {"LateralTorqueAccelFactor", {PERSISTENT, INT, "2500"}},

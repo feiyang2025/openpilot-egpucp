@@ -49,13 +49,13 @@ static std::map<std::string, service> services = {
   { "lateralPlan", {"lateralPlan", true, 20.000000, 5, 256000}},
   { "onroadEvents", {"onroadEvents", true, 1.000000, 1, 256000}},
   { "carParams", {"carParams", true, 0.020000, 1, 256000}},
-  { "roadCameraState", {"roadCameraState", true, 20.000000, 20, 256000}},
-  { "driverCameraState", {"driverCameraState", true, 20.000000, 20, 256000}},
+  { "roadCameraState", {"roadCameraState", true, 30.000000, 20, 256000}},
+  { "driverCameraState", {"driverCameraState", true, 30.000000, 20, 256000}},
   { "driverEncodeIdx", {"driverEncodeIdx", false, 20.000000, 1, 256000}},
   { "driverStateV2", {"driverStateV2", true, 20.000000, 10, 256000}},
   { "driverMonitoringState", {"driverMonitoringState", true, 20.000000, 10, 256000}},
   { "wideRoadEncodeIdx", {"wideRoadEncodeIdx", false, 20.000000, 1, 256000}},
-  { "wideRoadCameraState", {"wideRoadCameraState", true, 20.000000, 20, 256000}},
+  { "wideRoadCameraState", {"wideRoadCameraState", true, 30.000000, 20, 256000}},
   { "drivingModelData", {"drivingModelData", true, 20.000000, 10, 256000}},
   { "modelV2", {"modelV2", true, 20.000000, -1, 10485760}},
   { "managerState", {"managerState", true, 2.000000, 1, 256000}},
@@ -92,6 +92,8 @@ static std::map<std::string, service> services = {
   { "customReservedRawData0", {"customReservedRawData0", true, 0.000000, -1, 256000}},
   { "customReservedRawData1", {"customReservedRawData1", true, 0.000000, -1, 256000}},
   { "customReservedRawData2", {"customReservedRawData2", true, 0.000000, -1, 256000}},
+  { "cameraCalibCandidate", {"cameraCalibCandidate", true, 5.000000, 1, 256000}},
+  { "cameraSyncState", {"cameraSyncState", true, 10.000000, 1, 256000}},
 };
 #endif
 
