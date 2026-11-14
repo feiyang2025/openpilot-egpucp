@@ -85,7 +85,7 @@ class DevTargetsOverlay:
     try:
       if now >= self._param_next_t:
         self._param_next_t = now + PARAM_REFRESH_S
-        self._enabled = bool(ui_state.params.get_bool(PARAM_KEY)) and self._err_streak < HIDE_AFTER_ERRS
+        self._enabled = bool(ui_state.params.get_bool(PARAM_KEY))
     except Exception:
       self._enabled = False
     if not self._enabled:
@@ -230,12 +230,13 @@ class DevTargetsOverlay:
       alpha = 255 if r.status == "CONF" else (120 if r.status == "TENT" else 165)
       col = _with_a(c, alpha)
       cx, cy = px + pad + 5, yy + 8
+      cxi, cyi = int(cx), int(cy)
       if r.status == "COAST":
-        rl.draw_circle_lines(cx, cy, 6, col)
+        rl.draw_circle_lines(cxi, cyi, 6, col)
       elif r.status == "TENT":
         rl.draw_rectangle_rec(rl.Rectangle(cx - 3, cy - 3, 6, 6), col)
       else:
-        rl.draw_circle(cx, cy, 5, col)
+        rl.draw_circle(cxi, cyi, 5, col)
       ttc_s = f"{r.ttc:4.1f}s" if r.ttc is not None else "  -- "
       gate = "" if r.px >= PX_GATE else f" <{PX_GATE:.0f}px"
       line = f"{CLS_NAMES.get(r.cls, '?'):4s} {r.status:5s} d{r.d:5.1f} y{r.y:+4.1f} {ttc_s}{gate}"
