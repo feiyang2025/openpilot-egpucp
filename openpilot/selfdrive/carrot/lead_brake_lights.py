@@ -118,7 +118,7 @@ class BrakeRuntime:
       if fresh:
         result = self.detector.process(rgb, stamp, self.sm['radarState'].leadOne.to_dict(),
                                        self.sm['modelV2'].leadsV3[0].to_dict() if self.sm['modelV2'].leadsV3 else {},
-                                       self.sm['carState'].to_dict(), self.sm['liveCalibration'].to_dict())
+                                       self.sm['carState'].to_dict(), self.sm['liveCalibration'])
       else:
         self.detector.reset()
         result['reason'] = 'stale_context'

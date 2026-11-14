@@ -107,3 +107,27 @@ def test_parameter_defaults_off_and_has_single_setting_and_group_reference():
   settings = (root/'selfdrive/carrot_settings.json').read_text(encoding='utf8')
   assert settings.count('"LeadBrakeLights"') == 2
   assert '{"LeadBrakeLights", {PERSISTENT, BOOL, "0"}}' in (root/'common/params_keys.h').read_text()
+
+
+def test_single_source_geometry_accepts_1920_frame():
+  # spec §5.2: the live path reads geometry from the liveCalibration message's
+  # CameraCalibSet (1920x1080 road camera) instead of the hardcoded mici size.
+  import numpy as np
+  from openpilot.common.transformations.camera_calib import build_factory_set
+  from openpilot.selfdrive.locationd.calibrationd import write_live_calibration
+  import openpilot.cereal.messaging as messaging
+
+  calib_set = build_factory_set("pc", "imx390")
+  lc = messaging.new_message("liveCalibration").liveCalibration
+  write_live_calibration(lc, calib_set)
+  assert lc.calibSchemaVersion == 1 and len(lc.cams) == 3
+
+  rgb = np.zeros((1080, 1920, 3), dtype=np.uint8)
+  lead = {"dRel": 20.0, "yRel": 0.5, "status": True, "radar": True, "radarTrackId": 3}
+  vision = {"prob": 0.9, "x": [21.5], "y": [0.5]}
+  car = {"yawRate": 0.0, "steeringAngleDeg": 0.0, "vEgo": 10.0}
+  detector = LeadBrakeDetector()
+  result = detector.process(rgb, 10.0, lead, vision, car, lc)
+  # the geometry path must accept the 1920x1080 frame (no legacy size gate /
+  # wrong-sensor K); with a dark image the lamp search ends without a candidate.
+  assert result["reason"] not in ("uncalibrated", "frame_size_mismatch", "crop_budget"), result
