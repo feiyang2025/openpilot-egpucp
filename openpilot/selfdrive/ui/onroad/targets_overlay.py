@@ -175,23 +175,18 @@ class DevTargetsOverlay:
     if not self._enabled:
       self._probe("early:not_enabled")
       return
-    if getattr(self, "_render_hidden", False) and self._err_streak >= HIDE_AFTER_ERRS:
-      self._probe("early:hidden")
-      self._last_err_note = "road render hidden after repeated errors (see diag.render_exc)"
-      return
-    self._probe("try-block rows=%d" % len(self._rows))
+    self._probe("go rows=%d" % len(self._rows))
     t0 = time.monotonic()
-    try:
-      if self._rows:
-        self._render_road(rect, model_renderer)   # v2.3: 纯诊断
-        self._render_strip(rect)                   # 空间层主力(点+距离)
-        self._render_panel(rect)                   # 列表层
-    except Exception as e:                                     # noqa: BLE001
-      self._err_streak += 1
-      self._last_err = repr(e)[:180]
-      self._diag = {"render_exc": repr(e)[:180]}
-      if self._err_streak >= HIDE_AFTER_ERRS:
-        self._render_hidden = True   # 只隐藏渲染层,update/心跳继续活着
+    if self._rows:
+      for label, fn in (("road", lambda: self._render_road(rect, model_renderer)),
+                        ("strip", lambda: self._render_strip(rect)),
+                        ("panel", lambda: self._render_panel(rect))):
+        try:
+          fn()
+        except Exception as e:                                   # noqa: BLE001
+          self._err_streak += 1
+          self._last_err = repr(e)[:180]
+          self._probe("EXC_%s %s" % (label, repr(e)[:170]))
     ms = (time.monotonic() - t0) * 1000.0
     self._render_ms_max = max(self._render_ms_max * 0.99, ms)
     self._probe("drew")
