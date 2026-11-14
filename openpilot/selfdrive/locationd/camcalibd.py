@@ -235,6 +235,101 @@ class StreamCalib:
     }
 
 
+class CameraSyncMonitor:
+  """T0 system-clock sync statistics (spec §16.4).
+
+  Tracks the frame-pair delta Δ = ts_road − ts_wide over a sliding window.
+  Every gate is on the residual Δ − deltaRef, never on the absolute delta:
+  the fixed inter-stream offset (measured 12-13 ms on this stack) is a
+  tracked quantity, not jitter. missingFrames counts adjacent-SOF gaps
+  (audit C2/C3: the V4L2 sequence number is a dequeue counter, unusable for
+  this), and a backwards/gapped SOF bumps streamEpoch.
+  """
+
+  WINDOW = 600                      # ~30 s of pairs at ~20 Hz sampling
+  RESIDUAL_LIMIT_NS = 2_000_000     # |Δ − deltaRef| ≤ 2 ms -> usable pair
+  JUMP_LIMIT_NS = 5_000_000         # residual jump > 5 ms -> phase break
+  FRAME_PERIOD_NS = 33_333_333      # prior (30 fps); refined per stream online
+  RECOVERY_FRAMES = 60              # consecutive good pairs before re-sync
+
+  def __init__(self):
+    self.deltas: deque = deque(maxlen=self.WINDOW)      # ns
+    self.pair_ts: deque = deque(maxlen=self.WINDOW)     # road SOF ns per pair
+    self.delta_ref: int | None = None
+    self.skew_ppm = 0.0
+    self.synced = False
+    self.good_streak = 0
+    self.missing = {Cam.ROAD: 0, Cam.WIDE: 0}
+    self.epoch = {Cam.ROAD: 0, Cam.WIDE: 0}
+    self.last_ts: dict = {}
+    self.gaps: dict = {Cam.ROAD: deque(maxlen=60), Cam.WIDE: deque(maxlen=60)}
+
+  def _period(self, cam: Cam) -> int:
+    gaps = self.gaps[cam]
+    if len(gaps) >= 10:
+      return int(np.median(gaps))
+    return self.FRAME_PERIOD_NS
+
+  def on_frame(self, cam: Cam, ts_sof: int) -> None:
+    last = self.last_ts.get(cam)
+    if last is not None:
+      gap = ts_sof - last
+      if 0 < gap < 2 * self.FRAME_PERIOD_NS:
+        self.gaps[cam].append(gap)
+      if gap < 0 or gap > 1.5 * self._period(cam):
+        self.missing[cam] += 1
+        self.epoch[cam] += 1
+        # a restart invalidates the tracked offset
+        self.delta_ref = None
+        self.synced = False
+        self.good_streak = 0
+    self.last_ts[cam] = ts_sof
+
+  def on_pair(self, ts_road: int, ts_wide: int) -> None:
+    delta = int(ts_road - ts_wide)
+    self.deltas.append(delta)
+    self.pair_ts.append(ts_road)
+    if self.delta_ref is not None:
+      resid = abs(delta - self.delta_ref)
+      if resid > self.JUMP_LIMIT_NS:
+        self.delta_ref = None
+        self.synced = False
+        self.good_streak = 0
+        return
+      self.good_streak = self.good_streak + 1 if resid <= self.RESIDUAL_LIMIT_NS else 0
+    arr = np.asarray(self.deltas, dtype=float)
+    if len(arr) >= 30:
+      self.delta_ref = int(np.median(arr))
+    if len(arr) >= 120:
+      # skew against wall time (ns): slope ns/ns * 1e6 = ppm, tracked on the
+      # pair's road SOF, not the sample index (index spacing is irregular)
+      t = np.asarray(self.pair_ts, dtype=float)
+      t0 = t[0]
+      if t[-1] - t0 > 10e9:
+        slope = float(np.polyfit((t - t0) / 1e9, arr, 1)[0])
+        self.skew_ppm = slope  # ns delta per s == ppm of frame period
+    if self.delta_ref is not None and self.good_streak >= self.RECOVERY_FRAMES:
+      self.synced = True
+
+  def stats(self) -> dict | None:
+    if not self.deltas or self.delta_ref is None:
+      return None
+    arr = np.asarray(self.deltas, dtype=float)
+    resid = np.abs(arr - self.delta_ref)
+    mad = float(np.median(np.abs(arr - np.median(arr))))
+    return {
+      "delta": int(self.deltas[-1]),
+      "deltaRef": int(self.delta_ref),
+      "p50": int(float(np.percentile(resid, 50))),
+      "p99": int(float(np.percentile(resid, 99.9))),
+      "jitter": int(mad),
+      "skewPpm": self.skew_ppm,
+      "synced": self.synced,
+      "missing": dict(self.missing),
+      "epoch": dict(self.epoch),
+    }
+
+
 class CamCalibd:
   def __init__(self):
     self.sm = messaging.SubMaster(['liveCalibration', 'cameraOdometry', 'carState'])
@@ -250,6 +345,7 @@ class CamCalibd:
       StreamCalib(Cam.WIDE, VisionStreamType.VISION_STREAM_WIDE_ROAD, "wide", "wideRoadCameraState", wide_f),
     ]
     self.vipcs = {s.cam: VisionIpcClient("camerad", s.stream_type, False) for s in self.streams}
+    self.sync = CameraSyncMonitor()
     self.calib_set = None
     self.generation = 0
     self.last_sync_emit = 0.0
@@ -302,8 +398,28 @@ class CamCalibd:
     s.best = info
     self.publish_candidate(s, info)
 
+  def publish_sync_state(self) -> None:
+    stats = self.sync.stats()
+    if stats is None:
+      return
+    for cam in (Cam.ROAD, Cam.WIDE):
+      msg = messaging.new_message('cameraSyncState', valid=True)
+      ss = msg.cameraSyncState
+      ss.cam = int(cam)
+      ss.deltaNs = stats['delta']
+      ss.deltaP50Ns = stats['p50']
+      ss.deltaP99Ns = stats['p99']
+      ss.jitterNs = stats['jitter']
+      ss.skewPpm = stats['skewPpm']
+      ss.missingFrames = stats['missing'][cam]
+      ss.streamEpoch = stats['epoch'][cam]
+      ss.synced = stats['synced']
+      ss.timebase = 'systemClock'
+      ss.timestampSource = 'kernelRecv'
+      ss.quantizationNs = 1000
+      self.pm.send('cameraSyncState', msg)
+
   def run(self):
-    last_pair = {}  # cam -> ts_sof of freshest frame
     while True:
       self.sm.update(0)
 
@@ -328,49 +444,79 @@ class CamCalibd:
           if vipc.connect(False):
             cloudlog.info(f"[camcalibd][{s.label}] connected")
 
-      pitch = self.get_pitch()
-      if pitch is None:
-        time.sleep(0.05)
-        continue
-
-      # B1: non-blocking receive
+      # T0 sync statistics run regardless of the calibration gate: the sync
+      # numbers are themselves the gating input (spec §16.4/§16.6).
+      fresh: dict = {}
+      fresh_bufs: dict = {}
+      ts_bufs: dict = getattr(self, 'ts_bufs', None) or {s.cam: deque(maxlen=8) for s in self.streams}
+      self.ts_bufs = ts_bufs
       for s in self.streams:
         vipc = self.vipcs[s.cam]
         if vipc.is_connected() and s.using_preferred():
           buf = vipc.recv(0)
           if buf is not None:
-            last_pair[s.cam] = vipc.timestamp_sof
-          if buf is None:
-            continue
-          try:
-            y_plane = np.frombuffer(buf.data[:buf.height * buf.stride], dtype=np.uint8)
-            img_gray = y_plane.reshape(buf.height, buf.stride)[:, :buf.width]
-          except Exception:
-            continue
-          self.frame_idx += 1
-          if self.frame_idx % SAMPLE_EVERY_N != 0:
-            continue
-          v0, n_lines = compute_vanishing_point(img_gray)
-          s.last_lines = n_lines
-          if v0 is not None:
-            s.last_v0 = round(v0, 1)
-            s.add_sample(v0, pitch, s.cy if s.cy is not None else buf.height / 2.0)
-          self.emit(s)
+            ts = int(vipc.timestamp_sof)
+            fresh[s.cam] = ts
+            fresh_bufs[s.cam] = buf
+            ts_bufs[s.cam].append(ts)
+            self.sync.on_frame(s.cam, ts)
 
-      # cameraSyncState (1 Hz placeholder): freshest SOF delta between streams
-      if now - self.last_sync_emit > SYNC_EMIT_INTERVAL and Cam.ROAD in last_pair and Cam.WIDE in last_pair:
+      # nearest-neighbour pairing (spec §16.4): latest-of-each mis-pairs when
+      # one stream delivers two frames between loops, which shows up as a
+      # frame-slip trend in delta and a bogus skew. Each frame pairs once.
+      while len(ts_bufs[Cam.ROAD]) > 0 and len(ts_bufs[Cam.WIDE]) > 0:
+        best = None
+        for tr in ts_bufs[Cam.ROAD]:
+          for tw in ts_bufs[Cam.WIDE]:
+            d = abs(tr - tw)
+            if best is None or d < best[0]:
+              best = (d, tr, tw)
+        _, tr, tw = best
+        ts_bufs[Cam.ROAD].remove(tr)
+        ts_bufs[Cam.WIDE].remove(tw)
+        # a nearest pair may still straddle a frame boundary when one stream
+        # is briefly starved: only feed pairs within a half frame period
+        if abs(tr - tw) <= self.sync._period(Cam.ROAD) // 2:
+          self.sync.on_pair(tr, tw)
+        else:
+          break
+
+      if now - self.last_sync_emit > SYNC_EMIT_INTERVAL:
         self.last_sync_emit = now
-        delta = int(last_pair[Cam.ROAD] - last_pair[Cam.WIDE])
-        for cam in (Cam.ROAD, Cam.WIDE):
-          msg = messaging.new_message('cameraSyncState', valid=True)
-          ss = msg.cameraSyncState
-          ss.cam = int(cam)
-          ss.deltaNs = delta
-          ss.synced = True
-          ss.timebase = 'systemClock'
-          ss.timestampSource = 'kernelRecv'
-          ss.quantizationNs = 1000
-          self.pm.send('cameraSyncState', msg)
+        self.publish_sync_state()
+
+      pitch = self.get_pitch()
+      if pitch is None:
+        time.sleep(0.02)
+        continue
+
+      # sampling gate (§16.4 step 6): a stream is only sampled while the pair
+      # residual tracking is synced
+      if not self.sync.synced:
+        time.sleep(0.02)
+        continue
+
+      for s in self.streams:
+        vipc = self.vipcs[s.cam]
+        if not (vipc.is_connected() and s.using_preferred() and s.cam in fresh):
+          continue
+        buf = fresh_bufs.get(s.cam)
+        if buf is None:
+          continue
+        try:
+          y_plane = np.frombuffer(buf.data[:buf.height * buf.stride], dtype=np.uint8)
+          img_gray = y_plane.reshape(buf.height, buf.stride)[:, :buf.width]
+        except Exception:
+          continue
+        self.frame_idx += 1
+        if self.frame_idx % SAMPLE_EVERY_N != 0:
+          continue
+        v0, n_lines = compute_vanishing_point(img_gray)
+        s.last_lines = n_lines
+        if v0 is not None:
+          s.last_v0 = round(v0, 1)
+          s.add_sample(v0, pitch, s.cy if s.cy is not None else buf.height / 2.0)
+        self.emit(s)
 
 
 def main():

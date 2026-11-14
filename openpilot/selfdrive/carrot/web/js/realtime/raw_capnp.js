@@ -369,7 +369,7 @@ carrotRawCapnpGlobal.CarrotRawCapnp = (() => {
     roadCameraState: {
       fields: {
         frameId: { kind: "uint32", offset: 0 },
-        sensor: { kind: "enum", offset: 40, values: ["unknown", "ar0231", "ox03c10", "os04c10"] },
+        sensor: { kind: "enum", offset: 40, values: ["unknown", "ar0231", "ox03c10", "os04c10", "imx390"] },
       },
     },
     lateralPlan: {
