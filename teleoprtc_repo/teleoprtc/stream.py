@@ -377,6 +377,17 @@ class WebRTCAnswerStream(WebRTCBaseStream):
   async def start(self) -> aiortc.RTCSessionDescription:
     assert self.peer_connection.remoteDescription is None, "Connection already established"
 
+    # aiortc cannot resolve mDNS (.local) remote ICE candidates (Firefox/
+    # Chrome privacy mode): feeding them to setRemoteDescription aborts the
+    # remote-candidate handling and the local gatherer ends up with zero
+    # candidates, so the peer never learns our route. Strip remote candidate
+    # lines; the browser performs the STUN checks against our answer's
+    # candidates instead (peer-reflexive pairing on our side).
+    import re as _re
+    _sdp = _re.sub(r"^a=candidate:.*\r?\n?", "", self.session.sdp, flags=_re.M)
+    _sdp = _re.sub(r"^a=end-of-candidates.*\r?\n?", "", _sdp, flags=_re.M)
+    self.session = aiortc.RTCSessionDescription(sdp=_sdp, type=self.session.type)
+
     self._add_consumer_transceivers()
 
     # since we sent already encoded frames in some cases (e.g. livestream video tracks are in H264), we need to force aiortc to actually use it
