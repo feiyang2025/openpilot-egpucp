@@ -8,6 +8,7 @@ from openpilot.common.swaglog import cloudlog
 from openpilot.common.runtime_diagnostics import RuntimeDiagnostics
 from openpilot.selfdrive.controls.lib.ldw import LaneDepartureWarning
 from openpilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner
+from openpilot.selfdrive.controls.lib.longitudinal_avoidance import AvoidanceExecutor
 from openpilot.selfdrive.controls.lib.longitudinal_fast_radar import (
   FastRadarOverlay,
   RadarStateOverride,
@@ -58,11 +59,13 @@ def main():
   # Hyundai's two inputs wake this serial loop independently; no MPC overlaps.
   sm = messaging.SubMaster(
     ['carControl', 'carState', 'controlsState', 'liveParameters', 'radarState',
-     'liveTracks', 'modelV2', 'selfdriveState', 'carrotMan', 'carrotNavi', 'livePose'],
+     'liveTracks', 'modelV2', 'selfdriveState', 'carrotMan', 'carrotNavi', 'livePose',
+     'avoidanceState'],
     poll=(['modelV2', 'liveTracks'] if live_tracks_longitudinal else 'modelV2'),
     ignore_avg_freq=['radarState'],
   )
   carrot = CarrotPlanner()
+  avoidance_exec = AvoidanceExecutor(mono_profile=True)   # P1: 台架单目档
   model_frame = 0
   last_longitudinal_trigger_mono_ns = 0
   diagnostics = RuntimeDiagnostics('plannerd', cloudlog.event)
@@ -150,6 +153,20 @@ def main():
       planner_sm = RadarStateOverride(planner_sm, stopping_radar_state)
 
       longitudinal_planner.update(planner_sm, carrot)
+      # P1 避让执行(台架):tier→纵向 floor;总闸 AvoidanceExecEnabled 默认关,
+      # 陈旧/无效/告警档 恒等零扰动;min() 只加深不放松。
+      av_targets = sm['avoidanceState'].targets
+      av_fresh = sm.seen['avoidanceState'] and (time.monotonic() - sm.recv_time['avoidanceState']) <= AvoidanceExecutor.STALE_S
+      if len(av_targets) and av_fresh:
+        longitudinal_planner.output_a_target = avoidance_exec.apply(
+          longitudinal_planner.output_a_target, av_targets, sm['carState'].vEgo,
+          time.monotonic(), sm.logMonoTime['avoidanceState'],
+          enabled=params.get_bool("AvoidanceExecEnabled"),
+          engaged=sm['selfdriveState'].enabled)
+      else:
+        avoidance_exec.apply(longitudinal_planner.output_a_target, [],
+                              sm['carState'].vEgo, time.monotonic(), 0,
+                              enabled=False, engaged=False)
       planner_execution_time = time.monotonic() - planner_start
       longitudinal_planner.publish(
         planner_sm,
