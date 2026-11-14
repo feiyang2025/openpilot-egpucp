@@ -377,6 +377,17 @@ class WebRTCAnswerStream(WebRTCBaseStream):
   async def start(self) -> aiortc.RTCSessionDescription:
     assert self.peer_connection.remoteDescription is None, "Connection already established"
 
+    # aiortc cannot resolve mDNS (.local) remote ICE candidates (Firefox/
+    # Chrome privacy mode): feeding them to setRemoteDescription aborts the
+    # remote-candidate handling and the local gatherer ends up with zero
+    # candidates, so the peer never learns our route. Strip remote candidate
+    # lines; the browser performs the STUN checks against our answer's
+    # candidates instead (peer-reflexive pairing on our side).
+    import re as _re
+    _sdp = _re.sub(r"^a=candidate:.*\r?\n?", "", self.session.sdp, flags=_re.M)
+    _sdp = _re.sub(r"^a=end-of-candidates.*\r?\n?", "", _sdp, flags=_re.M)
+    self.session = aiortc.RTCSessionDescription(sdp=_sdp, type=self.session.type)
+
     self._add_consumer_transceivers()
 
     # since we sent already encoded frames in some cases (e.g. livestream video tracks are in H264), we need to force aiortc to actually use it
@@ -402,7 +413,19 @@ class WebRTCAnswerStream(WebRTCBaseStream):
     try:
       await asyncio.wait_for(self._wait_gathering_complete(), timeout=2.0)
       actual_answer = self.peer_connection.localDescription
+      if _cloudlog is not None:
+        try:
+          _cands = await self.peer_connection.getLocalCandidates()
+          _n = len(_cands)
+        except Exception:
+          _n = -1
+        _cloudlog.warning("[cv-patch-live] gathering done, sdp_cands=%d localcands=%d",
+                          actual_answer.sdp.count("a=candidate:"), _n)
     except asyncio.TimeoutError:
-      pass
+      actual_answer = self.peer_connection.localDescription
+      if _cloudlog is not None:
+        _cands = await self.peer_connection.getLocalCandidates()
+        _cloudlog.warning("[cv-patch-live] gathering TIMEOUT, sdp_cands=%d localcands=%d",
+                          actual_answer.sdp.count("a=candidate:"), len(_cands))
 
     return actual_answer
