@@ -37,14 +37,15 @@ from msgq.visionipc import VisionIpcClient, VisionStreamType, VisionBuf
 from opendbc.car.car_helpers import get_demo_car_params
 from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.modeld.egpu_events import log_event
+
+_LAST_DROP_LOG_T = 0.0  # "camera dropped" 单帧丢帧日志节流 (见 modeld 主循环)
 from openpilot.common.runtime_diagnostics import RuntimeDiagnostics
 from openpilot.common.params import Params
 from openpilot.common.stopping_params import get_stopping_speed
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.realtime import config_realtime_process, DT_MDL
-from openpilot.common.transformations.camera import DEVICE_CAMERAS
+from openpilot.common.transformations.camera_calib import Cam, from_live_calibration
 from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
-from openpilot.common.transformations.model import get_warp_matrix
 from openpilot.selfdrive.controls.lib.desire_helper import DesireHelper
 from openpilot.selfdrive.controls.lib.drive_helpers import get_accel_from_plan, smooth_value, get_curvature_from_plan
 from openpilot.selfdrive.modeld.parse_model_outputs import Parser
@@ -275,9 +276,39 @@ class ModelState:
 def main(demo=False):
   cloudlog.warning("modeld init")
 
+  # [JETSON] Big model on the on-board GPU.
+  # The eGPU ("usbgpu") slot is reused as the big-model slot, but inference runs
+  # on the Orin GPU through TensorRT instead of an external AMD card. Activation
+  # no longer requires USB hardware: a locally built plan + metadata is enough.
+  from pathlib import Path as _Path
+  _trt_meta = _Path(__file__).resolve().parent / 'models' / 'big_driving_supercombo_trt_meta.json'
+  _trt_plan = _trt_meta.with_name('big_driving_supercombo_trt.plan')
+  trt_big_plan = str(_trt_plan) if _trt_plan.is_file() and _trt_meta.is_file() else ''
+  if trt_big_plan:
+    cloudlog.warning(f"internal-GPU big model plan found: {trt_big_plan}")
+
   params = Params()
+
+  # [JETSON] Local model registry: which on-device model the picker asked for.
+  _local_models = {}
+  try:
+    import json as _json
+    _reg = _json.loads((_Path(__file__).resolve().parent / 'models' / 'local_models.json').read_text())
+    _local_models = {m['id']: m for m in _reg.get('models', []) if isinstance(m, dict) and m.get('id')}
+  except Exception:
+    _local_models = {}
+  _local_sel = params.get("CarrotLocalModel", return_default=True)
+  if isinstance(_local_sel, bytes):
+    _local_sel = _local_sel.decode('utf-8', 'replace')
+  _local_sel = ((_local_sel or 'auto').strip() or 'auto')
+  _plan_sha = str(_local_models.get('tgc-trt', {}).get('sha256', ''))
+  _pkl_sha = str(_local_models.get('cd210', {}).get('sha256', ''))
+  use_trt_big = bool(trt_big_plan) and _local_sel != 'cd210'
+  if _local_sel == 'tgc-trt' and not trt_big_plan:
+    cloudlog.warning('CarrotLocalModel=tgc-trt but the TRT plan is missing')
+  cloudlog.warning(f"local model: {_local_sel} plan={bool(trt_big_plan)} use_trt_big={use_trt_big}")
   usbgpu_pkl_path = usbgpu_compiled_path()
-  _compiled = usbgpu_pkl_path is not None
+  _compiled = usbgpu_pkl_path is not None or use_trt_big
   _hardware_seen = params.get_bool("UsbGpuHardwareSeen")
   _present = usbgpu_present()
   if not _present and _compiled and _hardware_seen:
@@ -290,8 +321,8 @@ def main(demo=False):
     else:
       cloudlog.warning("eGPU USB still absent after startup grace period; using internal model")
   _startup_failed = params.get_bool("UsbGpuStartupFailed")
-  USBGPU = _present and _compiled and not _startup_failed
-  cloudlog.warning(f"usbgpu present: {_present}, compiled: {_compiled}, startup_failed: {_startup_failed}, requested: {USBGPU}")
+  USBGPU = (_present or use_trt_big) and _compiled and not _startup_failed
+  cloudlog.warning(f"usbgpu present: {_present}, compiled: {_compiled}, startup_failed: {_startup_failed}, requested: {USBGPU}, internal_plan: {use_trt_big}")
   params.put_bool("UsbGpuPresent", _present)
   if _present or _compiled:
     params.put_bool("UsbGpuHardwareSeen", True)
@@ -344,7 +375,7 @@ def main(demo=False):
   usbgpu_model_loaded = False
   if USBGPU:
     usbgpu_model = None
-    precompiled = usbgpu_pkl_path.name == 'model.pkl' and (usbgpu_pkl_path.parent / 'installed.json').is_file()
+    precompiled = usbgpu_pkl_path is not None and usbgpu_pkl_path.name == 'model.pkl' and (usbgpu_pkl_path.parent / 'installed.json').is_file()
     # Repeatedly reloading the same large PKL cannot repair a persistently down
     # PCIe link. One retry allows delayed readiness, then start the internal model.
     init_attempts = USBGPU_PRECOMPILED_INIT_ATTEMPTS if precompiled else USBGPU_INIT_ATTEMPTS
@@ -353,7 +384,12 @@ def main(demo=False):
       nonlocal usbgpu_model
       for attempt in range(1, init_attempts + 1):
         try:
-          if precompiled:
+          if use_trt_big:
+            from openpilot.selfdrive.modeld.trt_model_state import TrtModelState
+            usbgpu_model = TrtModelState(vipc_client_main.width, vipc_client_main.height, True,
+                                         plan_path=trt_big_plan)
+            usbgpu_model.warmup()
+          elif precompiled:
             from openpilot.selfdrive.modeld.precompiled_runner import PrecompiledModelState
             usbgpu_model = PrecompiledModelState(vipc_client_main.width, vipc_client_main.height, usbgpu_pkl_path)
           else:
@@ -442,6 +478,10 @@ def main(demo=False):
   if not usbgpu_startup_pending:
     params.put_bool("UsbGpuLoading", False)
   cloudlog.warning(f"models loaded in {time.monotonic() - st:.1f}s, modeld starting")
+  try:
+    params.put("LocalModelRunning", _plan_sha if usbgpu_model_loaded else _pkl_sha)
+  except Exception:
+    cloudlog.exception('could not publish LocalModelRunning')
 
   # messaging
   pm = PubMaster(["modelV2", "drivingModelData", "cameraOdometry"])
@@ -500,7 +540,7 @@ def main(demo=False):
       params.put_bool_nonblocking("UsbGpuPresent", usbgpu_present_now)
       if usbgpu_present_now:
         params.put_bool_nonblocking("UsbGpuHardwareSeen", True)
-      params.put_bool_nonblocking("UsbGpuCompiled", usbgpu_compiled_path() is not None)
+      params.put_bool_nonblocking("UsbGpuCompiled", usbgpu_compiled_path() is not None or use_trt_big)
 
     frames = receive_camera_pair(vipc_client_main, vipc_client_extra if use_extra_client else None)
     if frames is None:
@@ -518,18 +558,28 @@ def main(demo=False):
     v_ego = max(sm["carState"].vEgo, 0.)
     #lat_delay = sm["liveDelay"].lateralDelay + LAT_SMOOTH_SECONDS
     if sm.updated["liveCalibration"] and sm.seen['roadCameraState'] and sm.seen['deviceState']:
-      device_from_calib_euler = np.array(sm["liveCalibration"].rpyCalib, dtype=np.float32)
+      # Single calibration source: CameraCalibSet (spec §5.2). warp_matrix keeps
+      # the legacy wide semantics while CalibWideWarpPhysical is off (wide rotates
+      # with body_from_calib only, intrinsics from K(WIDE)), matching the old
+      # get_warp_matrix(device_from_calib_euler, ecam/fcam, ...) path bit-for-bit.
+      calib_set = from_live_calibration(sm["liveCalibration"],
+                                        device_type=str(sm['deviceState'].deviceType),
+                                        sensor=str(sm['roadCameraState'].sensor))
 
+      # CameraYawTrimDeg stays a modeld-local manual offset until calibrationd
+      # merges it into the set (spec §5.2): applied to body_from_calib yaw only
+      # when the calibration has converged, exactly like the legacy path.
       calib_done = sm["liveCalibration"].calStatus == log.LiveCalibrationData.Status.calibrated
       applied_yaw_trim_deg = camera_yaw_trim_deg if calib_done else 0.0
-
       if applied_yaw_trim_deg != 0.0:
-        device_from_calib_euler[2] -= np.radians(applied_yaw_trim_deg)
+        # float32, matching the legacy device_from_calib_euler arithmetic bit-for-bit
+        body_f32 = calib_set.body_from_calib.astype(np.float32)
+        body_f32[2] -= np.radians(applied_yaw_trim_deg)
+        calib_set.body_from_calib = body_f32
 
-      dc = DEVICE_CAMERAS[(str(sm['deviceState'].deviceType), str(sm['roadCameraState'].sensor))]
-      model_transform_main = get_warp_matrix(device_from_calib_euler, dc.ecam.intrinsics if main_wide_camera else dc.fcam.intrinsics, False).astype(np.float32)
+      model_transform_main = calib_set.warp_matrix(Cam.WIDE if main_wide_camera else Cam.ROAD, False).astype(np.float32)
       has_wide_camera = use_extra_client or main_wide_camera
-      model_transform_extra = get_warp_matrix(device_from_calib_euler, dc.ecam.intrinsics if has_wide_camera else dc.fcam.intrinsics, True).astype(np.float32)
+      model_transform_extra = calib_set.warp_matrix(Cam.WIDE if has_wide_camera else Cam.ROAD, True).astype(np.float32)
       live_calib_seen = True
 
     traffic_convention = np.zeros(2)
@@ -550,7 +600,14 @@ def main(demo=False):
     frame_drop_ratio = frames_dropped / (1 + frames_dropped)
     prepare_only = vipc_dropped_frames > 0
     if prepare_only:
-      cloudlog.error(f"camera dropped {vipc_dropped_frames} frames; advancing model history")
+      # 单帧自适应丢帧在 TRT (推理 ~30ms) 贴近 30fps 帧预算时高频出现, 逐条 ERROR 只是
+      # 噪音; 行为不变 (照样 advance history, frame_drop_ratio/runtimeTiming 指标保留
+      # 完整频率)。>=2 帧丢帧始终立即上报, 单帧 10s 节流一条。
+      global _LAST_DROP_LOG_T
+      _now = time.monotonic()
+      if vipc_dropped_frames >= 2 or (_now - _LAST_DROP_LOG_T) > 10.0:
+        cloudlog.error(f"camera dropped {vipc_dropped_frames} frames; advancing model history")
+        _LAST_DROP_LOG_T = _now
 
     bufs = {name: buf_extra if 'big' in name else buf_main for name in model.vision_input_names}
     transforms = {name: model_transform_extra if 'big' in name else model_transform_main for name in model.vision_input_names}
