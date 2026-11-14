@@ -301,6 +301,19 @@ def main(demo=False):
   if isinstance(_local_sel, bytes):
     _local_sel = _local_sel.decode('utf-8', 'replace')
   _local_sel = ((_local_sel or 'auto').strip() or 'auto')
+
+  # [JETSON] 多 plan 注册表: 选中的 trt_plan 条目自带 plan(+meta 按 <stem>_meta.json 推导):
+  # TRT fp16 预编译 plan 只要在本机 Orin 上编译过即可直接挂载运行, 与默认 tgc plan 同构。
+  if _local_sel not in ('auto', 'cd210'):
+    _sel_entry = _local_models.get(_local_sel)
+    if isinstance(_sel_entry, dict) and _sel_entry.get('kind') == 'trt_plan':
+      _sp = str(_sel_entry.get('file') or '')
+      if _sp and _Path(_sp).is_file():
+        trt_big_plan = _sp
+        cloudlog.warning(f"local model plan from registry [{_local_sel}]: {_sp}")
+      elif _sp:
+        cloudlog.warning(f"CarrotLocalModel={_local_sel} plan missing: {_sp}, fallback to default")
+
   _plan_sha = str(_local_models.get('tgc-trt', {}).get('sha256', ''))
   _pkl_sha = str(_local_models.get('cd210', {}).get('sha256', ''))
   use_trt_big = bool(trt_big_plan) and _local_sel != 'cd210'

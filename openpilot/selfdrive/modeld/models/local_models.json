@@ -1,0 +1,66 @@
+{
+  "models": [
+    {
+      "id": "tgc-trt",
+      "label": "TGC · 内置GPU (TRT)",
+      "kind": "trt_plan",
+      "file": "big_driving_supercombo_trt.plan",
+      "meta": "big_driving_supercombo_trt_meta.json",
+      "sha256": "5c25f5ec5e82bfcfd3df03b308be788e93cf6dfcaee6e427923177a5e60a6b6c",
+      "size": 771109452
+    },
+    {
+      "id": "cd210",
+      "label": "cd210 · 内置 (tinygrad)",
+      "kind": "tinygrad",
+      "file": "driving_tinygrad.pkl",
+      "sha256": "d388ab5567b0e634866dc0ba3ba123e6b7c0aaa1ddfec4755a67edd0b0f47f49",
+      "size": 68915180
+    },
+    {
+      "id": "trt-1791d594",
+      "label": "TGC (1791d594) · 内置GPU TRT 预编译",
+      "kind": "trt_plan",
+      "file": "/home/nvidia/.comma/media/0/models/big_driving_1791d5940b2c048d_fp16.plan",
+      "meta": "/home/nvidia/.comma/media/0/models/big_driving_1791d5940b2c048d_fp16_meta.json",
+      "sha256": "5cb19fdfbc802cfad1e4ae16c01849ed6af86195e2b711020c745ad49f6272ba",
+      "size": 772308908
+    },
+    {
+      "id": "trt-09d080f3",
+      "label": "Cinque V2 (09d080f3) · 内置GPU TRT 预编译",
+      "kind": "trt_plan",
+      "file": "/home/nvidia/.comma/media/0/models/big_driving_09d080f36965bb2a_fp16.plan",
+      "meta": "/home/nvidia/.comma/media/0/models/big_driving_09d080f36965bb2a_fp16_meta.json",
+      "sha256": "af434e9a48aca7f39ebb0bc858a68ea49c758f33fd05a7a067bc6fbc54fff300",
+      "size": 772212916
+    },
+    {
+      "id": "trt-e8d82173",
+      "label": "CTM (e8d82173) · 内置GPU TRT 预编译",
+      "kind": "trt_plan",
+      "file": "/home/nvidia/.comma/media/0/models/big_driving_e8d821733be15ebe_fp16.plan",
+      "meta": "/home/nvidia/.comma/media/0/models/big_driving_e8d821733be15ebe_fp16_meta.json",
+      "sha256": "e7325d4b07d9e0630dcc6af474b0ccfb149a49a60332e2270c25d4a9d6067444",
+      "size": 772290868
+    },
+    {
+      "id": "trt-f3669cb7",
+      "label": "BMv6 (f3669cb7) · 内置GPU TRT 预编译",
+      "kind": "trt_plan",
+      "file": "/home/nvidia/.comma/media/0/models/big_driving_f3669cb7c8a9a8a1_fp16.plan",
+      "meta": "/home/nvidia/.comma/media/0/models/big_driving_f3669cb7c8a9a8a1_fp16_meta.json",
+      "sha256": "e24ccc5f21ad41a09e94405f5b6c08c1cc56c50cb8c04f283a6cfa05bee02c39",
+      "size": 772302212
+    },
+    {
+      "id": "trt-a086d524",
+      "label": "BMv4 (a086d524) · 内置GPU TRT 预编译",
+      "kind": "trt_plan",
+      "file": "/home/nvidia/.comma/media/0/models/big_driving_a086d5249fc308bb_fp16.plan",
+      "meta": "/home/nvidia/.comma/media/0/models/big_driving_a086d5249fc308bb_fp16_meta.json",
+      "sha256": "8e0f4ba52625c93b4ffd1442a35ebef1a4c89916af10401ab024490924b89f58",
+      "size": 771081996
+    }
+  ]
+}
