@@ -143,6 +143,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"UsbGpuActive", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION | CLEAR_ON_IGNITION_ON, BOOL}},
     {"UsbGpuStartupFailed", {CLEAR_ON_MANAGER_START | CLEAR_ON_IGNITION_ON, BOOL}},
     {"UseWideCamera", {PERSISTENT, BOOL, "1"}},
+    {"CarrotLocalModel", {PERSISTENT, STRING, "auto"}},
+    {"LocalModelRunning", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION, STRING}},
     {"Version", {PERSISTENT, STRING}},
 
     // carrot
@@ -189,6 +191,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"ShowPathModeLane", {PERSISTENT, INT, "14"}},
     {"ShowPathColorLane", {PERSISTENT, INT, "13"}},
     {"ShowPlotMode", {PERSISTENT, INT, "0"}},
+    {"DevTargetsOverlay", {PERSISTENT, BOOL}},   // S7.16 observation targets dev overlay (default off)
     {"TimezoneName", {PERSISTENT, STRING, ""}},                // 로컬 타임존 IANA 이름 (예: "Asia/Seoul"), 앱/WiFi/GPS로 해석되면 기록
     {"TimezoneSource", {PERSISTENT, STRING, ""}},              // 타임존 출처 우선순위 추적 ("app" > "wifi" > "gps")
     {"CarrotTireTrajectory", {PERSISTENT, INT, "0"}},
