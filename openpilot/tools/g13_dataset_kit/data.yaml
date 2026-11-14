@@ -1,0 +1,27 @@
+# ultralytics data.yaml 模板 —— 拷到训练机改三处路径即可跑
+# 结构纪律(§6.6/G13):划分按 路线×日期×场景,绝不按帧!
+#   train/ 与 test/ 时空重叠必须=0:同一路线须不同日期,最小时空距离记入预注册。
+# 目录示例:
+#   g13_v1/images/{train,val,test,calib}/路线A_2026-11-20_城郊/xxx.jpg
+#   g13_v1/labels/{train,val,test,calib}/路线A_2026-11-20_城郊/xxx.txt
+# calib(标定集)与 train 隔离——INT8 量化门(ΔAP INT8 vs FP16)分母不许见 train。
+path: D:/datasets/g13_v1
+train: images/train
+val: images/val
+test: images/test
+names:
+  0: adult
+  1: child
+  2: cyclist
+  3: motorcycle
+  4: animal
+  5: cone
+  6: debris
+# 训练命令(沿用你 tl 模型的获胜配方):
+#   yolo detect train model=yolov8n.pt data=g13_v1/data.yaml imgsz=640 epochs=50 batch=4 device=0
+# 导出( opset 12 与台架 TRT 10.16 实测兼容 ):
+#   yolo export model=runs/detect/train/weights/best.pt format=onnx opset=12 imgsz=640
+# 车端部署:scp best.onnx → /data/trt_build/
+#   sudo trtexec --onnx=g13_best.onnx --fp16 --saveEngine=g13_best_fp16.plan   (垫片期)
+#   INT8 正式版必须 QAT、PTQ 不许上(§6.0 已定),标定集用 calib/
+# smalldetd_proto.py --plan <新引擎> 即插即换,发布链/UI 零改动。

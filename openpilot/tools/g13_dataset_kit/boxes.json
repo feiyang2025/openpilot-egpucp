@@ -1,0 +1,22 @@
+{
+  "dataset": "g13_v1",
+  "alpha": 0.0001,
+  "p_note": "p_assumed = 该箱单帧检出概率的预注册值(必须在开跑前定稿,试跑后不许改)。示例起点:30-40m=0.2、40-55m=0.1、55-70m=0.05、低矮 10-40m=0.3;公式 n≥ln(α)/ln(1−p) → p=0.2→43次、0.1→95、0.05→180、0.3→28。n_quota 留空由 check_boxes.py 计算。",
+  "split_rule": "路线×日期×场景,绝不按帧;train/test 时空重叠=0",
+  "boxes": [
+    {"box_id": "adult_30-40", "cls": "adult", "dist_band": "30-40m", "posture": "站立", "p_assumed": 0.2, "n_actual": 0},
+    {"box_id": "adult_40-55", "cls": "adult", "dist_band": "40-55m", "posture": "站立", "p_assumed": 0.1, "n_actual": 0},
+    {"box_id": "adult_55-70", "cls": "adult", "dist_band": "55-70m", "posture": "站立", "p_assumed": 0.05, "n_actual": 0},
+    {"box_id": "child_30-40", "cls": "child", "dist_band": "30-40m", "posture": "站立", "p_assumed": 0.2, "n_actual": 0},
+    {"box_id": "child_40-55", "cls": "child", "dist_band": "40-55m", "posture": "站立", "p_assumed": 0.1, "n_actual": 0},
+    {"box_id": "child_55-70", "cls": "child", "dist_band": "55-70m", "posture": "站立", "p_assumed": 0.05, "n_actual": 0},
+    {"box_id": "cyclist_30-40", "cls": "cyclist", "dist_band": "30-40m", "posture": "骑行", "p_assumed": 0.2, "n_actual": 0},
+    {"box_id": "cyclist_40-55", "cls": "cyclist", "dist_band": "40-55m", "posture": "骑行", "p_assumed": 0.1, "n_actual": 0},
+    {"box_id": "cyclist_55-70", "cls": "cyclist", "dist_band": "55-70m", "posture": "骑行", "p_assumed": 0.05, "n_actual": 0},
+    {"box_id": "motorcycle_30-55", "cls": "motorcycle", "dist_band": "30-55m", "posture": "骑行", "p_assumed": 0.15, "n_actual": 0},
+    {"box_id": "animal_10-40", "cls": "animal", "dist_band": "10-40m", "posture": "低矮", "p_assumed": 0.3, "n_actual": 0},
+    {"box_id": "cone_10-60", "cls": "cone", "dist_band": "10-60m", "posture": "低矮", "p_assumed": 0.3, "p_note": "立姿+倒伏各半", "n_actual": 0},
+    {"box_id": "debris_10-40", "cls": "debris", "dist_band": "10-40m", "posture": "低矮", "p_assumed": 0.3, "n_actual": 0},
+    {"box_id": "debris_40-55", "cls": "debris", "dist_band": "40-55m", "posture": "低矮", "p_assumed": 0.15, "n_actual": 0}
+  ]
+}
