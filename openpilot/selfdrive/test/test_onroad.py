@@ -49,6 +49,9 @@ PROCS = {
   "selfdrive.modeld.dmonitoringmodeld": 18.0,
   "system.hardware.hardwared": 4.0,
   "selfdrive.locationd.calibrationd": 2.0,
+  # audit C4: camcalibd must be in the baseline or the total-budget assertion
+  # is blind to the new process (~4% CPU, spec §12)
+  "selfdrive.locationd.camcalibd": 2.0,
   "selfdrive.locationd.torqued": 5.0,
   "selfdrive.locationd.locationd": 25.0,
   "selfdrive.locationd.paramsd": 9.0,
