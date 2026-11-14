@@ -205,7 +205,7 @@ class OpenpilotLiveSource:
         if self.params is None or self.log is None:
             return
         try:
-            calibration_bytes = self.params.get("CalibrationParams")
+            calibration_bytes = self.params.get("CalibrationParams")  # calib-legacy-allow: pending-migration (cached bootstrap; values flow via RouteLogParser/from_live_calibration)
             if calibration_bytes:
                 event = self.messaging.log_from_bytes(calibration_bytes, self.log.Event)
                 self.parser._update_live_calibration(

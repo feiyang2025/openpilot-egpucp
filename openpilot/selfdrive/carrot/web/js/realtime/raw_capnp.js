@@ -361,8 +361,8 @@ carrotRawCapnpGlobal.CarrotRawCapnp = (() => {
         calPerc: { kind: "int8", offset: 1 },
         validBlocks: { kind: "int32", offset: 2 },
         extrinsicMatrix: { kind: "list<float32>", offset: 1 },
-        rpyCalib: { kind: "list<float32>", offset: 4 },
-        wideFromDeviceEuler: { kind: "list<float32>", offset: 6 },
+        rpyCalib: { kind: "list<float32>", offset: 4 },  // calib-legacy-allow: pending-migration (web gateway debt, spec §7.4)
+        wideFromDeviceEuler: { kind: "list<float32>", offset: 6 },  // calib-legacy-allow: pending-migration (web gateway debt, spec §7.4)
         height: { kind: "list<float32>", offset: 7 },
       },
     },

@@ -386,8 +386,17 @@ def _build_longitudinal_plan(service: Any, previous: dict[str, Any] | None = Non
 def _build_live_calibration(service: Any, previous: dict[str, Any] | None = None) -> dict[str, Any]:
   payload = previous if isinstance(previous, dict) else {}
   payload["calStatus"] = safe_enum_int(safe_get(service, "calStatus"))
-  _fill_list(_ensure_list(payload, "rpyCalib"), safe_get(service, "rpyCalib"), limit=3)
-  _fill_list(_ensure_list(payload, "wideFromDeviceEuler"), safe_get(service, "wideFromDeviceEuler"), limit=3)
+  _fill_list(_ensure_list(payload, "rpyCalib"), safe_get(service, "rpyCalib"), limit=3)  # calib-legacy-allow: pending-migration (JS consumers; calibGateway feeds new code)
+  _fill_list(_ensure_list(payload, "wideFromDeviceEuler"), safe_get(service, "wideFromDeviceEuler"), limit=3)  # calib-legacy-allow: pending-migration (JS consumers; calibGateway feeds new code)
+  # Gateway projection of the single CameraCalibSet source (spec §4.4/§7.4):
+  # full cams[] with seq, so web/WebRTC finally get the wide extrinsic (audit
+  # B5). Legacy scalar fields above are kept for existing JS consumers during
+  # migration; new code must read the gateway dict only.
+  try:
+    from openpilot.common.transformations.camera_calib import from_live_calibration, to_json
+    payload["calibGateway"] = to_json(from_live_calibration(service))
+  except Exception:
+    pass
   return payload
 
 

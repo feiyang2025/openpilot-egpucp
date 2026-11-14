@@ -4,6 +4,7 @@ from functools import cache
 
 from openpilot.cereal import log
 from openpilot.common.transformations.orientation import rot_from_euler, euler_from_rot
+from openpilot.common.transformations.camera_calib import from_live_calibration
 
 
 @cache
@@ -177,7 +178,8 @@ class PoseCalibrator:
     return Pose(ned_from_calib_euler, velocity_calib, acceleration_calib, angular_velocity_calib)
 
   def feed_live_calib(self, live_calib: log.LiveCalibrationData):
-    calib_rpy = np.array(live_calib.rpyCalib)
-    device_from_calib = rot_from_euler(calib_rpy)
+    # body rotation via the single CameraCalibSet source (spec §5.2;
+    # body_from_calib == the legacy body-euler field, value-identical)
+    device_from_calib = from_live_calibration(live_calib).device_from_calib()
     self.calib_from_device = device_from_calib.T
     self.calib_valid = live_calib.calStatus == log.LiveCalibrationData.Status.calibrated

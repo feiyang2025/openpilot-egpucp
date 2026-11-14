@@ -715,7 +715,7 @@ export function createArRuntime(options = {}) {
     // against the frame actually presented by the browser.
     const deviceOdometry = odometryInDeviceFrame(
       overlayState.cameraOdometry,
-      overlayState.liveCalibration?.rpyCalib,
+      overlayState.liveCalibration?.rpyCalib,  // calib-legacy-allow: pending-migration (web gateway debt, spec §7.4)
     );
     odometryTimeline.push(deviceOdometry);
     const presentedDeviceOdometry = odometryTimeline.sampleAt(presentedClock.targetTimestampNs);

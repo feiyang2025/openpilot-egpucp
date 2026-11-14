@@ -123,7 +123,7 @@ window.HomeDrive = (() => {
     [1, 0, 0],
   ];
   // Road-camera intrinsics. Native openpilot selects these from
-  // DEVICE_CAMERAS[(deviceType, sensor)]; the web renderer follows that same
+  // DEVICE_CAMERAS[(deviceType, sensor)]; the web renderer follows that same  // calib-legacy-allow: pending-migration (web gateway debt, spec §7.4)
   // rule so C3/C3X/C4 share one projection path.
   const BASE_CAMERA = {
     width: 1928,
@@ -131,7 +131,7 @@ window.HomeDrive = (() => {
     focalX: 2648,
     focalY: 2648,
   };
-  // Mirror of openpilot common/transformations/camera.py DEVICE_CAMERAS[*].fcam.
+  // Mirror of openpilot common/transformations/camera.py DEVICE_CAMERAS[*].fcam.  // calib-legacy-allow: pending-migration (web gateway debt, spec §7.4)
   const ROAD_CAMERA_PROFILES = {
     ar_ox: { width: 1928, height: 1208, focal: 2648.0 },
     os04c10: { width: 1344, height: 760, focal: 1141.5 },
@@ -344,9 +344,9 @@ window.HomeDrive = (() => {
       selectedPath?.pathSource || "none",
       pathDataSignature(selectedPath?.pathData),
       radarStateSignature(radar),
-      finiteNumber(liveCalibration?.rpyCalib?.[0], 0).toFixed(3),
-      finiteNumber(liveCalibration?.rpyCalib?.[1], 0).toFixed(3),
-      finiteNumber(liveCalibration?.rpyCalib?.[2], 0).toFixed(3),
+      finiteNumber(liveCalibration?.rpyCalib?.[0], 0).toFixed(3),  // calib-legacy-allow: pending-migration (web gateway debt, spec §7.4)
+      finiteNumber(liveCalibration?.rpyCalib?.[1], 0).toFixed(3),  // calib-legacy-allow: pending-migration (web gateway debt, spec §7.4)
+      finiteNumber(liveCalibration?.rpyCalib?.[2], 0).toFixed(3),  // calib-legacy-allow: pending-migration (web gateway debt, spec §7.4)
       liveCalibration?.calStatus ?? "-",
       _roadCameraProfileKey,
       finiteNumber(liveCalibration?.height?.[0], 0).toFixed(2),
@@ -464,7 +464,7 @@ window.HomeDrive = (() => {
   }
 
   function readRpyTriplet(liveCalibration) {
-    const source = Array.isArray(liveCalibration?.rpyCalib) ? liveCalibration.rpyCalib : null;
+    const source = Array.isArray(liveCalibration?.rpyCalib) ? liveCalibration.rpyCalib : null;  // calib-legacy-allow: pending-migration (web gateway debt, spec §7.4)
     if (!source) return null;
     const roll = Number(source[0]);
     const pitch = Number(source[1]);

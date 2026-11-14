@@ -121,8 +121,11 @@ class DeviceLayout(Widget):
         calib = messaging.log_from_bytes(calib_bytes, log.Event).liveCalibration
 
         if calib.calStatus != log.LiveCalibrationData.Status.uncalibrated:
-          pitch = math.degrees(calib.rpyCalib[1])
-          yaw = math.degrees(calib.rpyCalib[2])
+          # body euler from the single CameraCalibSet source (spec §5.2)
+          from openpilot.common.transformations.camera_calib import from_live_calibration
+          body = from_live_calibration(calib).body_from_calib
+          pitch = math.degrees(float(body[1]))
+          yaw = math.degrees(float(body[2]))
           desc += tr(" Your device is pointed {:.1f}° {} and {:.1f}° {}.").format(abs(pitch), tr("down") if pitch > 0 else tr("up"),
                                                                                   abs(yaw), tr("left") if yaw > 0 else tr("right"))
       except Exception:
@@ -167,8 +170,11 @@ class DeviceLayout(Widget):
         calib = messaging.log_from_bytes(calib_bytes, log.Event).liveCalibration
 
         if calib.calStatus != log.LiveCalibrationData.Status.uncalibrated:
-          pitch = math.degrees(calib.rpyCalib[1])
-          yaw = math.degrees(calib.rpyCalib[2])
+          # body euler from the single CameraCalibSet source (spec §5.2)
+          from openpilot.common.transformations.camera_calib import from_live_calibration
+          body = from_live_calibration(calib).body_from_calib
+          pitch = math.degrees(float(body[1]))
+          yaw = math.degrees(float(body[2]))
 
           position = f"{abs(pitch):.1f}° {'v' if pitch > 0 else '^'} {abs(yaw):.1f}° {'<' if yaw > 0 else '>'}"
           self._params.put("DevicePosition", position)

@@ -75,7 +75,7 @@ class SignalPrepareRuntime(SignalAssistRuntime):
       config = DEVICE_CAMERAS.get((str(extra['deviceState'].deviceType), str(extra['roadCameraState'].sensor)))
       # Current observer coordinates match OS04C10 road frames only.
       ok = ok and config is not None and config.fcam.size == (1344, 760) and str(calib.calStatus) == 'calibrated'
-      rpy = list(calib.rpyCalib)
+      rpy = list(calib.rpyCalib)  # calib-legacy-allow: pending-migration (B8 size gate + K(ROAD))
       pose = sm['livePose']
       ok = (ok and len(rpy) == 3 and np.isfinite(rpy).all()
             and sm.seen['livePose'] and sm.valid['livePose'] and sm.alive['livePose']

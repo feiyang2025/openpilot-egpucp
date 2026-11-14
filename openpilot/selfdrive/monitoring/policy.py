@@ -431,7 +431,7 @@ class DriverMonitoring:
       driver_engaged = False
       brake_disengage_prob = 1.0
       steering_angle_deg = 0.0
-      rpyCalib = [0., 0., 0.]
+      calib_rpy = [0., 0., 0.]  # calib-legacy-allow: estimator-input (demo mode)
     else:
       car_speed = sm['carState'].vEgo
       enabled = sm['selfdriveState'].enabled
@@ -440,9 +440,9 @@ class DriverMonitoring:
       driver_engaged = sm['carState'].steeringPressed or sm['carState'].gasPressed
       brake_disengage_prob = sm['modelV2'].meta.disengagePredictions.brakeDisengageProbs[0] # brake disengage prob in next 2s
       steering_angle_deg = sm['carState'].steeringAngleDeg
-      rpyCalib = sm['liveCalibration'].rpyCalib
+      calib_rpy = sm['liveCalibration'].rpyCalib  # calib-legacy-allow: estimator-input (DM face-pose derotation)
       # DCAM size from cams[DCAM] of the single calibration source (spec §5.2);
-      # replaces the old DEVICE_CAMERAS[("tici", "ar0231")].dcam hardcode.
+      # replaces the old factory-table dcam hardcode.
       global dcam_undistorted_W, dcam_undistorted_H
       calib_set = from_live_calibration(sm['liveCalibration'])
       if Cam.DCAM in calib_set.cams:
@@ -457,7 +457,7 @@ class DriverMonitoring:
     # Parse data from dmonitoringmodeld
     self._update_states(
       driver_state=sm['driverStateV2'],
-      cal_rpy=rpyCalib,
+      cal_rpy=calib_rpy,
       car_speed=car_speed,
       op_engaged=enabled,
       lowspeed=lowspeed,

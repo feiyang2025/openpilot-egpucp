@@ -35,6 +35,7 @@ from cluster_config import (
     YELLOW,
     cluster_camera_view_prefers_wide,
 )
+from openpilot.common.transformations.camera_calib import Cam, from_live_calibration
 from cluster_models import (
     ClusterAlert,
     ClusterUiState,
@@ -2109,16 +2110,19 @@ class RouteLogParser:
     def _update_live_calibration(self, live_calibration: Any, valid: bool) -> None:
         if not valid:
             return
-        rpy_calib = three_float_tuple(safe_get(live_calibration, "rpyCalib"))
-        if rpy_calib is not None:
-            self.camera_calibration_euler = rpy_calib
-        wide_from_device_euler = three_float_tuple(safe_get(live_calibration, "wideFromDeviceEuler"))
-        if wide_from_device_euler is not None:
-            self.wide_camera_from_device_euler = wide_from_device_euler
-        height_values = safe_get(live_calibration, "height")
-        height_m = numeric_tuple(height_values, limit=1, minimum=0.5, maximum=3.0)
-        if height_m:
-            self.road_transform_trans = (0.0, 0.0, height_m[0])
+        # Single calibration source (spec §5.2): values come from CameraCalibSet's
+        # from_live_calibration; body euler == legacy rpyCalib, wide euler ==
+        # wide.rpy, height == set.height (road mount height) - value-identical.
+        try:
+            calib_set = from_live_calibration(live_calibration)
+        except Exception:
+            return
+        self.camera_calibration_euler = tuple(float(v) for v in calib_set.body_from_calib)
+        wide = calib_set.cams.get(Cam.WIDE)
+        if wide is not None and wide.rpy is not None:
+            self.wide_camera_from_device_euler = tuple(float(v) for v in wide.rpy)
+        if 0.5 <= float(calib_set.height) <= 3.0:
+            self.road_transform_trans = (0.0, 0.0, float(calib_set.height))
 
     def _update_controls_state(self, controls_state: Any) -> None:
         enabled = safe_get(controls_state, "enabled", None)

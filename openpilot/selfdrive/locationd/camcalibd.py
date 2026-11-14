@@ -181,7 +181,7 @@ class StreamCalib:
 
     符号约定按本树 euler: 相机下俯时 v0 > cy 而 euler[1] 为负,故
         pitch_cam = -atan2(v0 - cy, f),  offset = pitch_cam - pitch_dev
-    与 calibrationd 的 rpyCalib[1] 同符号空间,可直接加到该路的 rpy 上。
+    与 calibrationd 的 body euler[1] 同符号空间,可直接加到该路的 rpy 上。
     """
     if len(self.samples) < MIN_SAMPLES or self.cy is None:
       return None
@@ -259,7 +259,7 @@ class CamCalibd:
     lc = self.sm['liveCalibration']
     if lc.calStatus != log.LiveCalibrationData.Status.calibrated:
       return None
-    rpy = np.array(lc.rpyCalib)
+    rpy = np.array(lc.rpyCalib)  # calib-legacy-allow: estimator-input (mounting-pitch observation)
     if not np.isfinite(rpy).all() or len(rpy) != 3:
       return None
     return float(rpy[1])

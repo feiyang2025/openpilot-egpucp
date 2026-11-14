@@ -155,7 +155,7 @@ def main():
 
     sm.update(0)
     if sm.updated["liveCalibration"]:
-      calib[:] = np.array(sm["liveCalibration"].rpyCalib)
+      calib[:] = np.array(sm["liveCalibration"].rpyCalib)  # calib-legacy-allow: estimator-input (DM model input)
 
     t1 = time.perf_counter()
     if phase_gate is not None:

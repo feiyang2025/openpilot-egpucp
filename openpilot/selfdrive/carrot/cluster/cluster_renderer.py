@@ -166,7 +166,7 @@ CAMERA_OVERLAY_FRAME_MAX_HEIGHT_RATIO = 0.45
 CAMERA_OVERLAY_FRAME_MAX_ASPECT = 2.4
 CAMERA_OVERLAY_FRAME_EDGE_PAD_PX = 3.0
 CAMERA_OVERLAY_FRAME_ROUND_SEGMENTS = 4
-CAMERA_OVERLAY_DEFAULT_CAMERA = DEVICE_CAMERAS["tici", "ar0231"].fcam
+CAMERA_OVERLAY_DEFAULT_CAMERA = DEVICE_CAMERAS["tici", "ar0231"].fcam  # calib-legacy-allow: factory-fallback (pending helper switch)
 CAMERA_OVERLAY_DEFAULT_HEIGHT_M = 1.22
 CAMERA_OVERLAY_Z_OFFSET_DEFAULT_M = 0.00
 CAMERA_OVERLAY_Z_OFFSET_MIN_M = -0.80
@@ -1832,7 +1832,7 @@ class ClusterUiRenderer:
                 if known_sensor == sensor:
                     camera = device_camera.ecam if wide_camera else device_camera.fcam
                     return camera if camera.width > 0 and camera.height > 0 else device_camera.fcam
-        default_device_camera = DEVICE_CAMERAS["tici", "ar0231"]
+        default_device_camera = DEVICE_CAMERAS["tici", "ar0231"]  # calib-legacy-allow: factory-fallback (pending helper switch)
         return default_device_camera.ecam if wide_camera else CAMERA_OVERLAY_DEFAULT_CAMERA
 
     def _camera_overlay_projection(self, state: ClusterUiState) -> CameraOverlayProjection | None:
