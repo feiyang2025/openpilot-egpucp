@@ -8,6 +8,9 @@ import time
 from openpilot.selfdrive.modeld.signal_color_shadow import DIRECTORY, configure_worker_scheduling, requested
 
 REFERENCE_SIZE = (1344, 760)
+# Road camera geometry varies per device (tici 1344x760; this Jetson rig 1920x1080).
+# copy_nv12_rgb accepts any of these and rescales to REFERENCE_SIZE for the trackers.
+SUPPORTED_CAMERA_SIZES = (REFERENCE_SIZE, (1920, 1080))
 MAX_INPUT_AGE_MS = 150
 MAX_RESULT_AGE_MS = 200
 
@@ -63,7 +66,7 @@ def copy_nv12_rgb(frame):
   import cv2
   import numpy as np
   width, height, stride, offset = int(frame.width), int(frame.height), int(frame.stride), int(frame.uv_offset)
-  if (width, height) != REFERENCE_SIZE or stride < width or stride % 2 or offset < stride * height:
+  if (width, height) not in SUPPORTED_CAMERA_SIZES or stride < width or stride % 2 or offset < stride * height:
     raise ValueError('unsupported tracking camera geometry')
   raw = np.frombuffer(frame.data, np.uint8)
   end = offset + stride * (height // 2)
@@ -74,7 +77,10 @@ def copy_nv12_rgb(frame):
   y = np.ndarray((height, width), np.uint8, buffer=raw, strides=(stride, 1))
   uv = np.ndarray((height // 2, width // 2, 2), np.uint8, buffer=raw,
                   offset=offset, strides=(stride, 2, 1))
-  return cv2.cvtColorTwoPlane(y, uv, cv2.COLOR_YUV2RGB_NV12)
+  rgb = cv2.cvtColorTwoPlane(y, uv, cv2.COLOR_YUV2RGB_NV12)
+  if (width, height) != REFERENCE_SIZE:
+    rgb = cv2.resize(rgb, REFERENCE_SIZE, interpolation=cv2.INTER_AREA)
+  return rgb
 
 
 def result_fields(result, age_ms):
