@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 
 from openpilot.common.transformations.camera import DEVICE_CAMERAS, view_frame_from_device_frame
+from openpilot.common.transformations.camera_calib import Cam, from_live_calibration
 from openpilot.common.transformations.orientation import rot_from_euler
 
 
@@ -41,21 +42,40 @@ class LeadBrakeDetector:
       vx, vy = float(vision['x'][0]), float(vision['y'][0])
       if not math.isfinite(vx+vy) or abs(vx-depth) > max(2., .15*distance) or abs(vy-lateral) > .5:
         return self.unknown('vision_radar_mismatch')
-      if calibration['calStatus'] != 'calibrated' or rgb.shape != (760, 1344, 3):
-        return self.unknown('uncalibrated')
-      height = float(calibration['height'][0])
-      rpy = np.asarray(calibration['rpyCalib'], dtype=float)
-      if rpy.shape != (3,) or not np.isfinite(rpy).all() or not .7 <= height <= 2.2:
-        return self.unknown('uncalibrated')
-      # Restricted to the C4 road camera geometry used by the supplying worker.
-      p = DEVICE_CAMERAS[('mici', 'os04c10')].fcam.intrinsics @ view_frame_from_device_frame @ rot_from_euler(rpy[None, :])[0]
+      if isinstance(calibration, dict):
+        # calib-legacy-allow: legacy dict fixtures carry the mici C4 bench
+        # geometry; the live path below reads the single CameraCalibSet source.
+        if calibration['calStatus'] != 'calibrated' or rgb.shape != (760, 1344, 3):
+          return self.unknown('uncalibrated')
+        height = float(calibration['height'][0])
+        rpy = np.asarray(calibration['rpyCalib'], dtype=float)
+        if rpy.shape != (3,) or not np.isfinite(rpy).all() or not .7 <= height <= 2.2:
+          return self.unknown('uncalibrated')
+        fx, W, H = 1141.5, 1344, 760
+        intrinsic = DEVICE_CAMERAS[('mici', 'os04c10')].fcam.intrinsics
+      else:
+        # spec §5.2: geometry from the single CameraCalibSet source carried in
+        # the liveCalibration message (works on any road camera, e.g. 1920x1080).
+        calib_set = from_live_calibration(calibration)
+        road = calib_set.cams.get(Cam.ROAD)
+        if str(calibration.calStatus) != 'calibrated' or road is None or road.width <= 0:
+          return self.unknown('uncalibrated')
+        height = float(calib_set.height)
+        rpy = np.asarray(calib_set.body_from_calib, dtype=float)
+        if rpy.shape != (3,) or not np.isfinite(rpy).all() or not .7 <= height <= 2.2:
+          return self.unknown('uncalibrated')
+        fx, W, H = float(road.fx), int(road.width), int(road.height)
+        intrinsic = calib_set.K(Cam.ROAD)
+      if rgb.shape[:2] != (H, W):
+        return self.unknown('frame_size_mismatch')
+      p = intrinsic @ view_frame_from_device_frame @ rot_from_euler(rpy[None, :])[0]
       points = np.array([p @ [depth, lateral+y, height-z] for y in (-.27, .27) for z in (1.25, 1.9)])
       if (points[:, 2] <= 0).any():
         return self.unknown('projection')
       xy = points[:, :2]/points[:, 2, None]
       x1, y1 = np.floor(xy.min(axis=0)).astype(int)
       x2, y2 = np.ceil(xy.max(axis=0)).astype(int)
-      if not (0 <= x1 < x2 <= 1344 and 0 <= y1 < y2 <= 760 and (x2-x1)*(y2-y1) <= 24000):
+      if not (0 <= x1 < x2 <= W and 0 <= y1 < y2 <= H and (x2-x1)*(y2-y1) <= 24000):
         return self.unknown('crop_budget')
       patch = rgb[y1:y2, x1:x2].astype(np.int16)
       r, g, b = cv2.split(patch)
@@ -64,7 +84,7 @@ class LeadBrakeDetector:
       candidates = []
       for c in cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]:
         x, y, w, h = cv2.boundingRect(c)
-        if (cv2.contourArea(c) >= 4 and 2.2 <= w/max(h, 1) <= 18 and .07 <= w*depth/1141.5 <= .7
+        if (cv2.contourArea(c) >= 4 and 2.2 <= w/max(h, 1) <= 18 and .07 <= w*depth/fx <= .7
             and x > 0 and y > 0 and x+w < x2-x1 and y+h < y2-y1):
           candidates.append([int(x+x1), int(y+y1), int(x+x1+w), int(y+y1+h)])
       if len(candidates) != 1:
