@@ -1,0 +1,74 @@
+{
+  "mechanics": {
+    "s715_D_60": "PASS",
+    "s715_D_60_margin_vs_ttc4": "PASS",
+    "s715_D_50_violates_ttc3_5": "PASS",
+    "s715_D_30": "PASS",
+    "s715_T0_cap_50": "PASS",
+    "s715_T0_cap_60": "PASS",
+    "s98_2Tout": "PASS",
+    "s98_L_const": "PASS",
+    "s98_const_profile_must_reject": "PASS",
+    "s98_L_piecewise": "PASS",
+    "s98_L_piecewise_Tp05": "PASS",
+    "s78_Tout_d075": "PASS",
+    "s78_adult30px_dist": "PASS",
+    "s78_child30px_dist": "PASS",
+    "s78_low12px_dist": "PASS",
+    "s78_lead50_above_gate": "PASS",
+    "s714_hops_sum_le_budget": "PASS",
+    "s714_T_action": "PASS",
+    "cost_p_act": "PASS",
+    "cost_tier_monotone": "PASS",
+    "stats_ci_rule_of_three": "PASS",
+    "stats_n_for_1e-4": "PASS"
+  },
+  "pending_signatures": [
+    {
+      "decision": "60 档像素门三选一 [a]1.45m/[b]盲窗/[c]降速58.8",
+      "fact": "min_h 1.4m @D(60,T0=.70)=66.17 m → 29.0px < 30px 门;推导身高 1.70m → 35.2px 过门,两口身高不一致(1.4 vs 1.7)",
+      "guard": "签字后: min_h_class·f_px/D_check(v) ≥ px_gate 硬门"
+    },
+    {
+      "decision": "儿童身高下界(建议 <1.07m 归低矮 40 档)",
+      "fact": "1.05m 幼童 @D(50,T0=.70)=48.69 m → 29.6px < 30px 门贴线;child ∈ (1.0,1.4] 无显式数值定义",
+      "guard": "签字后: 数值区间写入 odd 块 + 本脚本硬门"
+    }
+  ],
+  "computed": {
+    "s715_D_60": "66.171 m (doc 66.18)",
+    "s715_D_60_margin_vs_ttc4": "margin 0.495 m (doc 0.49)",
+    "s715_D_50_violates_ttc3_5": "D=48.69 vs TTC 距离 48.61 → 50@T0=.70 候选不成立",
+    "s715_D_30": "21.449 m (doc 21.45)",
+    "s715_T0_cap_50": "T0=0.514 → D≈46.11 ≤ 46.11 (doc .514)",
+    "s715_T0_cap_60": "T0=0.580 → D≈64.17 ≤ 64.17 (doc .580)",
+    "s98_2Tout": "6.0732 s (doc 6.0732)",
+    "s98_L_const": "L=40.796 (doc 40.796)",
+    "s98_const_profile_must_reject": "v_end=-1.035 (doc −1.035,恒减速必须拒绝)",
+    "s98_L_piecewise": "L=41.832, T_b=5.0556, v_end=1.0 (doc 41.832/5.0556/1.0)",
+    "s98_L_piecewise_Tp05": "L=42.332 (doc 42.332, 禁跨 Tp 复用)",
+    "s78_Tout_d075": "2.466 s (doc 2.47)",
+    "s78_adult30px_dist": "77.7 m (doc 77.8, 身高 1.70)",
+    "s78_child30px_dist": "50.3 m (doc 50.3, 身高 ~1.10)",
+    "s78_low12px_dist": "34.3 m (doc 34.3)",
+    "s78_lead50_above_gate": "79 m > 77.8 m 门 → 50 档 S 不可行退制动(文档语义)",
+    "s714_hops_sum_le_budget": "sum=115 ≤ 126(分项仅归因)",
+    "s714_T_action": "226 ms ≤ G3 250(20Hz,K=3)",
+    "cost_p_act": "p*=0.000999",
+    "cost_tier_monotone": "prepare 2e-5 < comfort 9.99e-4 < emergency 2.99e-3",
+    "stats_ci_rule_of_three": "3/36000=8.33e-05 (doc 8.3e-5)",
+    "stats_n_for_1e-4": "需 n≥29956, 附录 B 样例 36000 ✓"
+  },
+  "joint_constraint": {
+    "formula": "min_h_class·f_px/D_check(v) ≥ px_gate(类)",
+    "adult60_minH_px": 29.03,
+    "adult60_derivedH_px": 35.25,
+    "child105_50_px": 29.59,
+    "height_disagreement_adult": [
+      1.4,
+      1.7
+    ]
+  },
+  "verdict": "MECHANICS_PASS_PENDING_SIGNATURES",
+  "failed": []
+}
