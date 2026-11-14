@@ -226,8 +226,8 @@ class DevTargetsOverlay:
       txt = "TL " + st.upper() + " " + f"{conf:.2f}"
     else:
       txt = f"TL OBJ x{n}"
-    px = rect.x + rect.width - 340   # eGPU 徽章左下,避开右缘 exp 按钮
-    py = rect.y + 104                 # 徽章底 ~y+74,下移留空隙
+    px = rect.x + rect.width - 470   # exp 按钮区(约 y24~144、右缘 ~width-210)整体左侧
+    py = rect.y + 150                # 徽章/按钮区块下缘之下
     rl.draw_rectangle_rec(rl.Rectangle(px - 10, py - 8, 186, 34), rl.Color(0x08, 0x0C, 0x10, 205))
     try:
       rl.draw_circle(int(px), int(py + 7), 7, c)               # pyray: 圆心必须 int
