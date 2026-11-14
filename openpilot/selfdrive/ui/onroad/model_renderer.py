@@ -9,6 +9,7 @@ import pyray as rl
 from openpilot.cereal import messaging, car, log
 from dataclasses import dataclass, field
 from openpilot.common.filter_simple import FirstOrderFilter
+from openpilot.common.transformations.camera_calib import from_live_calibration
 from openpilot.common.params import Params
 from openpilot.selfdrive.locationd.calibrationd import HEIGHT_INIT
 from openpilot.selfdrive.ui.amapnavi_overlay import draw_barriers_c3
@@ -146,8 +147,10 @@ class ModelRenderer(Widget):
     # Update state
     self._experimental_mode = sm['selfdriveState'].experimentalMode
 
-    live_calib = sm['liveCalibration']
-    self._path_offset_z = live_calib.height[0] if live_calib.height else HEIGHT_INIT[0]
+    # Mount height via the single CameraCalibSet source (spec §5.2); legacy
+    # messages without cams fall back to the factory set (height == HEIGHT_INIT).
+    calib_set = from_live_calibration(sm['liveCalibration'])
+    self._path_offset_z = calib_set.height
 
     if sm.recv_frame['carParams'] != self._params_frame:
       self._params_frame = sm.recv_frame['carParams']

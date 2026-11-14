@@ -15,14 +15,16 @@ from openpilot.selfdrive.ui.overlay_state import OverlayState
 from openpilot.selfdrive.ui.onroad.cameraview import CameraView
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.text_draw import draw_text_ui_style
-from openpilot.common.transformations.camera import DEVICE_CAMERAS, DeviceCameraConfig, view_frame_from_device_frame
-from openpilot.common.transformations.orientation import rot_from_euler
+from openpilot.common.transformations.camera import view_frame_from_device_frame
+from openpilot.common.transformations.camera_calib import Cam, CameraCalibSet, build_factory_set, from_live_calibration
 
 OpState = log.SelfdriveState.OpenpilotState
 CALIBRATED = log.LiveCalibrationData.Status.calibrated
 ROAD_CAM = VisionStreamType.VISION_STREAM_ROAD
 WIDE_CAM = VisionStreamType.VISION_STREAM_WIDE_ROAD
-DEFAULT_DEVICE_CAMERA = DEVICE_CAMERAS["tici", "ar0231"]
+# calib-legacy-allow: factory-fallback while neither roadCameraState nor a live
+# calibration has been seen; the factory table itself stays in camera_calib.py.
+DEFAULT_DEVICE_CAMERA_SET = build_factory_set("tici", "ar0231")
 
 BORDER_COLORS = {
   UIStatus.DISENGAGED: rl.Color(0x12, 0x28, 0x39, 0xFF),  # Blue for disengaged state
@@ -40,7 +42,7 @@ class AugmentedRoadView(CameraView):
     super().__init__("camerad", stream_type)
     self._set_placeholder_color(BORDER_COLORS[UIStatus.DISENGAGED])
 
-    self.device_camera: DeviceCameraConfig | None = None
+    self.calib_set: CameraCalibSet | None = None
     self.view_from_calib = view_frame_from_device_frame.copy()
     self.view_from_wide_calib = view_frame_from_device_frame.copy()
 
@@ -208,32 +210,37 @@ class AugmentedRoadView(CameraView):
       self.switch_stream(target)
 
   def _update_calibration(self):
-    # Update device camera if not already set
+    # Build the identity/factory set once roadCameraState is seen; after that all
+    # calibration values come from the single CameraCalibSet source (spec §5.2).
     sm = ui_state.sm
-    if not self.device_camera and sm.seen['roadCameraState'] and sm.seen['deviceState']:
-      self.device_camera = DEVICE_CAMERAS[(str(sm['deviceState'].deviceType), str(sm['roadCameraState'].sensor))]
+    if self.calib_set is None and sm.seen['roadCameraState'] and sm.seen['deviceState']:
+      self.calib_set = build_factory_set(str(sm['deviceState'].deviceType), str(sm['roadCameraState'].sensor))
 
     # Check if live calibration data is available and valid
     if not (sm.updated["liveCalibration"] and sm.valid['liveCalibration']):
       return
 
     calib = sm['liveCalibration']
-    if len(calib.rpyCalib) != 3 or calib.calStatus != CALIBRATED:
+    if calib.calStatus != CALIBRATED:
       return
 
-    # Update view_from_calib matrix
-    device_from_calib = rot_from_euler(calib.rpyCalib)
-    self.view_from_calib = view_frame_from_device_frame @ device_from_calib
+    if self.calib_set is None:
+      self.calib_set = DEFAULT_DEVICE_CAMERA_SET
 
-    # Update wide calibration if available
-    if hasattr(calib, 'wideFromDeviceEuler') and len(calib.wideFromDeviceEuler) == 3:
-      wide_from_device = rot_from_euler(calib.wideFromDeviceEuler)
-      self.view_from_wide_calib = view_frame_from_device_frame @ wide_from_device @ device_from_calib
+    self.calib_set = from_live_calibration(calib,
+                                           device_type=self.calib_set.identity.device_type,
+                                           sensor=self.calib_set.identity.sensor)
+
+    # Update view_from_calib matrix (road: camera_from_calib == V @ rot(body_from_calib))
+    self.view_from_calib = self.calib_set.camera_from_calib(Cam.ROAD)
+    # Update wide calibration: V @ rot(wide.rpy) @ rot(body_from_calib), identical to the
+    # old view_from_device @ wide_from_device @ device_from_calib composition.
+    self.view_from_wide_calib = self.calib_set.camera_from_calib(Cam.WIDE)
 
   def _calc_frame_matrix(self, rect: rl.Rectangle) -> np.ndarray:
     # Check if we can use cached matrix
     cache_key = (
-      ui_state.sm.recv_frame['liveCalibration'],
+      ui_state.sm['liveCalibration'].calibSeq,
       self._content_rect.width,
       self._content_rect.height,
       self.stream_type
@@ -241,10 +248,10 @@ class AugmentedRoadView(CameraView):
     if cache_key == self._matrix_cache_key and self._cached_matrix is not None:
       return self._cached_matrix
 
-    # Get camera configuration
-    device_camera = self.device_camera or DEFAULT_DEVICE_CAMERA
+    # Get camera configuration from the single calibration source
+    calib_set = self.calib_set or DEFAULT_DEVICE_CAMERA_SET
     is_wide_camera = self.stream_type == WIDE_CAM
-    intrinsic = device_camera.ecam.intrinsics if is_wide_camera else device_camera.fcam.intrinsics
+    intrinsic = calib_set.K(Cam.WIDE if is_wide_camera else Cam.ROAD)
     calibration = self.view_from_wide_calib if is_wide_camera else self.view_from_calib
     zoom = 2.0 if is_wide_camera else 1.1
 

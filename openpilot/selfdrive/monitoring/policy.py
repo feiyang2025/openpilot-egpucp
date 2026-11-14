@@ -8,7 +8,7 @@ from openpilot.common.realtime import DT_DMON
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.params import Params
 from openpilot.common.stat_live import RunningStatFilter
-from openpilot.common.transformations.camera import DEVICE_CAMERAS
+from openpilot.common.transformations.camera_calib import Cam, from_live_calibration
 
 AlertLevel = log.DriverMonitoringState.AlertLevel
 MonitoringPolicy = log.DriverMonitoringState.MonitoringPolicy
@@ -107,9 +107,10 @@ class DriverBlink:
     self.right = 0.
 
 # model output refers to center of undistorted+leveled image
-ref_undistorted_cam = DEVICE_CAMERAS[("tici", "ar0231")].dcam
 dcam_undistorted_FL = 598.0
-dcam_undistorted_W, dcam_undistorted_H = (ref_undistorted_cam.width, ref_undistorted_cam.height)
+# DCAM stream size comes from the single CameraCalibSet source (spec §5.2, cams[DCAM]);
+# the legacy tici values below only apply before the first liveCalibration arrives.
+dcam_undistorted_W, dcam_undistorted_H = (1928, 1208)
 
 def face_orientation_from_model(orient_model, pos_model, rpy_calib):
   pitch_model = orient_model[0]
@@ -440,6 +441,13 @@ class DriverMonitoring:
       brake_disengage_prob = sm['modelV2'].meta.disengagePredictions.brakeDisengageProbs[0] # brake disengage prob in next 2s
       steering_angle_deg = sm['carState'].steeringAngleDeg
       rpyCalib = sm['liveCalibration'].rpyCalib
+      # DCAM size from cams[DCAM] of the single calibration source (spec §5.2);
+      # replaces the old DEVICE_CAMERAS[("tici", "ar0231")].dcam hardcode.
+      global dcam_undistorted_W, dcam_undistorted_H
+      calib_set = from_live_calibration(sm['liveCalibration'])
+      if Cam.DCAM in calib_set.cams:
+        dcam_entry = calib_set.cams[Cam.DCAM]
+        dcam_undistorted_W, dcam_undistorted_H = dcam_entry.width, dcam_entry.height
 
     self._set_pose_strictness(
       brake_disengage_prob=brake_disengage_prob,
