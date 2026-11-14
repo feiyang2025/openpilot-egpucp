@@ -1,0 +1,233 @@
+# §7.16 观察面 targets overlay(dev overlay,默认关闭)。
+# 设计文档: 文档/T906_jp7.2/主动避让20261112.md 修订 18/19。
+# 硬规则: ①单消息双消费(只订阅 smallObjectTracks,动作档 tier 等 AvoidanceState 接入前显示占位)
+#         ②渲染单调: coast 同步 0.5s 点线保持,禁 1 帧闪没 ③confirmed+coast 永不截断,
+#           tentative 按风险分限 16、超限角标 +k 本地计数 ④故障连续 2 帧自动隐藏+记文件,
+#           零行车回退 ⑤未启用时零成本(不开 socket)。
+import json
+import math
+import time
+
+import pyray as rl
+
+from openpilot.cereal import messaging
+from openpilot.selfdrive.ui.ui_state import ui_state
+from openpilot.system.ui.lib.text_draw import draw_text_ui_style
+
+PARAM_KEY = "DevTargetsOverlay"
+COAST_HOLD_S = 0.5          # §7.16-3,与 tracking.coast_max_s 同源
+TENTATIVE_CAP = 16          # §7.16-2 渲染侧本地截断上限(仅约束渲染,不改 wire)
+PARAM_REFRESH_S = 2.0
+HEARTBEAT_S = 2.0
+HEARTBEAT_PATH = "/tmp/dev_targets_overlay.json"
+HIDE_AFTER_ERRS = 2         # §7.16-4 连续 2 次失败自动隐藏
+PX_GATE = 30.0              # §3.3 站立像素质子门(仅显示用途,判据真理在感知/规划)
+F_PX_1280 = 1372.0
+ADULT_H = 1.7              # 推导口径身高(§3.3);detPxH 缺失时估算用
+
+CLS_NAMES = {0: "PED", 1: "CHD", 2: "CYC", 3: "MOT", 4: "ANI", 5: "CONE", 6: "DEB", 7: "UNK"}
+
+
+def _cls_color(cls_id: int):
+  if cls_id == 0:
+    return rl.Color(0xE5, 0x39, 0x35, 255)      # 成人 红
+  if cls_id == 1:
+    return rl.Color(0xD5, 0x00, 0xB0, 255)      # 儿童 品红
+  if cls_id in (2, 3):
+    return rl.Color(0xFB, 0x8C, 0x00, 255)      # 两轮 橙
+  if cls_id in (5, 6):
+    return rl.Color(0xFF, 0xD5, 0x4F, 255)      # 低矮 黄
+  return rl.Color(0x9E, 0x9E, 0x9E, 255)         # 其余 灰
+
+
+def _with_a(c: rl.Color, a: int) -> rl.Color:
+  return rl.Color(c.r, c.g, c.b, a)
+
+
+# 渲染用快照:detached 的纯 python 值(capnp reader 不跨帧持有)
+class _Row:
+  __slots__ = ("tid", "cls", "d", "y", "px", "status", "ttc", "conf", "score", "age_s")
+  def __init__(self, tid, cls, d, y, px, status, ttc, conf, score, age_s):
+    self.tid, self.cls, self.d, self.y = tid, cls, d, y
+    self.px, self.status, self.ttc = px, status, ttc
+    self.conf, self.score, self.age_s = conf, score, age_s
+
+
+class DevTargetsOverlay:
+  def __init__(self):
+    self._sock = None
+    self._enabled = False
+    self._param_next_t = 0.0
+    self._rows = []            # 当前帧展示行(_Row)
+    self._coast_rows = []      # (expire_t, _Row) 渲染单调保持
+    self._last_msg_t = None
+    self._err_streak = 0
+    self._last_err = ""
+    self._render_ms_max = 0.0
+    self._hb_next_t = 0.0
+    self._k_trunc = 0
+
+  # ---- lifecycle ----
+  def close(self):
+    if self._sock is not None:
+      try:
+        self._sock.close()
+      except Exception:
+        pass
+      self._sock = None
+
+  # ---- data path ----
+  def _ensure_sock(self):
+    if self._sock is None:
+      self._sock = messaging.sub_sock("smallObjectTracks", timeout=100, conflate=True)
+
+  def update(self, now: float):
+    try:
+      if now >= self._param_next_t:
+        self._param_next_t = now + PARAM_REFRESH_S
+        # 失败自隐藏后重新翻起:参数再读,off→on 触发重试
+        self._enabled = bool(ui_state.params.get_bool(PARAM_KEY)) and self._err_streak < HIDE_AFTER_ERRS
+    except Exception:
+      self._enabled = False
+    if not self._enabled:
+      return
+
+    if now < self._hb_next_t:
+      return
+    self._hb_next_t = now + HEARTBEAT_S
+    self._ensure_sock()
+    now_ns = time.monotonic_ns()
+    fresh = []
+    try:
+      last = None
+      for m in messaging.drain_sock(self._sock):
+        last = m
+      if last is not None:
+        self._last_msg_t = now
+        self._err_streak = 0
+        msg = last.smallObjectTracks
+        period_s = max((msg.tracks[0].actualPeriodNs if len(msg.tracks) else 50_000_000) / 1e9, 0.05) if len(msg.tracks) else 0.05
+        for tr in msg.tracks:
+          d = math.hypot(tr.x, tr.y)
+          px = tr.detPxH if tr.detPxH > 0 else int(ADULT_H * F_PX_1280 / max(d, 1.0))
+          stale_s = (now_ns - tr.tExposureNs) / 1e9
+          if stale_s > 1.5 * period_s:                     # validAssoc 断流但仍被持仓 → coast
+            status = "COAST"
+          elif tr.confirmed:
+            status = "CONF"
+          else:
+            status = "TENT"
+          closing = max(tr.vx, 0.05) if tr.x > 0.5 else 0.0
+          ttc = (tr.x / closing) if (tr.x > 0.5 and closing > 0.1) else None
+          fresh.append(_Row(tr.trackId, tr.cls, d, tr.y, px, status, ttc, tr.confirmed, tr.score, stale_s))
+        fresh.sort(key=lambda r: (r.status != "CONF", -(r.d if r.ttc is None else min(r.ttc, 99.0))))
+      elif self._last_msg_t is None:
+        pass
+    except Exception as e:                                  # noqa: BLE001  # §7.16-4 失败隔离
+      self._err_streak += 1
+      self._last_err = repr(e)[:180]
+      if self._err_streak >= HIDE_AFTER_ERRS:
+        self._enabled = False
+        self._rows = []
+      return
+
+    if self._last_msg_t is not None:
+      # 渲染单调: 消息停发后按 COAST_HOLD_S 点线保持(§7.16-3)
+      hold_age = now - self._last_msg_t
+      if hold_age > COAST_HOLD_S:
+        self._rows, self._last_msg_t = [], None
+      elif fresh:
+        self._rows = fresh
+      else:
+        for r in self._rows:
+          r.status = "COAST"
+    elif fresh:
+      self._rows = fresh
+
+    # 本地截断策略: confirmed+coast 永不截断,仅 tentative 限 16(§7.16-2)
+    keep = [r for r in self._rows if r.status in ("CONF", "COAST")]
+    tents = [r for r in self._rows if r.status == "TENT"][:TENTATIVE_CAP]
+    self._k_trunc = max(0, len(self._rows) - len(keep) - len(tents))
+    self._rows = sorted(keep + tents, key=lambda r: (r.status != "CONF", r.d if r.ttc is None else min(r.ttc, 99.0)))
+
+    try:
+      with open(HEARTBEAT_PATH, "w") as f:
+        json.dump({"t": time.time(), "enabled": self._enabled, "n": len(self._rows),
+                   "n_conf": sum(1 for r in self._rows if r.status == "CONF"),
+                   "n_tent": sum(1 for r in self._rows if r.status == "TENT"),
+                   "n_coast": sum(1 for r in self._rows if r.status == "COAST"),
+                   "k_trunc": self._k_trunc, "render_ms_max": round(self._render_ms_max, 3),
+                   "msg_age_s": None if self._last_msg_t is None else round(now - self._last_msg_t, 2),
+                   "err_streak": self._err_streak, "last_err": self._last_err}, f)
+    except Exception:
+      pass
+
+  # ---- render path ----
+  def render(self, rect: rl.Rectangle):                      # noqa: N802 (raylib style)
+    if not self._enabled:
+      return
+    t0 = time.monotonic()
+    try:
+      if self._rows:
+        self._render_panel(rect)
+        self._render_strip(rect)
+    except Exception as e:                                   # noqa: BLE001
+      self._err_streak += 1
+      self._last_err = repr(e)[:180]
+      if self._err_streak >= HIDE_AFTER_ERRS:
+        self._enabled = False
+    ms = (time.monotonic() - t0) * 1000.0
+    self._render_ms_max = max(self._render_ms_max * 0.99, ms)
+
+  def _render_panel(self, rect: rl.Rectangle):
+    row_h, pad, font = 17, 8, 13.0
+    n = len(self._rows)
+    panel_w = 252
+    h = pad * 2 + 22 + row_h * max(n, 1) + (14 if self._k_trunc else 0)
+    px = rect.x + rect.width - panel_w - 10
+    py = rect.y + 66
+    rl.draw_rectangle_rec(rl.Rectangle(px, py, panel_w, h), rl.Color(0x10, 0x14, 0x18, 165))
+    title = f"TARGETS {n}" + (f" +{self._k_trunc}trunc" if self._k_trunc else "")
+    draw_text_ui_style(title, px + pad, py + 4, 15.0, rl.Color(0x4F, 0xC3, 0xF7, 230))
+    yy = py + 26
+    for r in self._rows:
+      c = _cls_color(r.cls)
+      alpha = 255 if r.status == "CONF" else (120 if r.status == "TENT" else 165)
+      col = _with_a(c, alpha)
+      cx, cy = px + pad + 5, yy + 8
+      if r.status == "COAST":
+        rl.draw_circle_lines(cx, cy, 6, col)                 # 点线语义: 空心圈
+      elif r.status == "TENT":
+        rl.draw_rectangle_rec(rl.Rectangle(cx - 3, cy - 3, 6, 6), col)   # 虚框语义: 小方块
+      else:
+        rl.draw_circle(cx, cy, 5, col)                        # confirmed: 实心圆
+      ttc_s = f"{r.ttc:4.1f}s" if r.ttc is not None else "  -- "
+      gate = "" if r.px >= PX_GATE else f" <{PX_GATE:.0f}px"
+      line = f"{CLS_NAMES.get(r.cls, '?'):4s} {r.status:5s} d{r.d:5.1f} y{r.y:+4.1f} {ttc_s}{gate}"
+      draw_text_ui_style(line, px + pad + 14, yy, font, _with_a(rl.Color(0xFF, 0xFF, 0xFF, 255), alpha if r.status == "CONF" else 200))
+      yy += row_h
+    if self._k_trunc:
+      draw_text_ui_style(f"+{self._k_trunc} tentative truncated (risk-sorted, §7.16)",
+                         px + pad, yy + 2, 12.0, rl.Color(0xFF, 0xD5, 0x4F, 210))
+
+  def _render_strip(self, rect: rl.Rectangle):
+    # 底部鸟瞰带: x = 横向 y∈[-6,6]m 映射,行=距离带(近低远高)
+    bands = [(0, 20, 0), (20, 45, 1), (45, 70, 2), (70, 200, 3)]
+    base_y = rect.y + rect.height - 34
+    cx = rect.x + rect.width / 2.0
+    scale = rect.width / 13.0
+    rl.draw_rectangle_rec(rl.Rectangle(rect.x, base_y - 4, rect.width, 42), rl.Color(0x10, 0x14, 0x18, 110))
+    draw_text_ui_style("0m", cx - 8, base_y + 6, 11.0, rl.Color(0x90, 0xA4, 0xAE, 170))
+    for r in self._rows:
+      for lo, hi, band in bands:
+        if lo <= r.d < hi:
+          sx = max(rect.x + 8, min(rect.x + rect.width - 8, cx + r.y * (scale / 6.0) * 6.0))
+          sy = base_y - band * 10 - 6
+          c = _cls_color(r.cls)
+          if r.px < PX_GATE:
+            rl.draw_circle(int(sx), int(sy), 3, _with_a(c, 90))
+          elif r.status == "COAST":
+            rl.draw_circle_lines(int(sx), int(sy), 4, _with_a(c, 160))
+          else:
+            rl.draw_circle(int(sx), int(sy), 4 + (1 if r.status == "CONF" else 0), _with_a(c, 235))
+          break

@@ -60,6 +60,8 @@ _services: dict[str, tuple] = {
   # the supported 14-25 Hz liveTracks range.
   "longitudinalPlan": (True, 20., 10, QueueSize.SMALL, (14., 25.)),
   "lateralManeuverPlan": (True, 20.),
+  # §7.16 observation surface: smalldetd track output, dual-consumer (plannerd + dev UI overlay)
+  "smallObjectTracks": (True, 20., None),
   "driverAssistance": (True, 20., 20),
   "procLog": (True, 0.5, 15, QueueSize.BIG),
   "gpsLocationExternal": (True, 10., 10),
