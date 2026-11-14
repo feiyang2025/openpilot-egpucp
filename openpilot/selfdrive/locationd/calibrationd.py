@@ -309,7 +309,10 @@ def apply_calib_candidate(calib_set: CameraCalibSet, cand) -> None:
       continue
     rpy = list(entry.rpy)
     if len(rpy) == 3 and all(np.isfinite(rpy)) and abs(float(rpy[1])) <= CANDIDATE_PITCH_LIMIT:
-      c.rpy = np.array(rpy, dtype=float)
+      # keep the merged manual yaw trim in rpy[2] (the candidate carries no
+      # trim information and would otherwise wipe it for one publish window)
+      trim_yaw = float(c.rpy[2]) if c.rpy is not None else 0.0
+      c.rpy = np.array([0.0, float(rpy[1]), trim_yaw], dtype=float)
     c.fx, c.fy, c.cx, c.cy = fx, fy, cx, cy
     c.source = CalibSource.AUTO
     c.blocks = int(entry.blocks)

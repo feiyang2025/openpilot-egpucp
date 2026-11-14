@@ -576,6 +576,10 @@ def main(demo=False):
       calib_set = from_live_calibration(sm["liveCalibration"],
                                         device_type=str(sm['deviceState'].deviceType),
                                         sensor=str(sm['roadCameraState'].sensor))
+      # CalibWideWarpPhysical was registered but never read (P2 switch dead):
+      # when enabled, warp_matrix(WIDE) uses the physical wide extrinsic
+      # instead of the legacy road-rotation path (spec §7.1)
+      calib_set.wide_warp_physical = params.get_bool("CalibWideWarpPhysical")
 
       # CameraYawTrimDeg is merged into road.rpy by calibrationd (spec §5.2);
       # modeld consumes the set as-is, no second local application (audit B4).

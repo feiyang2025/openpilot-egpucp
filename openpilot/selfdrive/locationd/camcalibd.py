@@ -325,6 +325,11 @@ class CameraSyncMonitor:
         self.good_streak = 0
         return
       self.good_streak = self.good_streak + 1 if resid <= self.RESIDUAL_LIMIT_NS else 0
+    # refit the tracked offset/skew every 30 pairs (~1.5 s), not per pair:
+    # median + polyfit over the full window at 20 Hz is pure CPU waste
+    self._pairs_since_fit = getattr(self, "_pairs_since_fit", 0) + 1
+    if len(self.deltas) >= 30 and self._pairs_since_fit % 30 != 0:
+      return
     arr = np.asarray(self.deltas, dtype=float)
     if len(arr) >= 30:
       self.delta_ref = int(np.median(arr))
@@ -676,8 +681,13 @@ class CamCalibd:
           if abs(dt_s) > 0.02:
             cloudlog.debug(f"[camcalibd][{s.label}] attitude extrapolation {dt_s*1e3:.1f} ms")
         self.emit(s)
-        # L3 shadow (road only): metric lane geometry vs image edges
-        if s.cam == Cam.ROAD and self.lane_fitter is not None and self.sm.alive['modelV2']:
+        # L3 shadow (road only): metric lane geometry vs image edges.
+        # §6.4 gate: vEgo > 12 m/s and |yaw rate| < 2 deg/s (linear-motion
+        # geometry only; the vp estimator keeps its legacy ungated behaviour).
+        odo_yaw_rate = abs(self.odo_rot[2] / self.odo_dt) if self.odo_rot is not None else 99.0
+        v_ego = max(self.sm['carState'].vEgo, 0.0)
+        lane_gate_ok = v_ego > 12.0 and odo_yaw_rate < np.radians(2.0)
+        if s.cam == Cam.ROAD and self.lane_fitter is not None and self.sm.alive['modelV2'] and lane_gate_ok:
           try:
             self.lane_fitter.add_sample(self.sm['modelV2'], img_gray)
           except Exception:

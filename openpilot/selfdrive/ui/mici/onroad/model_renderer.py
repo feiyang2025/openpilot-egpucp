@@ -149,8 +149,12 @@ class ModelRenderer(Widget):
 
     # Mount height via the single CameraCalibSet source (spec §5.2); legacy
     # messages without cams fall back to the factory set (height == HEIGHT_INIT).
-    calib_set = from_live_calibration(sm['liveCalibration'])
-    self._path_offset_z = calib_set.height
+    # Cached by calibSeq: _paint runs at frame rate, the set build is not free.
+    live_calib = sm['liveCalibration']
+    if getattr(self, '_calib_seq_cache', None) != live_calib.calibSeq:
+      self._calib_seq_cache = live_calib.calibSeq
+      self._calib_set_cache = from_live_calibration(live_calib)
+    self._path_offset_z = self._calib_set_cache.height
 
     if sm.recv_frame['carParams'] != self._params_frame:
       self._params_frame = sm.recv_frame['carParams']

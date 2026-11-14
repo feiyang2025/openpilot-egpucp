@@ -69,7 +69,7 @@ def segment_paths(route, seg_range):
   if seg_range:
     a, b = seg_range.split("-")
     lo, hi = int(a), int(b)
-  for i in range(lo, min(hi + 1, len(segs)) + 1):
+  for i in range(lo, min(hi, len(segs) - 1) + 1):
     seg_dir = Path(segs[i]).parent if segs[i] else None
     yield i, segs[i], seg_dir
 
