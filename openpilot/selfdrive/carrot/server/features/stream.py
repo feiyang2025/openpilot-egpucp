@@ -39,7 +39,7 @@ async def proxy_stream(request: web.Request) -> web.StreamResponse:
 
   try:
     async with sess.post(WEBRTCD_URL, data=body, headers={"Content-Type": ct},
-                         timeout=ClientTimeout(total=5)) as resp:
+                         timeout=ClientTimeout(total=15))  # answer build waits for gather(2s) + visionipc track setup (~3-5s) as resp:
       resp_body = await resp.read()
       out = web.Response(body=resp_body, status=resp.status)
       rct = resp.headers.get("Content-Type")
