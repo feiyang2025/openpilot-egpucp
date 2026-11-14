@@ -159,9 +159,10 @@ class DevTargetsOverlay:
 
   def _probe(self, reason):
     now = time.monotonic()
-    if now < getattr(self, "_probe_next_t", 0.0):
+    bypass = reason.startswith("EXC") or reason.startswith("go")
+    if not bypass and now < getattr(self, "_probe_next_t", 0.0):
       return
-    self._probe_next_t = now + 1.0
+    self._probe_next_t = now + (0.25 if bypass else 1.0)
     try:
       with open(PROBE_PATH, "a") as f:
         f.write("%.3f %s rows=%d en=%d hid=%d err=%d id=%s\n" % (
