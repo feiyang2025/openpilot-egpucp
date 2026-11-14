@@ -35,6 +35,9 @@ F_PX_1280 = 1372.0
 ADULT_H = 1.7
 
 CLS_NAMES = {0: "PED", 1: "CHD", 2: "CYC", 3: "MOT", 4: "ANI", 5: "CONE", 6: "DEB", 7: "UNK"}
+# v2.7: 类别真实几何(世界系高度 m 与 宽/高比),供原位框双点投影
+CLS_H = {0: 1.70, 1: 1.10, 2: 1.60, 3: 1.40, 4: 0.70, 5: 0.75, 6: 0.35, 7: 1.00}
+CLS_AR = {0: 0.45, 1: 0.45, 2: 0.60, 3: 0.95, 4: 0.90, 5: 0.55, 6: 0.90, 7: 0.60}
 
 
 def _cls_color(cls_id: int):
@@ -42,10 +45,14 @@ def _cls_color(cls_id: int):
     return rl.Color(0xE5, 0x39, 0x35, 255)
   if cls_id == 1:
     return rl.Color(0xD5, 0x00, 0xB0, 255)
-  if cls_id in (2, 3):
-    return rl.Color(0xFB, 0x8C, 0x00, 255)
-  if cls_id in (5, 6):
-    return rl.Color(0xFF, 0xD5, 0x4F, 255)
+  if cls_id == 2:
+    return rl.Color(0xFB, 0x8C, 0x00, 255)   # 骑行者 橙
+  if cls_id == 3:
+    return rl.Color(0x21, 0x96, 0xF3, 255)   # 车辆 蓝
+  if cls_id == 5:
+    return rl.Color(0xFF, 0xD5, 0x4F, 255)   # 雪糕桶 黄
+  if cls_id == 6:
+    return rl.Color(0xB0, 0xBE, 0xC5, 255)   # 物体 灰白
   return rl.Color(0x9E, 0x9E, 0x9E, 255)
 
 
@@ -200,26 +207,59 @@ class DevTargetsOverlay:
     self._probe("drew")
 
   def _render_road(self, rect: rl.Rectangle, model_renderer):
-    # v2.3: 投影只做诊断(与 lead 同一 _car_space_transform 的样本值),不再在此层画标记;
+    # v2.7: 路面原位目标框(类色)+行进可读距离。轴序 = 相机系 (side, up, forward)。
     self._road_hits = 0
     M = getattr(model_renderer, "_car_space_transform", None) if model_renderer is not None else None
     if M is None or not M.any():
       self._diag = {"m": "none_or_zero", "fallback": True}
       return
-    pts = []
+    x0, y0 = rect.x, rect.y
+    x1, y1 = rect.x + rect.width, rect.y + rect.height
+    pts_diag = []
+
+    def _proj(side, up, fwd):
+      pt = M @ np.array([side, up, fwd], dtype=np.float32)
+      if abs(pt[2]) < 1e-6:
+        return None
+      return float(pt[0] / pt[2]), float(pt[1] / pt[2])
+
     for r in self._rows:
+      c = _cls_color(r.cls)
+      alpha = 90 if r.px < PX_GATE else (235 if r.status == "CONF" else (165 if r.status == "COAST" else 140))
+      col = _with_a(c, min(alpha + 20, 255))
+      # 底=地面点(高 0), 顶=类高度点 → 透视正确、随距离缩放
+      bot = _proj(r.y, 0.0, r.d)
+      top = _proj(r.y, CLS_H.get(r.cls, 1.0), r.d)
+      if bot is None or top is None:
+        continue
+      ub, vb = bot
+      ut, vt = top
+      if not (x0 <= ub <= x1 and y0 <= vb <= y1):
+        if len(pts_diag) < 3:
+          pts_diag.append([round(ub, 1), round(vb, 1), round(r.d, 1), "out"])
+        continue
+      self._road_hits += 1
+      if len(pts_diag) < 3:
+        pts_diag.append([round(ub, 1), round(vb, 1), round(r.d, 1)])
+      bh = max(8.0, vb - vt)                       # 框高(px), 近大远小
+      bw = max(6.0, bh * CLS_AR.get(r.cls, 0.6))    # 框宽
+      bx, by = ub - bw / 2.0, vt
+      rbox = rl.Rectangle(bx, by, bw, bh)
+      if r.status == "COAST":
+        rl.draw_rectangle_lines_ex(rbox, 2, _with_a(c, 150))   # 断续感以细线+低亮度表达
+      else:
+        rl.draw_rectangle_lines_ex(rbox, 3, col)
+      # 距离大字:行进可读,白字黑边压在类色之上;px 低于门加灰化角标
+      lbl = f"{r.d:.0f}m"
+      if r.px < PX_GATE:
+        lbl += " <px"
       try:
-        pt = M @ np.array([r.d, r.y, 0.0], dtype=np.float32)
-        if abs(pt[2]) < 1e-6:
-          continue
-        u, v = float(pt[0] / pt[2]), float(pt[1] / pt[2])
-        pts.append([round(u, 1), round(v, 1), round(r.d, 1)])
-      except Exception as e:                                # noqa: BLE001
-        pts.append(["EXC", repr(e)[:60]])
-        break
-    self._diag = {"m": [round(float(x), 2) for x in np.asarray(M).flatten()[:6]],
-                  "pts": pts[:3],
-                  "clip": [round(rect.x), round(rect.y), round(rect.x + rect.width), round(rect.y + rect.height)]}
+        draw_text_ui_style(lbl, ub - 14.0, by - 30.0, 22.0,
+                           _with_a(rl.Color(0xFF, 0xFF, 0xFF, 255), min(alpha + 40, 255)))
+      except Exception as e:                                   # noqa: BLE001
+        self._probe("EXC_roadtext %s" % repr(e)[:120])
+    self._diag = {"m": [round(float(v), 2) for v in np.asarray(M).flatten()[:6]],
+                  "pts": pts_diag, "clip": [round(x0), round(y0), round(x1), round(y1)]}
 
   def _render_panel(self, rect: rl.Rectangle):
     row_h, pad, font = 17, 8, 13.0
