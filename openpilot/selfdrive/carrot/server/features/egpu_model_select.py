@@ -49,6 +49,28 @@ REMOTE_TIMEOUT = 6.0
 DOWNLOAD_LOG = '/tmp/big_model_update.log'
 DOWNLOADER_MARKER = '--ensure-if-egpu'
 
+# Models compiled on this device (TensorRT plan / internal tinygrad pkl). They are
+# not eGPU artifacts: selecting one only records a preference modeld reads at start.
+LOCAL_MODELS_PATH = os.path.join(BASEDIR, 'openpilot/selfdrive/modeld/models/local_models.json')
+
+
+def _local_models() -> list[dict[str, Any]]:
+  try:
+    value = json.loads(Path(LOCAL_MODELS_PATH).read_text(encoding='utf-8'))
+    return [m for m in value.get('models', []) if isinstance(m, dict) and isinstance(m.get('sha256'), str)]
+  except (OSError, ValueError, TypeError, AttributeError):
+    return []
+
+
+def _local_selection() -> str:
+  try:
+    chosen = Params().get('CarrotLocalModel', return_default=True)
+    if isinstance(chosen, bytes):
+      chosen = chosen.decode('utf-8', 'replace')
+    return (chosen or 'auto').strip() or 'auto'
+  except Exception:
+    return 'auto'
+
 
 def _downloader_running() -> bool:
   """Is the background big-model downloader already alive?
@@ -151,6 +173,17 @@ def _running_sha() -> str | None:
   loaded at startup. modeld publishes no model id (only UsbGpu* booleans), so derive
   it: if state.json was written after modeld started, what still runs is "previous".
   """
+  # A model compiled and loaded on this device publishes its id directly; that is
+  # authoritative and must win over the state.json inference below.
+  try:
+    from openpilot.common.params import Params as _P
+    running_local = _P().get('LocalModelRunning', return_default=True)
+    if isinstance(running_local, bytes):
+      running_local = running_local.decode('utf-8', 'replace')
+    if isinstance(running_local, str) and len(running_local) == 64:
+      return running_local
+  except Exception:
+    pass
   try:
     from openpilot.common.params import Params
     if not Params().get_bool('UsbGpuActive'):
@@ -383,6 +416,17 @@ def build_models_payload() -> dict[str, Any]:
 
   # The branch's own model (Cinque v3 = "CTM V3") leads the picker. Sorting is stable,
   # so the server catalog's order is kept for everything else.
+  # On-device compiled models are always switchable and always downloaded.
+  chosen_local = _local_selection()
+  listed = {model.get('sha256') for model in models}
+  for lm in _local_models():
+    sha = lm['sha256']
+    if sha in listed:
+      continue
+    is_sel = chosen_local == lm.get('id') or (chosen_local == 'auto' and lm.get('id') == 'tgc-trt')
+    models.append(_entry(lm.get('label'), 'local-' + str(lm.get('id')), sha, lm.get('size'), None,
+                         downloaded=True, selected=is_sel, is_active=sha == running,
+                         precompiled_only=False))
   models.sort(key=lambda model: picker_rank(model.get('sha256')))
 
   source = chunked_model.read_model_source()
@@ -420,6 +464,23 @@ async def api_select(request: web.Request) -> web.Response:
   sha = body.get('sha256')
   if not isinstance(sha, str) or len(sha) != 64:
     return web.json_response({'ok': False, 'error': 'sha256 required'}, status=400)
+
+  # A model compiled on this device: record the preference, never start a download.
+  for lm in _local_models():
+    if lm.get('sha256') == sha:
+      if not (HAS_PARAMS and Params is not None):
+        return web.json_response({'ok': False, 'error': 'params unavailable'}, status=500)
+      Params().put('CarrotLocalModel', str(lm.get('id')))
+      # 本机模型即时生效: manager 会立刻带新参数重生 modeld
+      note = '本机模型已记录，modeld 重启后生效'
+      pid = _modeld_pid()
+      if pid is not None:
+        try:
+          os.kill(pid, 9)
+          note = '本机模型已记录，modeld 正在重启加载新模型'
+        except OSError:
+          pass
+      return web.json_response({'ok': True, 'selected': sha, 'local': True, 'note': note})
 
   # The device only knows models it has already downloaded (register() runs after
   # a successful fetch). Record the server's entry first, so a model that is

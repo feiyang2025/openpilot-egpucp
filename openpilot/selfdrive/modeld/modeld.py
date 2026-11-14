@@ -301,6 +301,19 @@ def main(demo=False):
   if isinstance(_local_sel, bytes):
     _local_sel = _local_sel.decode('utf-8', 'replace')
   _local_sel = ((_local_sel or 'auto').strip() or 'auto')
+
+  # [JETSON] 多 plan 注册表: 选中的 trt_plan 条目自带 plan(+meta 按 <stem>_meta.json 推导):
+  # TRT fp16 预编译 plan 只要在本机 Orin 上编译过即可直接挂载运行, 与默认 tgc plan 同构。
+  if _local_sel not in ('auto', 'cd210'):
+    _sel_entry = _local_models.get(_local_sel)
+    if isinstance(_sel_entry, dict) and _sel_entry.get('kind') == 'trt_plan':
+      _sp = str(_sel_entry.get('file') or '')
+      if _sp and _Path(_sp).is_file():
+        trt_big_plan = _sp
+        cloudlog.warning(f"local model plan from registry [{_local_sel}]: {_sp}")
+      elif _sp:
+        cloudlog.warning(f"CarrotLocalModel={_local_sel} plan missing: {_sp}, fallback to default")
+
   _plan_sha = str(_local_models.get('tgc-trt', {}).get('sha256', ''))
   _pkl_sha = str(_local_models.get('cd210', {}).get('sha256', ''))
   use_trt_big = bool(trt_big_plan) and _local_sel != 'cd210'
@@ -522,7 +535,6 @@ def main(demo=False):
   custom_lat_delay = 0.0
   lat_smooth_seconds = LAT_SMOOTH_SECONDS
   vEgoStopping = get_stopping_speed(params)
-  camera_yaw_trim_deg = params.get_float("CameraYawTrimDeg") * 0.01
   lat_delay_dynamic = lat_smooth_seconds
   diagnostics = RuntimeDiagnostics('modeld', cloudlog.event)
   while True:
@@ -533,7 +545,6 @@ def main(demo=False):
       lat_smooth_seconds = params.get_float("LatSmoothSec") * 0.01
       long_delay = params.get_float("LongActuatorDelay")*0.01
       vEgoStopping = get_stopping_speed(params)
-      camera_yaw_trim_deg = params.get_float("CameraYawTrimDeg") * 0.01
       # eGPU power follows ignition on the vehicle. Keep UI state current when
       # the shared USB hub is connected or removed after modeld starts.
       usbgpu_present_now = usbgpu_present()
@@ -566,16 +577,8 @@ def main(demo=False):
                                         device_type=str(sm['deviceState'].deviceType),
                                         sensor=str(sm['roadCameraState'].sensor))
 
-      # CameraYawTrimDeg stays a modeld-local manual offset until calibrationd
-      # merges it into the set (spec §5.2): applied to body_from_calib yaw only
-      # when the calibration has converged, exactly like the legacy path.
-      calib_done = sm["liveCalibration"].calStatus == log.LiveCalibrationData.Status.calibrated
-      applied_yaw_trim_deg = camera_yaw_trim_deg if calib_done else 0.0
-      if applied_yaw_trim_deg != 0.0:
-        # float32, matching the legacy device_from_calib_euler arithmetic bit-for-bit
-        body_f32 = calib_set.body_from_calib.astype(np.float32)
-        body_f32[2] -= np.radians(applied_yaw_trim_deg)
-        calib_set.body_from_calib = body_f32
+      # CameraYawTrimDeg is merged into road.rpy by calibrationd (spec §5.2);
+      # modeld consumes the set as-is, no second local application (audit B4).
 
       model_transform_main = calib_set.warp_matrix(Cam.WIDE if main_wide_camera else Cam.ROAD, False).astype(np.float32)
       has_wide_camera = use_extra_client or main_wide_camera
