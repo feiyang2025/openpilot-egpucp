@@ -16,6 +16,7 @@ from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.text_draw import draw_text_ui_style
 
 PARAM_KEY = "DevTargetsOverlay"
+PROBE_PATH = "/tmp/dev_overlay_render.log"
 COAST_HOLD_S = 0.5
 TENTATIVE_CAP = 16
 PARAM_REFRESH_S = 2.0
@@ -156,12 +157,29 @@ class DevTargetsOverlay:
     except Exception:
       pass
 
+  def _probe(self, reason):
+    now = time.monotonic()
+    if now < getattr(self, "_probe_next_t", 0.0):
+      return
+    self._probe_next_t = now + 1.0
+    try:
+      with open(PROBE_PATH, "a") as f:
+        f.write("%.3f %s rows=%d en=%d hid=%d err=%d id=%s\n" % (
+          time.time(), reason, len(self._rows), self._enabled,
+          getattr(self, "_render_hidden", False), self._err_streak, id(self) % 100000))
+    except Exception:
+      pass
+
   def render(self, rect: rl.Rectangle, model_renderer=None):   # noqa: N802
+    self._probe("enter")
     if not self._enabled:
+      self._probe("early:not_enabled")
       return
     if getattr(self, "_render_hidden", False) and self._err_streak >= HIDE_AFTER_ERRS:
+      self._probe("early:hidden")
       self._last_err_note = "road render hidden after repeated errors (see diag.render_exc)"
       return
+    self._probe("try-block rows=%d" % len(self._rows))
     t0 = time.monotonic()
     try:
       if self._rows:
@@ -176,6 +194,7 @@ class DevTargetsOverlay:
         self._render_hidden = True   # 只隐藏渲染层,update/心跳继续活着
     ms = (time.monotonic() - t0) * 1000.0
     self._render_ms_max = max(self._render_ms_max * 0.99, ms)
+    self._probe("drew")
 
   def _render_road(self, rect: rl.Rectangle, model_renderer):
     # v2.3: 投影只做诊断(与 lead 同一 _car_space_transform 的样本值),不再在此层画标记;
