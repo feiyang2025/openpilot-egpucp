@@ -7,6 +7,7 @@ and the image input into the neural network is not corrected for roll.
 '''
 
 import os
+import time
 import capnp
 import numpy as np
 from typing import NoReturn
@@ -18,7 +19,7 @@ from openpilot.common.constants import CV
 from openpilot.common.params import Params
 from openpilot.common.realtime import config_realtime_process
 from openpilot.common.transformations.orientation import rot_from_euler, euler_from_rot
-from openpilot.common.transformations.camera_calib import CameraCalibSet, Cam, build_factory_set, write_live_calibration
+from openpilot.common.transformations.camera_calib import CameraCalibSet, Cam, CalibSource, build_factory_set, write_live_calibration
 from openpilot.common.swaglog import cloudlog
 
 MIN_SPEED_FILTER = 15 * CV.MPH_TO_MS
@@ -174,7 +175,9 @@ class Calibrator:
     if write_this_cycle and self.calib_set is not None:
       self.calib_set.body_from_calib = self.rpy
       self.calib_set.height = float(self.height[0])
-      if Cam.WIDE in self.calib_set.cams:
+      if Cam.WIDE in self.calib_set.cams and self.calib_set.cams[Cam.WIDE].source != CalibSource.AUTO:
+        # an auto-estimated wide extrinsic (camcalibd candidate) must not be
+        # clobbered by the model's wideFromDeviceEuler copy (spec §5.1)
         self.calib_set.cams[Cam.WIDE].rpy = self.wide_from_device_euler
       self.calib_set.seq += 1
     if self.param_put and write_this_cycle:
@@ -272,11 +275,58 @@ class Calibrator:
     pm.send('liveCalibration', self.get_msg(valid))
 
 
+# hard limits for applying camcalibd candidates (spec §6.5)
+CANDIDATE_FOCAL_LIMIT = 0.08
+CANDIDATE_PITCH_LIMIT = 0.15   # == camcalibd MAX_OFFSET
+
+
+def apply_calib_candidate(calib_set: CameraCalibSet, cand) -> None:
+  """Merge camcalibd's cameraCalibCandidate into the set (spec §5.1).
+
+  Only ROAD/WIDE are auto-estimated; the hard limits of §6.5 are enforced
+  here so a wild candidate can never reach the wire. Any accepted change
+  bumps seq so consumers refresh their caches.
+  """
+  changed = False
+  for entry in cand.cam:
+    try:
+      cam = Cam(int(entry.id))
+    except ValueError:
+      continue
+    if cam not in (Cam.ROAD, Cam.WIDE):
+      continue
+    c = calib_set.cams.get(cam)
+    if c is None:
+      continue
+    intr = list(entry.intrinsics)
+    if len(intr) < 4:
+      continue
+    fx, fy, cx, cy = (float(v) for v in intr[:4])
+    if not all(np.isfinite([fx, fy, cx, cy])) or fx <= 0.0 or fy <= 0.0:
+      continue
+    if abs(fx / c.fx - 1.0) > CANDIDATE_FOCAL_LIMIT or abs(fy / c.fy - 1.0) > CANDIDATE_FOCAL_LIMIT:
+      cloudlog.warning(f"calibrationd: candidate {cam.name} focal {fx:.1f}/{fy:.1f} exceeds limit, dropped")
+      continue
+    rpy = list(entry.rpy)
+    if len(rpy) == 3 and all(np.isfinite(rpy)) and abs(float(rpy[1])) <= CANDIDATE_PITCH_LIMIT:
+      c.rpy = np.array(rpy, dtype=float)
+    c.fx, c.fy, c.cx, c.cy = fx, fy, cx, cy
+    c.source = CalibSource.AUTO
+    c.blocks = int(entry.blocks)
+    c.rms_reproj = float(entry.rmsReproj)
+    c.updated_at_ns = time.monotonic_ns()
+    changed = True
+  if changed:
+    calib_set.seq += 1
+
+
 def main() -> NoReturn:
   config_realtime_process([0, 1, 2, 3], 5)
 
   pm = messaging.PubMaster(['liveCalibration'])
-  sm = messaging.SubMaster(['cameraOdometry', 'carState', 'deviceState', 'roadCameraState'], poll='cameraOdometry')
+  # cameraCalibCandidate is consumed via sm.updated only; it must NOT join
+  # all_checks (spec §5.1: camcalibd down/absent must not invalidate calib)
+  sm = messaging.SubMaster(['cameraOdometry', 'carState', 'deviceState', 'roadCameraState', 'cameraCalibCandidate'], poll='cameraOdometry')
 
   params_reader = Params()
   CP = messaging.log_from_bytes(params_reader.get("CarParams", block=True), car.CarParams)
@@ -311,6 +361,9 @@ def main() -> NoReturn:
 
       if DEBUG and new_rpy is not None:
         print('got new rpy', new_rpy)
+
+    if sm.updated['cameraCalibCandidate'] and calibrator.calib_set is not None:
+      apply_calib_candidate(calibrator.calib_set, sm['cameraCalibCandidate'])
 
     # 4Hz driven by cameraOdometry
     if sm.frame % 5 == 0:
