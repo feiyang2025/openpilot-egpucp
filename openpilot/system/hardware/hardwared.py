@@ -18,7 +18,7 @@ from openpilot.common.gpio import gpio_set
 from openpilot.common.params import Params
 from openpilot.common.realtime import DT_HW
 from openpilot.selfdrive.selfdrived.alertmanager import set_offroad_alert
-from openpilot.system.hardware import HARDWARE, TICI, AGNOS, PC
+from openpilot.system.hardware import HARDWARE, TICI, AGNOS, PC, JETSON
 from openpilot.system.loggerd.config import get_available_percent
 from openpilot.system.statsd import statlog
 from openpilot.common.swaglog import cloudlog
@@ -220,6 +220,10 @@ def hardware_thread(end_event, hw_queue) -> None:
 
   fan_controller = FanController(int(1./DT_HW), HARDWARE.get_device_type())
 
+  # [JETSON] peripheralState 发布: 载板无外设板, 用 INA3221 系统轨 + pwm_tach 转速替代,
+  # 供 UI VOLT/风扇显示 (tss2/pandad 不产 peripheralState)。
+  peripheral_sock = messaging.pub_sock("peripheralState") if JETSON else None
+
   while not end_event.is_set():
     sm.update(PANDA_STATES_TIMEOUT)
 
@@ -232,6 +236,7 @@ def hardware_thread(end_event, hw_queue) -> None:
       offroad_cycle_count = sm.frame
     onroad_conditions["not_onroad_cycle"] = (sm.frame - offroad_cycle_count) >= ONROAD_CYCLE_TIME * SERVICE_LIST['pandaStates'].frequency
 
+    _bench = JETSON and (time.monotonic() - sm.recv_time.get("pandaStates", 0) > DISCONNECT_TIMEOUT)
     if sm.updated['pandaStates'] and len(pandaStates) > 0:
 
       # Set ignition based on any panda connected
@@ -242,9 +247,14 @@ def hardware_thread(end_event, hw_queue) -> None:
       in_car = pandaState.harnessStatus != log.PandaState.HarnessStatus.notConnected
 
     elif (time.monotonic() - sm.recv_time['pandaStates']) > DISCONNECT_TIMEOUT:
-      if onroad_conditions["ignition"]:
+      if onroad_conditions["ignition"] and not _bench:
         onroad_conditions["ignition"] = False
         cloudlog.error("panda timed out onroad")
+
+
+    # Jetson bench: force ignition when Jetson has no real panda
+    if _bench:
+        onroad_conditions["ignition"] = True
 
     # Run at 2Hz, plus either edge of ignition
     ign_edge = (started_ts is not None) != all(onroad_conditions.values())
@@ -292,6 +302,15 @@ def hardware_thread(end_event, hw_queue) -> None:
     msg.deviceState.maxTempC = all_comp_temp
 
     msg.deviceState.fanSpeedPercentDesired = fan_controller.update(all_comp_temp, onroad_conditions["ignition"])
+
+    if peripheral_sock is not None:
+      try:
+        pmsg = messaging.new_message("peripheralState", valid=True)
+        pmsg.peripheralState.voltage = HARDWARE.get_battery_voltage()
+        pmsg.peripheralState.fanSpeedRpm = HARDWARE.get_fan_rpm() if hasattr(HARDWARE, "get_fan_rpm") else 0
+        peripheral_sock.send(pmsg.to_bytes())
+      except Exception:
+        pass
     # C3XL clones can keep their fan powered after the Panda has requested 0%.
     # Leave the supply enabled only while cooling is actually requested.
     if TICI:
@@ -320,7 +339,7 @@ def hardware_thread(end_event, hw_queue) -> None:
     # with 2% left, we killall, otherwise the phone will take a long time to boot
     startup_conditions["free_space"] = msg.deviceState.freeSpacePercent > 2
     startup_conditions["completed_training"] = params.get("CompletedTrainingVersion") == training_version
-    startup_conditions["not_driver_view"] = not params.get_bool("IsDriverViewEnabled")
+    startup_conditions["not_driver_view"] = not params.get_bool("IsDriverViewEnabled") or _bench
     startup_conditions["not_taking_snapshot"] = not params.get_bool("IsTakingSnapshot")
 
     # must be at an engageable thermal band to go onroad
@@ -345,6 +364,18 @@ def hardware_thread(end_event, hw_queue) -> None:
     should_start = all(onroad_conditions.values())
     if started_ts is None:
       should_start = should_start and all(startup_conditions.values())
+
+    # DEBUG: write all conditions to file
+    if count % 10 == 0:
+      try:
+        with open("/tmp/hw_debug.txt", "w") as df:
+          df.write(f"count={count}\n")
+          df.write(f"onroad_conditions: {onroad_conditions}\n")
+          df.write(f"startup_conditions: {startup_conditions}\n")
+          df.write(f"should_start={should_start}, started_ts={started_ts}\n")
+          df.write(f"_bench={_bench}, recv_time={sm.recv_time}\n")
+      except Exception as e:
+        pass
 
     if should_start != should_start_prev or (count == 0):
       params.put_bool("IsEngaged", False)

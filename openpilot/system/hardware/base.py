@@ -46,6 +46,9 @@ class ThermalZone:
         return int(f.read()) / self.scale
     except FileNotFoundError:
       return 0
+    except OSError:
+      # tegra soctherm 偶发 ENODATA (zone 未就绪/低功耗态), 上游只兜了 FileNotFound
+      return 0
 
 @dataclass
 class ThermalConfig:
