@@ -354,6 +354,26 @@ class WebRTCAnswerStream(WebRTCBaseStream):
 
     return str(desc)
 
+  async def _wait_gathering_complete(self) -> None:
+    pc = self.peer_connection
+    if pc.iceGatheringState == "complete":
+      return
+    loop = asyncio.get_event_loop()
+    fut = loop.create_future()
+
+    def _on_state() -> None:
+      if pc.iceGatheringState == "complete" and not fut.done():
+        fut.set_result(None)
+
+    pc.on("icegatheringstatechange", _on_state)
+    try:
+      await fut
+    finally:
+      try:
+        pc.remove_listener("icegatheringstatechange", _on_state)
+      except Exception:
+        pass
+
   async def start(self) -> aiortc.RTCSessionDescription:
     assert self.peer_connection.remoteDescription is None, "Connection already established"
 
@@ -373,5 +393,16 @@ class WebRTCAnswerStream(WebRTCBaseStream):
     answer = await self.peer_connection.createAnswer()
     await self.peer_connection.setLocalDescription(answer)
     actual_answer = self.peer_connection.localDescription
+
+    # Wait briefly for ICE gathering so the returned answer carries the local
+    # (host) candidates. The Carrot Vision flow has no trickle-ICE channel:
+    # an answer without candidates leaves the browser without a route back,
+    # ICE stays "new" on both ends and the page retries until its attempt
+    # timeout (observed as a ~6.8 s "waiting for camera" loop).
+    try:
+      await asyncio.wait_for(self._wait_gathering_complete(), timeout=2.0)
+      actual_answer = self.peer_connection.localDescription
+    except asyncio.TimeoutError:
+      pass
 
     return actual_answer
