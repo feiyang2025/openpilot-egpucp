@@ -37,6 +37,8 @@ from msgq.visionipc import VisionIpcClient, VisionStreamType, VisionBuf
 from opendbc.car.car_helpers import get_demo_car_params
 from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.modeld.egpu_events import log_event
+
+_LAST_DROP_LOG_T = 0.0  # "camera dropped" 单帧丢帧日志节流 (见 modeld 主循环)
 from openpilot.common.runtime_diagnostics import RuntimeDiagnostics
 from openpilot.common.params import Params
 from openpilot.common.stopping_params import get_stopping_speed
@@ -598,7 +600,14 @@ def main(demo=False):
     frame_drop_ratio = frames_dropped / (1 + frames_dropped)
     prepare_only = vipc_dropped_frames > 0
     if prepare_only:
-      cloudlog.error(f"camera dropped {vipc_dropped_frames} frames; advancing model history")
+      # 单帧自适应丢帧在 TRT (推理 ~30ms) 贴近 30fps 帧预算时高频出现, 逐条 ERROR 只是
+      # 噪音; 行为不变 (照样 advance history, frame_drop_ratio/runtimeTiming 指标保留
+      # 完整频率)。>=2 帧丢帧始终立即上报, 单帧 10s 节流一条。
+      global _LAST_DROP_LOG_T
+      _now = time.monotonic()
+      if vipc_dropped_frames >= 2 or (_now - _LAST_DROP_LOG_T) > 10.0:
+        cloudlog.error(f"camera dropped {vipc_dropped_frames} frames; advancing model history")
+        _LAST_DROP_LOG_T = _now
 
     bufs = {name: buf_extra if 'big' in name else buf_main for name in model.vision_input_names}
     transforms = {name: model_transform_extra if 'big' in name else model_transform_main for name in model.vision_input_names}

@@ -41,8 +41,8 @@ class BookmarkState(IntEnum):
   DRAGGING = 1
   TRIGGERED = 2
 
-WIDE_CAM_MAX_SPEED = 5.0  # m/s (10 mph)
-ROAD_CAM_MIN_SPEED = 10  # m/s (25 mph)
+WIDE_CAM_MAX_SPEED = 10.0  # m/s (36 km/h) — 低于此显示鱼眼 (城市/泊车视野)
+ROAD_CAM_MIN_SPEED = 12.0  # m/s (43 km/h) — 高于此切回广角; 与上值之间为滞回带
 
 CAM_Y_OFFSET = 20
 
@@ -354,7 +354,9 @@ class AugmentedRoadView(CameraView):
     return max(0, min(ui_state.show_model_view, 3))
 
   def _switch_stream_if_needed(self, sm):
-    if sm['selfdriveState'].experimentalMode and WIDE_CAM in self.available_streams:
+    # 低速鱼眼 / 高速广角 (<5m/s WIDE, >10m/s ROAD, 中间滞回), 仅影响 UI 显示,
+    # 行车链路不动。不再要求 experimentalMode —— 台架/城市场景默认就要低速鱼眼。
+    if WIDE_CAM in self.available_streams:
       v_ego = sm['carState'].vEgo
       if v_ego < WIDE_CAM_MAX_SPEED:
         target = WIDE_CAM
