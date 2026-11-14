@@ -65,7 +65,8 @@ class DevTargetsOverlay:
     self._render_ms_max = 0.0
     self._hb_next_t = 0.0
     self._k_trunc = 0
-    self._road_hits = 0      # 本帧成功投影到屏内的目标数(心跳里看)
+    self._road_hits = 0
+    self._diag = {}      # 本帧成功投影到屏内的目标数(心跳里看)
 
   def close(self):
     if self._sock is not None:
@@ -149,7 +150,7 @@ class DevTargetsOverlay:
                    "n_conf": sum(1 for r in self._rows if r.status == "CONF"),
                    "n_tent": sum(1 for r in self._rows if r.status == "TENT"),
                    "n_coast": sum(1 for r in self._rows if r.status == "COAST"),
-                   "road_hits": self._road_hits,
+                   "road_hits": self._road_hits, "diag": self._diag,
                    "k_trunc": self._k_trunc, "render_ms_max": round(self._render_ms_max, 3),
                    "msg_age_s": None if self._last_msg_t is None else round(now - self._last_msg_t, 2),
                    "err_streak": self._err_streak, "last_err": self._last_err}, f)
@@ -177,15 +178,20 @@ class DevTargetsOverlay:
     M = getattr(model_renderer, "_car_space_transform", None) if model_renderer is not None else None
     self._road_hits = 0
     if M is None or not M.any():
+      self._diag = {"m": "none_or_zero", "fallback": True}
       self._render_strip(rect)   # 矩阵未就绪(calib 早期)的退路
       return
     x0, y0 = rect.x, rect.y
     x1, y1 = rect.x + rect.width, rect.y + rect.height
+    self._diag = {"m": [round(float(x), 2) for x in np.asarray(M).flatten()[:6]],
+                  "pts": [], "x0": round(x0), "y0": round(y0), "x1": round(x1), "y1": round(y1)}
     for r in self._rows:
       pt = M @ np.array([r.d, r.y, 0.0], dtype=np.float32)
       if abs(pt[2]) < 1e-6:
         continue
       u, v = float(pt[0] / pt[2]), float(pt[1] / pt[2])
+      if len(self._diag["pts"]) < 3:
+        self._diag["pts"].append([round(u, 1), round(v, 1), round(float(r.d), 1)])
       if not (x0 <= u <= x1 and y0 <= v <= y1):
         continue
       self._road_hits += 1
