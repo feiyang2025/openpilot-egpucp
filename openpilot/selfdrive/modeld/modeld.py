@@ -402,11 +402,21 @@ def main(demo=False):
             usbgpu_model = TrtModelState(vipc_client_main.width, vipc_client_main.height, True,
                                          plan_path=trt_big_plan)
             usbgpu_model.warmup()
+            # 供网页选择器显示“正在运行”的模型(state.json 已清零, 不再有来源)
+            _run_entry = _local_models.get(_local_sel) if _local_sel not in ('auto', 'cd210') else None
+            _run_sha = str((_run_entry or _local_models.get('tgc-trt', {})).get('sha256', '') or _plan_sha)
+            if len(_run_sha) == 64:
+              params.put("LocalModelRunning", _run_sha)
           elif precompiled:
             from openpilot.selfdrive.modeld.precompiled_runner import PrecompiledModelState
             usbgpu_model = PrecompiledModelState(vipc_client_main.width, vipc_client_main.height, usbgpu_pkl_path)
           else:
             usbgpu_model = ModelState(vipc_client_main.width, vipc_client_main.height, True, usbgpu_pkl_path)
+          if not use_trt_big:
+            try:
+              params.remove_key("LocalModelRunning")
+            except Exception:
+              pass
           return
         except Exception as exc:
           if usbgpu_pcie_not_ready(exc) and attempt < init_attempts:
