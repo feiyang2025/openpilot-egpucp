@@ -137,26 +137,32 @@ def main():
                        dtype=np.uint8).reshape(fh // 2, stride)[:, :fw]
     nv12 = np.ascontiguousarray(np.vstack([y, uv]))
     bgr = cv2.cvtColor(nv12, cv2.COLOR_YUV2BGR_NV12)   # (fh,fw,3)
-    # letterbox → 640
-    s = W / max(fw, fh)
-    nw, nh = int(round(fw * s)), int(round(fh * s))
-    resized = cv2.resize(bgr, (nw, nh), interpolation=cv2.INTER_LINEAR)
-    canvas = np.full((H, W, 3), 114, dtype=np.uint8)
-    ox, oy = (W - nw) // 2, 0
-    canvas[oy:oy + nh, ox:ox + nw] = resized
-    scale_img, padx = 1.0 / s, float(ox)
-    pady = 0.0
+    # 640×640:按高等比缩放 + 横向中裁,无灰填充带(旧版底部 280 行灰边在 y≈360 交界
+    # 产生整幅"person"巨框——红框满屏的直接元凶)
+    s = H / float(fh)
+    nw_full = int(round(fw * s))
+    res = cv2.resize(bgr, (nw_full, H), interpolation=cv2.INTER_LINEAR)
+    ox = (nw_full - W) // 2
+    canvas = np.ascontiguousarray(res[:, ox:ox + W])
+    k = fh / float(H)          # 640系→全帧 等比回映系数(乘法)
     x = canvas.astype(np.float32).transpose(2, 0, 1)[None] / 255.0
     out = runner.run_np({in_name: x})
     dets = decode_nms(out)
     now_ns = time.monotonic_ns()
 
-    # 640 系 box → 全帧坐标
+    # 640 系 box(canvas 左上角格式)→ 全帧坐标:full = (canvas + ox) × k
     full = []
     for (bx, by, bw, bh, conf, cid) in dets:
-      gx = (bx - padx) * scale_img
-      gby = (by - oy) * scale_img
-      gw, gh = bw * scale_img, bh * scale_img
+      gx = (bx + ox) * k
+      gby = by * k
+      gw, gh = bw * k, bh * k
+      # 杂框门:占全帧>30% 或 人形宽高比出 [0.2,0.95] 的板砖直接丢
+      area_ratio = (gw * gh) / (fw * fh)
+      if area_ratio > 0.30:
+        continue
+      wcls = COCO_MAP[cid]
+      if wcls in (0, 1, 2) and not (0.20 <= gw / max(1e-6, gh) <= 0.95):
+        continue
       v_b = gby + gh
       if v_b < MIN_V_BOTTOM:
         continue   # 地平线上方距离无定义,不入 ODD
@@ -210,8 +216,8 @@ def main():
     for tid, t in tracks.items():
       if tid not in assigned:
         t.miss += 1
-    # 发布(含 0.5s coast 保持)
-    live = [t for t in tracks.values() if t.miss <= 10]
+    # 发布(≥2 帧稳定才上屏,单帧闪烁不进;0.5s coast 保持)
+    live = [t for t in tracks.values() if t.miss <= 10 and t.hits >= 2]
     dead = [tid for tid, t in tracks.items() if t.miss > 10]
     for tid in dead:
       tracks.pop(tid)
