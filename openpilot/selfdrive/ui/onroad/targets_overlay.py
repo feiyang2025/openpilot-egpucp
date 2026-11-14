@@ -217,8 +217,9 @@ class DevTargetsOverlay:
     x1, y1 = rect.x + rect.width, rect.y + rect.height
     pts_diag = []
 
-    def _proj(side, up, fwd):
-      pt = M @ np.array([side, up, fwd], dtype=np.float32)
+    def _proj(lat_left, up, fwd):
+      # device 系: x=前, y=右(消息 y 左向取反), z=下(高度取负)
+      pt = M @ np.array([fwd, -lat_left, -up], dtype=np.float32)
       if abs(pt[2]) < 1e-6:
         return None
       return float(pt[0] / pt[2]), float(pt[1] / pt[2])
