@@ -402,7 +402,13 @@ class WebRTCAnswerStream(WebRTCBaseStream):
     try:
       await asyncio.wait_for(self._wait_gathering_complete(), timeout=2.0)
       actual_answer = self.peer_connection.localDescription
+      if _cloudlog is not None:
+        _cloudlog.warning("[cv-patch-live] gathering done, answer candidates=%d",
+                          actual_answer.sdp.count("a=candidate:"))
     except asyncio.TimeoutError:
-      pass
+      actual_answer = self.peer_connection.localDescription
+      if _cloudlog is not None:
+        _cloudlog.warning("[cv-patch-live] gathering TIMEOUT, answer candidates=%d",
+                          actual_answer.sdp.count("a=candidate:"))
 
     return actual_answer
