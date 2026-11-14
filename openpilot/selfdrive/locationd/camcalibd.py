@@ -538,7 +538,11 @@ class CamCalibd:
     cy = s.cy if s.cy is not None else 0.0
     e.intrinsics = [float(info['f']), float(info['f']), cy, cy]
     # mounting pitch offset on this camera's own rpy (spec §6.3: extrinsic layer)
-    e.rpy = [0.0, float(info['pitch_offset']), 0.0]
+    # mounting pitch offset on this camera's own rpy (§6.3); lane-geometry
+    # candidates carry no extrinsic change -> empty rpy (calibrationd keeps
+    # the current rotation including the merged trim)
+    pitch_offset = info.get('pitch_offset')
+    e.rpy = [] if pitch_offset is None else [0.0, float(pitch_offset), 0.0]
     e.blocks = int(info['samples'])
     e.rmsReproj = float(info['std'])
     e.mode = str(info['mode'])
