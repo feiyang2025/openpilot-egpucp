@@ -226,14 +226,14 @@ class DevTargetsOverlay:
       txt = "TL " + st.upper() + " " + f"{conf:.2f}"
     else:
       txt = f"TL OBJ x{n}"
-    px = rect.x + rect.width - 410   # v3.1d 的 -470 太远,回撤 60
+    px = rect.x + rect.width - 430   # v3.1e 的 -410 再左一丁点
     py = rect.y + 150
-    rl.draw_rectangle_rec(rl.Rectangle(px - 12, py - 10, 238, 46), rl.Color(0x08, 0x0C, 0x10, 205))
+    rl.draw_rectangle_rec(rl.Rectangle(px - 14, py - 12, 292, 56), rl.Color(0x08, 0x0C, 0x10, 205))
     try:
-      rl.draw_circle(int(px), int(py + 10), 9, c)               # pyray: 圆心必须 int
+      rl.draw_circle(int(px), int(py + 13), 12, c)              # pyray: 圆心必须 int
     except Exception:
       pass
-    draw_text_ui_style(txt, px + 22, py, 24.0, c, border_width=1.6, shadow_offset=2.5)
+    draw_text_ui_style(txt, px + 28, py, 30.0, c, border_width=2.0, shadow_offset=3.0)
 
   def _render_road(self, rect: rl.Rectangle, model_renderer):
     # v2.7: 路面原位目标框(类色)+行进可读距离。轴序 = 相机系 (side, up, forward)。
