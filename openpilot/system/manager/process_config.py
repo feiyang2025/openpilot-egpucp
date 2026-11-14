@@ -70,6 +70,14 @@ def signal_color_observer(started: bool, params: Params, CP: car.CarParams) -> b
 def only_offroad(started: bool, params: Params, CP: car.CarParams) -> bool:
   return not started
 
+
+def smalldet_started(started: bool, params: Params, CP: car.CarParams) -> bool:
+  return started and params.get_bool("SmalldetEnabled")
+
+
+def tl_det_started(started: bool, params: Params, CP: car.CarParams) -> bool:
+  return started and params.get_bool("TlDetEnabled")
+
 def enable_updated(started: bool, params: Params, CP: car.CarParams) -> bool:
   return not started and params.get_bool("SoftwareMenu")
 
@@ -142,6 +150,7 @@ procs = [
   PythonProcess("locationd", "openpilot.selfdrive.locationd.locationd", only_onroad),
   NativeProcess("_pandad", "openpilot/selfdrive/pandad", ["./pandad"], always_run, enabled=False),
   PythonProcess("calibrationd", "openpilot.selfdrive.locationd.calibrationd", only_onroad),
+  PythonProcess("camcalibd", "openpilot.selfdrive.locationd.camcalibd", only_onroad),
   PythonProcess("torqued", "openpilot.selfdrive.locationd.torqued", only_onroad),
   PythonProcess("controlsd", "openpilot.selfdrive.controls.controlsd", and_(not_joystick, iscar)),
   PythonProcess("joystickd", "openpilot.tools.joystick.joystickd", or_(joystick, notcar)),
@@ -162,6 +171,8 @@ procs = [
   PythonProcess("maneuversd", "openpilot.tools.longitudinal_maneuvers.maneuversd", long_maneuver),
   PythonProcess("lateral_maneuversd", "openpilot.tools.lateral_maneuvers.lateral_maneuversd", lat_maneuver),
   PythonProcess("radard", "openpilot.selfdrive.carrot.radar.radard_dpath", only_onroad),
+  PythonProcess("smalldetd", "openpilot.selfdrive.carrot.sensing.smalldetd", smalldet_started),
+  PythonProcess("tl_detd", "openpilot.selfdrive.carrot.sensing.tl_detd", tl_det_started),
   PythonProcess("radarcan", "openpilot.selfdrive.carrot.radar.radarcan", only_onroad),
   PythonProcess("hardwared", "openpilot.system.hardware.hardwared", always_run),
   PythonProcess("modem", "openpilot.system.hardware.tici.modem", always_run, enabled=TICI),
