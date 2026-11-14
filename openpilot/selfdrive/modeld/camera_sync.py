@@ -6,7 +6,11 @@ import time
 # discarded four usable main frames. Allow bounded IRQ timing jitter while
 # staying below half the nominal 50 ms camera period. Do not accept the
 # 50-150 ms stale pairs observed during Ioniq camera recovery.
-MAX_CAMERA_SKEW_NS = 20_000_000
+# Jetson/IMX390 @30fps: the two GMSL sensors free-run with a per-boot phase
+# offset (measured ~21.5 ms constant), so 20 ms forced a match-one-frame-pair
+# alignment and ~7% frame churn. 30 ms covers the intrinsic offset while
+# still rejecting stale pairs (<< 33.3 ms frame period at 30 fps).
+MAX_CAMERA_SKEW_NS = 30_000_000
 
 
 class FrameMeta:
