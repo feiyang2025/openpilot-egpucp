@@ -470,6 +470,8 @@ async def api_select(request: web.Request) -> web.Response:
     if lm.get('sha256') == sha:
       if not (HAS_PARAMS and Params is not None):
         return web.json_response({'ok': False, 'error': 'params unavailable'}, status=500)
+      if Params().get_bool('IsEngaged'):
+        return web.json_response({'ok': False, 'error': 'disengage openpilot before switching models'}, status=409)
       Params().put('CarrotLocalModel', str(lm.get('id')))
       # 本机模型即时生效: manager 会立刻带新参数重生 modeld
       note = '本机模型已记录，modeld 重启后生效'
