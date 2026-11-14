@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from collections.abc import Iterator
+from types import SimpleNamespace
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from functools import lru_cache
@@ -1820,15 +1821,25 @@ class ClusterUiRenderer:
 
     @staticmethod
     def _camera_overlay_camera(state: ClusterUiState, wide_camera: bool = False):
+        # spec §5.2 single source: intrinsics from the CameraCalibSet carried in
+        # the ui state; DEVICE_CAMERAS below is only a fallback for sensors the
+        # set does not carry yet.
+        calib_cams = getattr(state, "camera_calib_cams", None) or {}
+        entry = calib_cams.get("wide" if wide_camera else "road")
+        if entry is not None:
+            width, height, fx, fy, cx, cy = entry
+            intrinsic = np.array([[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]])
+            return SimpleNamespace(width=float(width), height=float(height),
+                                   intrinsics=intrinsic, focal_length=fx)
         device_type = (state.camera_device_type or "").strip().lower()
         sensor = (state.camera_sensor or "").strip().lower()
         for key in ((device_type, sensor), ("unknown", sensor), (device_type, "unknown")):
-            device_camera = DEVICE_CAMERAS.get(key)
+            device_camera = DEVICE_CAMERAS.get(key)  # calib-legacy-allow: factory fallback when calib set lacks the sensor
             if device_camera is not None:
                 camera = device_camera.ecam if wide_camera else device_camera.fcam
                 return camera if camera.width > 0 and camera.height > 0 else device_camera.fcam
         if sensor:
-            for (_, known_sensor), device_camera in DEVICE_CAMERAS.items():
+            for (_, known_sensor), device_camera in DEVICE_CAMERAS.items():  # calib-legacy-allow: factory fallback
                 if known_sensor == sensor:
                     camera = device_camera.ecam if wide_camera else device_camera.fcam
                     return camera if camera.width > 0 and camera.height > 0 else device_camera.fcam
