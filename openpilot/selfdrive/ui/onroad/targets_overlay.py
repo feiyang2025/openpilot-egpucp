@@ -15,15 +15,7 @@ from openpilot.cereal import messaging
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.text_draw import draw_text_ui_style
 
-try:
-  import time as _t, os as _os
-  with open("/tmp/dev_overlay_import_root.log", "a") as _f:
-    _f.write("%.3f pid=%d %s\n" % (_t.time(), _os.getpid(), __file__))
-except Exception:
-  pass
-
 PARAM_KEY = "DevTargetsOverlay"
-PROBE_PATH = "/tmp/dev_overlay_render.log"
 COAST_HOLD_S = 0.5
 TENTATIVE_CAP = 16
 PARAM_REFRESH_S = 2.0
@@ -187,26 +179,9 @@ class DevTargetsOverlay:
     except Exception:
       pass
 
-  def _probe(self, reason):
-    now = time.monotonic()
-    bypass = reason.startswith("EXC") or reason.startswith("go")
-    if not bypass and now < getattr(self, "_probe_next_t", 0.0):
-      return
-    self._probe_next_t = now + (0.25 if bypass else 1.0)
-    try:
-      with open(PROBE_PATH, "a") as f:
-        f.write("%.3f %s rows=%d en=%d hid=%d err=%d id=%s\n" % (
-          time.time(), reason, len(self._rows), self._enabled,
-          getattr(self, "_render_hidden", False), self._err_streak, id(self) % 100000))
-    except Exception:
-      pass
-
   def render(self, rect: rl.Rectangle, model_renderer=None):   # noqa: N802
-    self._probe("enter")
     if not self._enabled:
-      self._probe("early:not_enabled")
       return
-    self._probe("go rows=%d" % len(self._rows))
     t0 = time.monotonic()
     if self._rows:
       try:
@@ -214,7 +189,6 @@ class DevTargetsOverlay:
       except Exception as e:                                     # noqa: BLE001
         self._err_streak += 1
         self._last_err = repr(e)[:180]
-        self._probe("EXC_road %s" % repr(e)[:170])
     ms = (time.monotonic() - t0) * 1000.0
     self._render_ms_max = max(self._render_ms_max * 0.99, ms)
     self._probe("drew")
@@ -284,8 +258,8 @@ class DevTargetsOverlay:
         lbl += " <px"
       try:
         draw_text_ui_style(lbl, ub - 14.0, by - 30.0, 22.0, _lit(c))
-      except Exception as e:                                   # noqa: BLE001
-        self._probe("EXC_roadtext %s" % repr(e)[:120])
+      except Exception:                                         # noqa: BLE001
+        pass
     self._diag = {"m": [round(float(v), 2) for v in np.asarray(M).flatten()[:6]],
                   "pts": pts_diag, "clip": [round(x0), round(y0), round(x1), round(y1)]}
 
