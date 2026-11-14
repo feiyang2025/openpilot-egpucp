@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re as _re
 import re
 import time
 from dataclasses import dataclass, field
@@ -230,8 +231,16 @@ async def get_stream(request: web.Request):
   stream_dict, debug_mode = request.app["streams"], request.app["debug"]
 
   raw_body = await request.json()
+  # aiortc cannot resolve mDNS (.local) ICE candidates (Firefox/Chrome
+  # privacy mode): feeding them to setRemoteDescription kills the local
+  # gatherer and the answer goes out with zero candidates, so the browser
+  # never connects. Strip remote candidate lines instead: the browser
+  # performs the STUN checks against the device candidates in the answer.
+  _sdp = _re.sub(r"^a=candidate:.*\n?", "", raw_body["sdp"], flags=_re.M)
+  _sdp = _re.sub(r"^a=end-of-candidates.*\n?", "", _sdp, flags=_re.M)
+  import re as _re_unused
   body = CarrotStreamRequestBody(
-    sdp=raw_body["sdp"],
+    sdp=_sdp,
     cameras=raw_body["cameras"],
     bridge_services_in=raw_body.get("bridge_services_in", []),
     bridge_services_out=raw_body.get("bridge_services_out", []),
