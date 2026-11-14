@@ -96,11 +96,13 @@ chk("stats_n_for_1e-4", 36000 >= n_req - 1, f"需 n≥{n_req:.0f}, 附录 B 样�
 px_adult_minH_at60 = H_ADULT_MIN * F_PX_1280 / d60
 px_derivedH_at60 = H_ADULT_DERIVED * F_PX_1280 / d60
 px_child105_at50 = H_CHILD_TENTH_FIVE * F_PX_1280 / d50
-res["pending_signatures"].append({
-  "decision": "60 档像素门三选一 [a]1.45m/[b]盲窗/[c]降速58.8",
-  "fact": f"min_h 1.4m @D(60,T0=.70)={d60:.2f} m → {px_adult_minH_at60:.1f}px < {PX_GATE_STAND:.0f}px 门;推导身高 1.70m → {px_derivedH_at60:.1f}px 过门,两口身高不一致(1.4 vs 1.7)",
-  "guard": "签字后: min_h_class·f_px/D_check(v) ≥ px_gate 硬门",
-})
+# ===== 已签决策:60 档像素门 [a] 成人最小身高 1.45 m(2026-11-14 用户签收,修订 25)——原 pending#1 转硬门 =====
+ADULT_MIN_SIGNED = 1.45
+px_adult_signed_at60 = ADULT_MIN_SIGNED * F_PX_1280 / d60
+chk("adult_min_signed_1p45", ADULT_MIN_SIGNED == 1.45,
+    "成人档最小身高 1.45 已签(修订 25);1.40-1.45 m 归 50 档(D1 改写);[b] 盲窗/[c] 降速 58.8 未采纳")
+chk("joint_adult60_signed_pass", px_adult_signed_at60 >= PX_GATE_STAND and abs(px_adult_signed_at60 - 30.06) < 0.02,
+    f"1.45m @D(60,T0=.70)={d60:.2f} → {px_adult_signed_at60:.2f}px ≥ {PX_GATE_STAND:.0f}px(余 {px_adult_signed_at60-30:.2f}px;D_check=D(v,T0) 口径一并锁定)")
 # ===== 已签决策:儿童身高下界 1.0 m(2026-11-14 用户签收,修订 24)——原 pending#2 转硬门 =====
 CHILD_LB_SIGNED = 1.0
 px_child_lb_at50 = CHILD_LB_SIGNED * F_PX_1280 / d50
@@ -114,7 +116,14 @@ res["signed_signatures"] = {
     "child_height_lower_bound_m": CHILD_LB_SIGNED,
     "signed_at": "2026-11-14",
     "recorded_in": "修订 24(用户原话:'1.0米儿童身高下界')",
+    "adult_min_height_m_60class": ADULT_MIN_SIGNED,       # 修订 25(用户原话:'成人最小身高 1.45')
+    "child_subgate_band_140_109": "40 档回落([a],修订 25)",
 }
+# ===== 已签决策:row17 [a] 40 档回落硬门(修订 25) =====
+d40 = D(40 / 3.6)
+px_child_lb_cascade40 = CHILD_LB_SIGNED * F_PX_1280 / d40
+chk("child_band_cascade_40", abs(d40 - 33.78) < 0.02 and px_child_lb_cascade40 >= PX_GATE_STAND,
+    f"D(40,T0=.70)={d40:.2f} m(修订 25 更正:row17 原误记 21.45/44.4——21.45 实为 D(30));[1.0,1.09) 子带回落 40 档 → 1.0 m 处 {px_child_lb_cascade40:.2f}px ≥ 30px")
 res["joint_constraint"] = {
   "formula": "min_h_class·f_px/D_check(v) ≥ px_gate(类)",
   "adult60_minH_px": round(px_adult_minH_at60, 2),
@@ -123,7 +132,7 @@ res["joint_constraint"] = {
   "height_disagreement_adult": [H_ADULT_MIN, H_ADULT_DERIVED],
 }
 
-res["verdict"] = "MECHANICS_PASS_PENDING_SIGNATURES" if not fail else "MECHANICS_FAIL"
+res["verdict"] = ("MECHANICS_PASS_ALL_SIGNED" if not res["pending_signatures"] else "MECHANICS_PASS_PENDING_SIGNATURES") if not fail else "MECHANICS_FAIL"
 res["failed"] = fail
 
 out_path = sys.argv[1] if len(sys.argv) > 1 else "docs/avoidance_structure_validation.json"
