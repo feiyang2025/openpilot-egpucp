@@ -2551,7 +2551,10 @@ window.HomeDrive = (() => {
     const model = overlayState.modelV2 || null;
     const liveCalibration = overlayState.liveCalibration || null;
     const roadCameraState = overlayState.roadCameraState || null;
-    const cameraProfileReady = applyRoadCameraProfile(hudState?.deviceState?.deviceType, roadCameraState?.sensor);
+    // gateway first (spec §7.4): the running CameraCalibSet is the truth;
+    // the static profile table only fills in while no gateway has arrived
+    const gatewayApplied = applyGatewayCamera(liveCalibration?.calibGateway);
+    const cameraProfileReady = gatewayApplied || applyRoadCameraProfile(hudState?.deviceState?.deviceType, roadCameraState?.sensor);
     const { selectedPath, pathStyle } = roadOverlayPolicy.resolve(overlayState, hudState, paramsState);
     const plotData = buildPlotData(overlayState, hudState);
     const showLaneInfo = finiteNumber(paramsState.ShowLaneInfo, defaultParams.ShowLaneInfo);

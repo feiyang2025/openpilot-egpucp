@@ -255,6 +255,7 @@ class CameraSyncMonitor:
   def __init__(self):
     self.deltas: deque = deque(maxlen=self.WINDOW)      # ns
     self.pair_ts: deque = deque(maxlen=self.WINDOW)     # road SOF ns per pair
+    self.ts_bufs: dict = {Cam.ROAD: deque(maxlen=8), Cam.WIDE: deque(maxlen=8)}
     self.delta_ref: int | None = None
     self.skew_ppm = 0.0
     self.synced = False
@@ -285,6 +286,33 @@ class CameraSyncMonitor:
         self.good_streak = 0
     self.last_ts[cam] = ts_sof
 
+  def on_stream(self, cam: Cam, ts_sof: int) -> None:
+    """Feed one stream frame: gap stats + nearest-neighbour pairing.
+
+    Pairing consumes each frame once and only accepts pairs within half a
+    frame period; latest-of-each mis-pairs when one stream delivers two
+    frames between calls (measured -4 ms delta / -1500 ppm bogus skew).
+    """
+    self.on_frame(cam, ts_sof)
+    other = Cam.WIDE if cam == Cam.ROAD else Cam.ROAD
+    buf_self, buf_other = self.ts_bufs[cam], self.ts_bufs[other]
+    buf_self.append(ts_sof)
+    while len(buf_self) > 0 and len(buf_other) > 0:
+      best = None
+      for t1 in buf_self:
+        for t2 in buf_other:
+          d = abs(t1 - t2)
+          if best is None or d < best[0]:
+            best = (d, t1, t2)
+      _, ta, tb = best
+      buf_self.remove(ta)
+      buf_other.remove(tb)
+      if abs(ta - tb) <= self._period(Cam.ROAD) // 2:
+        tr, tw = (ta, tb) if cam == Cam.ROAD else (tb, ta)
+        self.on_pair(tr, tw)
+      else:
+        break
+
   def on_pair(self, ts_road: int, ts_wide: int) -> None:
     delta = int(ts_road - ts_wide)
     self.deltas.append(delta)
@@ -306,8 +334,9 @@ class CameraSyncMonitor:
       t = np.asarray(self.pair_ts, dtype=float)
       t0 = t[0]
       if t[-1] - t0 > 10e9:
-        slope = float(np.polyfit((t - t0) / 1e9, arr, 1)[0])
-        self.skew_ppm = slope  # ns delta per s == ppm of frame period
+        slope_ns_per_s = float(np.polyfit((t - t0) / 1e9, arr, 1)[0])
+        # 1 ppm of the timebase = 1 us/s = 1000 ns/s
+        self.skew_ppm = slope_ns_per_s / 1000.0
     if self.delta_ref is not None and self.good_streak >= self.RECOVERY_FRAMES:
       self.synced = True
 
@@ -473,6 +502,11 @@ class CamCalibd:
     self.intrinsics_enabled = self.params.get_bool("EnableCameraIntrinsicsAutoCalib")
     self.lane_fitter = None
     self.last_lane_fit = 0.0
+    # §16.4 step 4: attitude time-alignment. cameraOdometry.rot is the frame
+    # interval rotation in the calib frame; the pair residual is extrapolated
+    # with omega = rot / DT instead of being absorbed into the extrinsics.
+    self.odo_rot = None
+    self.odo_dt = 0.05
     self.calib_set = None
     self.generation = 0
     self.last_sync_emit = 0.0
@@ -544,6 +578,10 @@ class CamCalibd:
       ss.timebase = 'systemClock'
       ss.timestampSource = 'kernelRecv'
       ss.quantizationNs = 1000
+      # residual actually seen after deltaRef tracking (what every gate uses);
+      # the attitude extrapolation removes its rotation part (§16.4 step 4)
+      st = self.sync.stats()
+      ss.alignedResidualNs = (st or {}).get('p99', 0)
       self.pm.send('cameraSyncState', msg)
 
   def run(self):
@@ -578,40 +616,18 @@ class CamCalibd:
       # T0 sync statistics run regardless of the calibration gate: the sync
       # numbers are themselves the gating input (spec §16.4/§16.6).
       fresh: dict = {}
-      fresh_bufs: dict = {}
-      ts_bufs: dict = getattr(self, 'ts_bufs', None) or {s.cam: deque(maxlen=8) for s in self.streams}
-      self.ts_bufs = ts_bufs
       for s in self.streams:
         vipc = self.vipcs[s.cam]
         if vipc.is_connected() and s.using_preferred():
           buf = vipc.recv(0)
           if buf is not None:
-            ts = int(vipc.timestamp_sof)
-            fresh[s.cam] = ts
-            fresh_bufs[s.cam] = buf
-            ts_bufs[s.cam].append(ts)
-            self.sync.on_frame(s.cam, ts)
+            fresh[s.cam] = buf
+            self.sync.on_stream(s.cam, int(vipc.timestamp_sof))
 
-      # nearest-neighbour pairing (spec §16.4): latest-of-each mis-pairs when
-      # one stream delivers two frames between loops, which shows up as a
-      # frame-slip trend in delta and a bogus skew. Each frame pairs once.
-      while len(ts_bufs[Cam.ROAD]) > 0 and len(ts_bufs[Cam.WIDE]) > 0:
-        best = None
-        for tr in ts_bufs[Cam.ROAD]:
-          for tw in ts_bufs[Cam.WIDE]:
-            d = abs(tr - tw)
-            if best is None or d < best[0]:
-              best = (d, tr, tw)
-        _, tr, tw = best
-        ts_bufs[Cam.ROAD].remove(tr)
-        ts_bufs[Cam.WIDE].remove(tw)
-        # a nearest pair may still straddle a frame boundary when one stream
-        # is briefly starved: only feed pairs within a half frame period
-        if abs(tr - tw) <= self.sync._period(Cam.ROAD) // 2:
-          self.sync.on_pair(tr, tw)
-        else:
-          break
-
+      if self.sm.updated['cameraOdometry']:
+        rot = self.sm['cameraOdometry'].rot
+        if len(rot) == 3 and np.isfinite(rot).all():
+          self.odo_rot = np.array(rot, dtype=float)
       if now - self.last_sync_emit > SYNC_EMIT_INTERVAL:
         self.last_sync_emit = now
         self.publish_sync_state()
@@ -631,7 +647,7 @@ class CamCalibd:
         vipc = self.vipcs[s.cam]
         if not (vipc.is_connected() and s.using_preferred() and s.cam in fresh):
           continue
-        buf = fresh_bufs.get(s.cam)
+        buf = fresh.get(s.cam)
         if buf is None:
           continue
         try:
@@ -646,7 +662,19 @@ class CamCalibd:
         s.last_lines = n_lines
         if v0 is not None:
           s.last_v0 = round(v0, 1)
-          s.add_sample(v0, pitch, s.cy if s.cy is not None else buf.height / 2.0)
+          # §16.4 step 4: the wide sample is extrapolated to the paired road
+          # frame time with the odometry rotation rate; the correction is
+          # explicit, never absorbed into the extrinsic estimate
+          pitch_sample, dt_s = pitch, 0.0
+          if self.odo_rot is not None and s.cam == Cam.WIDE:
+            t_w = self.sync.last_ts.get(Cam.WIDE)
+            t_r = self.sync.last_ts.get(Cam.ROAD)
+            if t_w and t_r:
+              dt_s = (t_w - t_r) / 1e9
+              pitch_sample = pitch - (self.odo_rot[1] / self.odo_dt) * dt_s
+          s.add_sample(v0, pitch_sample, s.cy if s.cy is not None else buf.height / 2.0)
+          if abs(dt_s) > 0.02:
+            cloudlog.debug(f"[camcalibd][{s.label}] attitude extrapolation {dt_s*1e3:.1f} ms")
         self.emit(s)
         # L3 shadow (road only): metric lane geometry vs image edges
         if s.cam == Cam.ROAD and self.lane_fitter is not None and self.sm.alive['modelV2']:
