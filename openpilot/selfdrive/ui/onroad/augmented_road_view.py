@@ -33,7 +33,7 @@ BORDER_COLORS = {
 }
 
 WIDE_CAM_MAX_SPEED = 10.0  # m/s (22 mph)
-ROAD_CAM_MIN_SPEED = 15.0  # m/s (34 mph)
+ROAD_CAM_MIN_SPEED = 12.0  # m/s (43 km/h)
 INF_POINT = np.array([1000.0, 0.0, 0.0])
 
 
@@ -194,7 +194,19 @@ class AugmentedRoadView(CameraView):
     rl.draw_rectangle_rounded_lines_ex(border_rect, border_roundness, 10, UI_BORDER_SIZE, border_color)
 
   def _switch_stream_if_needed(self, sm):
-    if sm['selfdriveState'].experimentalMode and WIDE_CAM in self.available_streams:
+    # available_streams 只在连接成功那一刻查询一次, 竞态下会缓存空列表 → 鱼眼永远不可见。
+    # 缓存缺 WIDE 时每 5s 重查一次。低速鱼眼/高速广角, 仅影响显示, 行车链路不动。
+    if WIDE_CAM not in self.available_streams:
+      import time as _t
+      _now = _t.monotonic()
+      if not hasattr(self, '_avail_q_t') or _now - self._avail_q_t > 5.0:
+        self._avail_q_t = _now
+        try:
+          from msgq.visionipc import VisionIpcClient
+          self.available_streams = VisionIpcClient.available_streams(getattr(self, '_name', 'camerad'), block=False)
+        except Exception:
+          pass
+    if WIDE_CAM in self.available_streams:
       v_ego = sm['carState'].vEgo
       if v_ego < WIDE_CAM_MAX_SPEED:
         target = WIDE_CAM
