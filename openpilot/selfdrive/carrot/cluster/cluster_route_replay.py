@@ -35,6 +35,7 @@ from cluster_config import (
     YELLOW,
     cluster_camera_view_prefers_wide,
 )
+from openpilot.common.transformations.camera_calib import Cam, from_live_calibration
 from cluster_models import (
     ClusterAlert,
     ClusterUiState,
@@ -573,6 +574,10 @@ class RouteReplayFrame:
     camera_sensor: str | None = None
     camera_calibration_euler: tuple[float, float, float] | None = None
     wide_camera_from_device_euler: tuple[float, float, float] | None = None
+    # spec §5.2: per-camera intrinsics from the single CameraCalibSet source,
+    # keyed 'road'/'wide' -> (width, height, fx, fy, cx, cy); None until the
+    # first liveCalibration arrives.
+    camera_calib_cams: dict[str, tuple[int, int, float, float, float, float]] | None = None
     road_transform_trans: tuple[float, float, float] | None = None
     road_transform_std: tuple[float, float, float] | None = None
     camera_odometry_valid: bool | None = None
@@ -1555,6 +1560,7 @@ class RouteLogParser:
         self.disk_used_percent: float | None = None
         self.camera_calibration_euler: tuple[float, float, float] | None = None
         self.wide_camera_from_device_euler: tuple[float, float, float] | None = None
+        self.camera_calib_cams: dict[str, tuple[int, int, float, float, float, float]] | None = None
         self.road_transform_trans: tuple[float, float, float] | None = None
         self.road_transform_std: tuple[float, float, float] | None = None
         self.camera_odometry_valid: bool | None = None
@@ -1858,6 +1864,7 @@ class RouteLogParser:
             disk_used_percent=self.disk_used_percent,
             camera_calibration_euler=self.camera_calibration_euler,
             wide_camera_from_device_euler=self.wide_camera_from_device_euler,
+            camera_calib_cams=self.camera_calib_cams,
             road_transform_trans=self.road_transform_trans,
             road_transform_std=self.road_transform_std,
             camera_odometry_valid=self.camera_odometry_valid,
@@ -2109,16 +2116,25 @@ class RouteLogParser:
     def _update_live_calibration(self, live_calibration: Any, valid: bool) -> None:
         if not valid:
             return
-        rpy_calib = three_float_tuple(safe_get(live_calibration, "rpyCalib"))
-        if rpy_calib is not None:
-            self.camera_calibration_euler = rpy_calib
-        wide_from_device_euler = three_float_tuple(safe_get(live_calibration, "wideFromDeviceEuler"))
-        if wide_from_device_euler is not None:
-            self.wide_camera_from_device_euler = wide_from_device_euler
-        height_values = safe_get(live_calibration, "height")
-        height_m = numeric_tuple(height_values, limit=1, minimum=0.5, maximum=3.0)
-        if height_m:
-            self.road_transform_trans = (0.0, 0.0, height_m[0])
+        # Single calibration source (spec §5.2): values come from CameraCalibSet's
+        # from_live_calibration; body euler == legacy rpyCalib, wide euler ==
+        # wide.rpy, height == set.height (road mount height) - value-identical.
+        try:
+            calib_set = from_live_calibration(live_calibration)
+        except Exception:
+            return
+        self.camera_calibration_euler = tuple(float(v) for v in calib_set.body_from_calib)
+        cams = {}
+        for cam_key, cam in (('road', calib_set.cams.get(Cam.ROAD)), ('wide', calib_set.cams.get(Cam.WIDE))):
+            if cam is not None and cam.width > 0 and cam.height > 0:
+                cams[cam_key] = (int(cam.width), int(cam.height), float(cam.fx), float(cam.fy), float(cam.cx), float(cam.cy))
+        if cams:
+            self.camera_calib_cams = cams
+        wide = calib_set.cams.get(Cam.WIDE)
+        if wide is not None and wide.rpy is not None:
+            self.wide_camera_from_device_euler = tuple(float(v) for v in wide.rpy)
+        if 0.5 <= float(calib_set.height) <= 3.0:
+            self.road_transform_trans = (0.0, 0.0, float(calib_set.height))
 
     def _update_controls_state(self, controls_state: Any) -> None:
         enabled = safe_get(controls_state, "enabled", None)

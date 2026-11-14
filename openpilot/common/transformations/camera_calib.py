@@ -266,16 +266,23 @@ def _deserialize_camera(cc) -> tuple[Cam, CameraCalib]:
 def from_live_calibration(msg, *, device_type: str = "", sensor: str = "") -> CameraCalibSet:
   """Read a liveCalibration event into a set.
 
-  With a non-empty cams list the entries are deserialized directly (the
-  device_type/sensor args are then only identity labels). Without cams, or for
-  a schema version this code does not understand, compose factory intrinsics
-  with the legacy scalar fields; nothing is written back from here.
+  Accepts either a cereal Event (as delivered on the wire / in logs) or the
+  bare LiveCalibrationData reader SubMaster hands to subscribers
+  (sm['liveCalibration']). With a non-empty cams list the entries are
+  deserialized directly (the device_type/sensor args are then only identity
+  labels). Without cams, or for a schema version this code does not
+  understand, compose factory intrinsics with the legacy scalar fields;
+  nothing is written back from here.
   """
-  lc = msg.liveCalibration
-  schema_version = int(lc.calibSchemaVersion)
-  if len(lc.cams) > 0 and schema_version <= SUPPORTED_SCHEMA_VERSION:
+  raw = getattr(msg, "rpyCalib", None)
+  lc = msg if raw is not None else msg.liveCalibration
+  # Tolerate dynamic duck-typed messages (SimpleNamespace in tests/offline
+  # tools): absent new-field attrs mean a legacy message -> schema 0, no cams.
+  schema_version = int(getattr(lc, "calibSchemaVersion", 0) or 0)
+  cams_msg = getattr(lc, "cams", None)
+  if cams_msg is not None and len(cams_msg) > 0 and schema_version <= SUPPORTED_SCHEMA_VERSION:
     cams, sizes = {}, {}
-    for cc in lc.cams:
+    for cc in cams_msg:
       cam, calib = _deserialize_camera(cc)
       cams[cam] = calib
       sizes[int(cam)] = (calib.width, calib.height)
@@ -286,14 +293,14 @@ def from_live_calibration(msg, *, device_type: str = "", sensor: str = "") -> Ca
       road_mh = cams[Cam.ROAD].mount_height if Cam.ROAD in cams else None
       height = 0.0 if road_mh is None else float(road_mh)
     return CameraCalibSet(
-      schema_version=schema_version, seq=int(lc.calibSeq),
+      schema_version=schema_version, seq=int(getattr(lc, "calibSeq", 0) or 0),
       identity=CalibIdentity(device_type, sensor, sizes),
       height=height, body_from_calib=_legacy_euler(lc, _RPY_CALIB_FIELD, 3),
       cams=cams)
   height = float(list(lc.height)[-1]) if len(lc.height) > 0 else 0.0
   return from_legacy_values(_legacy_euler(lc, _RPY_CALIB_FIELD, 3), height,
                             _legacy_euler(lc, _WIDE_FROM_DEVICE_FIELD, 3),
-                            device_type, sensor, seq=int(lc.calibSeq))
+                            device_type, sensor, seq=int(getattr(lc, "calibSeq", 0) or 0))
 
 
 def write_live_calibration(lc_builder, s: CameraCalibSet) -> None:

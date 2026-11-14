@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from collections.abc import Iterator
+from types import SimpleNamespace
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from functools import lru_cache
@@ -166,7 +167,7 @@ CAMERA_OVERLAY_FRAME_MAX_HEIGHT_RATIO = 0.45
 CAMERA_OVERLAY_FRAME_MAX_ASPECT = 2.4
 CAMERA_OVERLAY_FRAME_EDGE_PAD_PX = 3.0
 CAMERA_OVERLAY_FRAME_ROUND_SEGMENTS = 4
-CAMERA_OVERLAY_DEFAULT_CAMERA = DEVICE_CAMERAS["tici", "ar0231"].fcam
+CAMERA_OVERLAY_DEFAULT_CAMERA = DEVICE_CAMERAS["tici", "ar0231"].fcam  # calib-legacy-allow: factory-fallback (pending helper switch)
 CAMERA_OVERLAY_DEFAULT_HEIGHT_M = 1.22
 CAMERA_OVERLAY_Z_OFFSET_DEFAULT_M = 0.00
 CAMERA_OVERLAY_Z_OFFSET_MIN_M = -0.80
@@ -1820,19 +1821,29 @@ class ClusterUiRenderer:
 
     @staticmethod
     def _camera_overlay_camera(state: ClusterUiState, wide_camera: bool = False):
+        # spec §5.2 single source: intrinsics from the CameraCalibSet carried in
+        # the ui state; DEVICE_CAMERAS below is only a fallback for sensors the
+        # set does not carry yet.
+        calib_cams = getattr(state, "camera_calib_cams", None) or {}
+        entry = calib_cams.get("wide" if wide_camera else "road")
+        if entry is not None:
+            width, height, fx, fy, cx, cy = entry
+            intrinsic = np.array([[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]])
+            return SimpleNamespace(width=float(width), height=float(height),
+                                   intrinsics=intrinsic, focal_length=fx)
         device_type = (state.camera_device_type or "").strip().lower()
         sensor = (state.camera_sensor or "").strip().lower()
         for key in ((device_type, sensor), ("unknown", sensor), (device_type, "unknown")):
-            device_camera = DEVICE_CAMERAS.get(key)
+            device_camera = DEVICE_CAMERAS.get(key)  # calib-legacy-allow: factory fallback when calib set lacks the sensor
             if device_camera is not None:
                 camera = device_camera.ecam if wide_camera else device_camera.fcam
                 return camera if camera.width > 0 and camera.height > 0 else device_camera.fcam
         if sensor:
-            for (_, known_sensor), device_camera in DEVICE_CAMERAS.items():
+            for (_, known_sensor), device_camera in DEVICE_CAMERAS.items():  # calib-legacy-allow: factory fallback
                 if known_sensor == sensor:
                     camera = device_camera.ecam if wide_camera else device_camera.fcam
                     return camera if camera.width > 0 and camera.height > 0 else device_camera.fcam
-        default_device_camera = DEVICE_CAMERAS["tici", "ar0231"]
+        default_device_camera = DEVICE_CAMERAS["tici", "ar0231"]  # calib-legacy-allow: factory-fallback (pending helper switch)
         return default_device_camera.ecam if wide_camera else CAMERA_OVERLAY_DEFAULT_CAMERA
 
     def _camera_overlay_projection(self, state: ClusterUiState) -> CameraOverlayProjection | None:
