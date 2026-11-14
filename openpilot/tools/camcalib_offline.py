@@ -28,6 +28,45 @@ CANDIDATE_FOCAL_LIMIT = 0.08
 CANDIDATE_PITCH_LIMIT = 0.15
 
 
+def from_json_file(d, device_type="pc", sensor="imx390"):
+  """to_json 逆投影: 工厂默认集 + 全字段覆写(to_json 不含 identity,身份由 --device/--sensor 兜底)。"""
+  import numpy as _np
+  from openpilot.cereal import messaging as _messaging
+  base = from_live_calibration(_messaging.new_message("liveCalibration").liveCalibration,
+                               device_type=device_type, sensor=sensor)
+  base.seq = int(d.get("seq", base.seq))
+  base.schema_version = int(d.get("schemaVersion", base.schema_version))
+  base.height = float(d.get("height", base.height))
+  if "bodyFromCalib" in d:
+    base.body_from_calib = _np.asarray(d["bodyFromCalib"], dtype=float)
+  for c in d.get("cams", []):
+    cam = Cam(int(c["id"]))
+    if cam not in base.cams:
+      continue
+    t = base.cams[cam]
+    t.width, t.height = int(c.get("width", t.width)), int(c.get("height", t.height))
+    t.fx, t.fy = float(c.get("fx", t.fx)), float(c.get("fy", t.fy))
+    t.cx, t.cy = float(c.get("cx", t.cx)), float(c.get("cy", t.cy))
+    if "dist" in c:
+      t.dist = _np.asarray(c["dist"], dtype=float)
+    if c.get("rpy") is not None:
+      t.rpy = _np.asarray(c["rpy"], dtype=float)
+    if c.get("mountHeight") is not None:
+      t.mount_height = float(c["mountHeight"])
+    t.extrinsic_valid = bool(c.get("extrinsicValid", t.extrinsic_valid))
+    t.valid = bool(c.get("valid", t.valid))
+    if "source" in c:
+      try:
+        t.source = CalibSource[c["source"].upper()]
+      except KeyError:
+        pass
+    t.blocks = int(c.get("blocks", t.blocks))
+    t.rms_reproj = float(c.get("rmsReproj", t.rms_reproj))
+    if "spread" in c:
+      t.spread = _np.asarray(c["spread"], dtype=float)
+  return base
+
+
 def merge_candidate(calib_set, road_f=None, road_pitch=None,
                     wide_f=None, wide_pitch=None):
   """§6.5 merge — same limits as calibrationd.apply_calib_candidate."""
@@ -111,6 +150,8 @@ def run_segment(idx, log_path, seg_dir, args, state):
       ts = msg.roadCameraState.timestampSof
       if ts > 0:
         state["sync"].on_stream(Cam.ROAD, ts)
+        if state.get("seg_probe") is not None:
+          state["seg_probe"].on_stream(Cam.ROAD, ts)
       if road_frames is not None and frame_idx < road_frames.frame_count and state["sync"].synced:
         gray = np.asarray(road_frames.get(frame_idx, pix_fmt="rgb24"))[:, :, 0]
         st = state["streams"][Cam.ROAD]
@@ -127,6 +168,8 @@ def run_segment(idx, log_path, seg_dir, args, state):
       ts = msg.wideRoadCameraState.timestampSof
       if ts > 0:
         state["sync"].on_stream(Cam.WIDE, ts)
+        if state.get("seg_probe") is not None:
+          state["seg_probe"].on_stream(Cam.WIDE, ts)
 
     elif which == "modelV2":
       state["model_v2"] = msg.modelV2
@@ -134,24 +177,52 @@ def run_segment(idx, log_path, seg_dir, args, state):
 
 def main():
   parser = argparse.ArgumentParser()
-  parser.add_argument("route")
+  parser.add_argument("route", nargs="?", default=None,
+                      help="realdata 段目录 / dongle|route;不给则需 --import(纯转换)")
   parser.add_argument("--seg", default=None, help="segment range, e.g. 0-5")
   parser.add_argument("--json", default=None, help="output CameraCalibSet JSON")
   parser.add_argument("--video", action="store_true", help="run image-side estimators")
+  parser.add_argument("--import", dest="import_path", default=None,
+                      help="source CameraCalibSet JSON (to_json 投影逆回;作为回放初值或纯转换)")
+  parser.add_argument("--device", default="pc", help="identity 兜底(默认 pc)")
+  parser.add_argument("--sensor", default="imx390", help="identity 兜底(默认 imx390)")
+  parser.add_argument("--sync-report", dest="sync_report", default=None,
+                      help="输出 §16.6 逐段+路由级同步健康 JSON")
   args = parser.parse_args()
+  if args.route is None and args.import_path is None:
+    raise SystemExit("需要 <route> 或 --import(至少一项)")
+
+  imported = None
+  if args.import_path:
+    imported = from_json_file(json.loads(Path(args.import_path).read_text()),
+                             device_type=args.device, sensor=args.sensor)
+    print(f"imported: seq={imported.seq} cams={sorted(c.name for c in imported.cams)}")
 
   state = {
-    "calib_set": None, "sync": CameraSyncMonitor(), "pitch": None,
-    "model_v2": None, "lane_fitter": None,
+    "calib_set": imported, "sync": CameraSyncMonitor(), "pitch": None,
+    "model_v2": None, "lane_fitter": None, "seg_probe": None, "seg_stats": [],
     "streams": {
       Cam.ROAD: StreamCalib(Cam.ROAD, None, "road", "roadCameraState", 2637.0),
       Cam.WIDE: StreamCalib(Cam.WIDE, None, "wide", "wideRoadCameraState", 564.6),
     },
   }
 
-  for idx, log_path, seg_dir in segment_paths(args.route, args.seg):
+  for idx, log_path, seg_dir in segment_paths(args.route, args.seg) if args.route else []:
     print(f"=== segment {idx} ===")
+    state["seg_probe"] = CameraSyncMonitor()
     run_segment(idx, log_path, seg_dir, args, state)
+    ps = state["seg_probe"].stats()
+    if ps:
+      seg_ok = ps["synced"] and ps["p99"] <= 2_000_000
+      print(f"  seg{idx} sync: deltaRef {ps['deltaRef']/1e6:.2f} ms | P99.9 {ps['p99']/1e3:.0f} us "
+            f"| {'可用于标定' if seg_ok else 'UNUSABLE — 不可用于标定(§16.6 逐段标记)'}")
+      state["seg_stats"].append({"seg": idx, "usable": seg_ok,
+                                 "deltaRefMs": round(ps["deltaRef"] / 1e6, 3),
+                                 "p50Us": round(ps["p50"] / 1e3, 1),
+                                 "p999Us": round(ps["p99"] / 1e3, 1),
+                                 "skewPpm": round(ps["skewPpm"], 1),
+                                 "synced": ps["synced"]})
+    state["seg_probe"] = None
 
   print("\n==== sync health (§16.6 T0) ====")
   stats = state["sync"].stats()
@@ -169,6 +240,10 @@ def main():
   if state["calib_set"] is None:
     raise SystemExit("no liveCalibration in log")
   calib_set = state["calib_set"]
+  if state["seg_stats"]:
+    usable_n = sum(1 for s in state["seg_stats"] if s["usable"])
+    print(f"segments: {len(state['seg_stats'])}, usable {usable_n} "
+          f"(其余标记'不可用于标定',§16.6)")
   for cam in (Cam.ROAD, Cam.WIDE):
     info = state["streams"][cam].estimate()
     print(f"{cam.name} vp estimate:", info)
@@ -178,6 +253,20 @@ def main():
   print("L3 lane-geometry:", l3)
   if l3 and l3["converged"]:
     merge_candidate(calib_set, road_f=l3["f"])
+
+  if args.sync_report:
+    rep = {"route": args.route or "(pure-import)",
+           "segments": state["seg_stats"], "route_level": None}
+    if stats:
+      rep["route_level"] = {"deltaRefMs": round(stats["deltaRef"] / 1e6, 3),
+                             "p50Us": round(stats["p50"] / 1e3, 1),
+                             "p999Us": round(stats["p99"] / 1e3, 1),
+                             "jitterUs": round(stats["jitter"] / 1e3, 1),
+                             "skewPpm": round(stats["skewPpm"], 1),
+                             "synced": stats["synced"],
+                             "usable": bool(stats["synced"] and stats["p99"] <= 2_000_000)}
+    Path(args.sync_report).write_text(json.dumps(rep, ensure_ascii=False, indent=2))
+    print(f"written: {args.sync_report}")
 
   out = to_json(calib_set)
   print(json.dumps(out, indent=2))
