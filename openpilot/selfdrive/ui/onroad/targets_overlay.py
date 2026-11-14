@@ -122,9 +122,7 @@ class DevTargetsOverlay:
     except Exception as e:                                  # noqa: BLE001
       self._err_streak += 1
       self._last_err = repr(e)[:180]
-      if self._err_streak >= HIDE_AFTER_ERRS:
-        self._enabled = False
-        self._rows = []
+      self._last_msg_t = self._last_msg_t  # keep state; 下一窗口重试(update 永不自禁)
       return
 
     if self._last_msg_t is not None:
@@ -153,12 +151,16 @@ class DevTargetsOverlay:
                    "road_hits": self._road_hits, "diag": self._diag,
                    "k_trunc": self._k_trunc, "render_ms_max": round(self._render_ms_max, 3),
                    "msg_age_s": None if self._last_msg_t is None else round(now - self._last_msg_t, 2),
-                   "err_streak": self._err_streak, "last_err": self._last_err}, f)
+                   "err_streak": self._err_streak, "last_err": self._last_err,
+                   "render_exc": getattr(self, "_diag", {}) if isinstance(getattr(self, "_diag", {}), dict) else {}}, f)
     except Exception:
       pass
 
   def render(self, rect: rl.Rectangle, model_renderer=None):   # noqa: N802
     if not self._enabled:
+      return
+    if getattr(self, "_render_hidden", False) and self._err_streak >= HIDE_AFTER_ERRS:
+      self._last_err_note = "road render hidden after repeated errors (see diag.render_exc)"
       return
     t0 = time.monotonic()
     try:
@@ -168,8 +170,9 @@ class DevTargetsOverlay:
     except Exception as e:                                     # noqa: BLE001
       self._err_streak += 1
       self._last_err = repr(e)[:180]
+      self._diag = {"render_exc": repr(e)[:180]}
       if self._err_streak >= HIDE_AFTER_ERRS:
-        self._enabled = False
+        self._render_hidden = True   # 只隐藏渲染层,update/心跳继续活着
     ms = (time.monotonic() - t0) * 1000.0
     self._render_ms_max = max(self._render_ms_max * 0.99, ms)
 
