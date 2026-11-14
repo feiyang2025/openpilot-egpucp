@@ -2641,6 +2641,38 @@ struct Touch {
   value @4 :Int32;
 }
 
+# §7.2/§7.16 observation contract: smalldetd track output. Single source of truth,
+# dual-consumer (plannerd + dev UI overlay). Ordinals @0-@19 per doc rev 9/11/14; @20 rev 19.
+struct SmallObjectTrack {
+  trackId      @0 :UInt64;
+  cls          @1 :UInt8;   # 0=ped 1=child 2=cyclist 3=motorcycle 4=animal 5=cone 6=debris 7=unknown
+  x            @2 :Float32; # 自车坐标, m, 前向
+  y            @3 :Float32; # 自车坐标, m, 左向
+  vx           @4 :Float32;
+  vy           @5 :Float32;
+  sigmaX       @6 :Float32;
+  sigmaY       @7 :Float32;
+  score        @8 :Float32;
+  scoreFused   @9 :Float32;
+  ageFrames    @10 :Int32;
+  confirmed    @11 :Bool;
+  source       @12 :UInt8;  # 0=vis 1=radar 2=fused
+  tExposureNs  @13 :Int64;
+  bbox         @14 :List(Float32);
+  headingRad   @15 :Float32;
+  pStep        @16 :Float32;
+  tFirstSeenNs @17 :Int64;
+  validAssocCount @18 :UInt16;
+  actualPeriodNs @19 :UInt32;
+  detPxH       @20 :UInt16; # 检测框可见高 px(像素门一手值,修订 19)
+}
+
+struct SmallObjectTracks {
+  tracks        @0 :List(SmallObjectTrack);
+  frameId       @1 :UInt64;
+  modelLatencyMs @2 :Float32;
+}
+
 struct Event {
   logMonoTime @0 :UInt64;  # nanoseconds
   valid @67 :Bool = true;
@@ -2738,6 +2770,7 @@ struct Event {
     audioFeedback @149 :AudioFeedback;
 
     lateralManeuverPlan @150 :LateralManeuverPlan;
+    smallObjectTracks @155 :SmallObjectTracks;   # §7.16 observation surface (rev 18/19)
 
     # *********** debug ***********
     testJoystick @52 :Joystick;

@@ -9,6 +9,7 @@ from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
 from openpilot.selfdrive.ui.onroad.alert_renderer import AlertRenderer
 from openpilot.selfdrive.ui.onroad.driver_preview import DriverPreview
 from openpilot.selfdrive.ui.onroad.hud_renderer import HudRenderer
+from openpilot.selfdrive.ui.onroad.targets_overlay import DevTargetsOverlay
 from openpilot.selfdrive.ui.onroad.model_renderer import ModelRenderer
 from openpilot.selfdrive.ui.render_diagnostics import RenderDiagnostics
 from openpilot.selfdrive.ui.overlay_state import OverlayState
@@ -54,6 +55,7 @@ class AugmentedRoadView(CameraView):
     self.model_renderer = ModelRenderer()
     self._render_diagnostics = RenderDiagnostics('ui')
     self._hud_renderer = HudRenderer()
+    self._targets_overlay = DevTargetsOverlay()
     self._overlay_state = OverlayState()
     self.model_renderer._overlay_state = self._overlay_state
     self._hud_renderer._overlay_state = self._overlay_state
@@ -144,6 +146,12 @@ class AugmentedRoadView(CameraView):
                 self.alert_renderer.get_alert(ui_state.sm) is not None)
     ds_ms = (time.monotonic() - _t) * 1000.0
 
+    # §7.16 观察面 dev targets overlay(默认关;故障自动隐藏,零行车回退)
+    _t = time.monotonic()
+    self._targets_overlay.update(_t)
+    timing.call('targets', self._targets_overlay.render, self._content_rect)
+    tgt_ms = (time.monotonic() - _t) * 1000.0
+
     # Custom UI extension point - add custom overlays here
     # Use self._content_rect for positioning within camera bounds
 
@@ -164,7 +172,7 @@ class AugmentedRoadView(CameraView):
     ud.driverStateTimeMillis = ds_ms
     ud.hudTimeMillis = hud_ms
     ud.alertTimeMillis = alert_ms
-    ud.extrasTimeMillis = extras_ms
+    ud.extrasTimeMillis = extras_ms + tgt_ms
     ud.plotMode = self._plot_mode
     ud.recording = gui_app.is_recording()
     self._pm.send('uiDebug', msg)
@@ -177,6 +185,7 @@ class AugmentedRoadView(CameraView):
   def close(self):
     self.model_renderer._overlay.close()
     self._hud_renderer._overlay.close()
+    self._targets_overlay.close()
     if preview := getattr(self, 'driver_state_renderer', None):
       preview.close()
     super().close()
