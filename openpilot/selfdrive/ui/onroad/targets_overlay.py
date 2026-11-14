@@ -24,6 +24,7 @@ HEARTBEAT_S = 2.0
 HEARTBEAT_PATH = "/tmp/dev_targets_overlay.json"
 HIDE_AFTER_ERRS = 2
 PX_GATE = 30.0
+CAM_H_ABOVE_ROAD = 1.2   # v2.8: 相机离地高度,地面点低于地平线 1129*CAM_H/d
 F_PX_1280 = 1372.0
 ADULT_H = 1.7
 
@@ -186,15 +187,12 @@ class DevTargetsOverlay:
     self._probe("go rows=%d" % len(self._rows))
     t0 = time.monotonic()
     if self._rows:
-      for label, fn in (("road", lambda: self._render_road(rect, model_renderer)),
-                        ("strip", lambda: self._render_strip(rect)),
-                        ("panel", lambda: self._render_panel(rect))):
-        try:
-          fn()
-        except Exception as e:                                   # noqa: BLE001
-          self._err_streak += 1
-          self._last_err = repr(e)[:180]
-          self._probe("EXC_%s %s" % (label, repr(e)[:170]))
+      try:
+        self._render_road(rect, model_renderer)
+      except Exception as e:                                     # noqa: BLE001
+        self._err_streak += 1
+        self._last_err = repr(e)[:180]
+        self._probe("EXC_road %s" % repr(e)[:170])
     ms = (time.monotonic() - t0) * 1000.0
     self._render_ms_max = max(self._render_ms_max * 0.99, ms)
     self._probe("drew")
@@ -210,9 +208,9 @@ class DevTargetsOverlay:
     x1, y1 = rect.x + rect.width, rect.y + rect.height
     pts_diag = []
 
-    def _proj(lat_left, up, fwd):
-      # device 系: x=前, y=右(消息 y 左向取反), z=下(高度取负)
-      pt = M @ np.array([fwd, -lat_left, -up], dtype=np.float32)
+    def _proj(lat_left, above_road, fwd):
+      # device 系: x=前, y=右, z=下; 相机离地 CAM_H → 路面点 z=+CAM_H, 物顶 z=CAM_H-h
+      pt = M @ np.array([fwd, -lat_left, CAM_H_ABOVE_ROAD - above_road], dtype=np.float32)
       if abs(pt[2]) < 1e-6:
         return None
       return float(pt[0] / pt[2]), float(pt[1] / pt[2])
@@ -240,9 +238,9 @@ class DevTargetsOverlay:
       bx, by = ub - bw / 2.0, vt
       rbox = rl.Rectangle(bx, by, bw, bh)
       if r.status == "COAST":
-        rl.draw_rectangle_lines_ex(rbox, 2, _with_a(c, 150))   # 断续感以细线+低亮度表达
+        rl.draw_rectangle_lines_ex(rbox, 3, _with_a(c, 150))   # 断续感以细线+低亮度表达
       else:
-        rl.draw_rectangle_lines_ex(rbox, 3, col)
+        rl.draw_rectangle_lines_ex(rbox, 5, col)
       # 距离大字:行进可读,白字黑边压在类色之上;px 低于门加灰化角标
       lbl = f"{r.d:.0f}m"
       if r.px < PX_GATE:
