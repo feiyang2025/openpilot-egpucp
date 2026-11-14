@@ -82,6 +82,8 @@ class DevTargetsOverlay:
     self._k_trunc = 0
     self._road_hits = 0
     self._diag = {}      # 本帧成功投影到屏内的目标数(心跳里看)
+    self._tl = None        # D4 §7.11 垫片: tl_detd daemon 状态(/tmp/tl_detd.json)
+    self._tl_next_t = 0.0
 
   def close(self):
     if self._sock is not None:
@@ -96,6 +98,13 @@ class DevTargetsOverlay:
       self._sock = messaging.sub_sock("smallObjectTracks", timeout=100, conflate=True)
 
   def update(self, now: float):
+    if now >= self._tl_next_t:                       # D4 灯态(独立通道,失败不清屏)
+      self._tl_next_t = now + 1.0
+      try:
+        with open("/tmp/tl_detd.json") as f:
+          self._tl = json.load(f)
+      except Exception:
+        self._tl = None
     try:
       if now >= self._param_next_t:
         self._param_next_t = now + PARAM_REFRESH_S
@@ -189,9 +198,38 @@ class DevTargetsOverlay:
       except Exception as e:                                     # noqa: BLE001
         self._err_streak += 1
         self._last_err = repr(e)[:180]
+    if self._tl is not None and self._tl.get("n", 0) > 0:
+      try:
+        self._render_tl_chip(rect)
+      except Exception as e:                                     # noqa: BLE001
+        self._last_err = repr(e)[:180]
     ms = (time.monotonic() - t0) * 1000.0
     self._render_ms_max = max(self._render_ms_max * 0.99, ms)
-    self._probe("drew")
+
+  def _render_tl_chip(self, rect: rl.Rectangle):
+    # D4 §7.11 垫片 v0: 灯体/灯态小牌(右上,同旧 TARGETS 面板锚位,面板已删)
+    tl = self._tl
+    st = tl.get("state")
+    conf = float(tl.get("state_conf", 0.0))
+    n = int(tl.get("n", 0))
+    col_map = {"red": rl.Color(0xF4, 0x43, 0x36, 255), "yellow": rl.Color(0xFF, 0xD6, 0x00, 255),
+               "green": rl.Color(0x4C, 0xAF, 0x50, 255),
+               "green_left": rl.Color(0x4C, 0xAF, 0x50, 255), "green_right": rl.Color(0x4C, 0xAF, 0x50, 255)}
+    c = col_map.get(st, rl.Color(0xE0, 0xE0, 0xE0, 220))
+    if st and st.startswith("green") and st != "green":
+      txt = "TL " + st.replace("green_", "").upper() + "-ARW " + f"{conf:.2f}"
+    elif st:
+      txt = "TL " + st.upper() + " " + f"{conf:.2f}"
+    else:
+      txt = f"TL OBJ x{n}"
+    px = rect.x + rect.width - 158
+    py = rect.y + 34
+    rl.draw_rectangle_rec(rl.Rectangle(px - 8, py - 7, 164, 28), rl.Color(0x10, 0x14, 0x18, 150))
+    try:
+      rl.draw_circle(int(px), int(py + 4), 5, c)                # pyray: 圆心必须 int
+    except Exception:
+      pass
+    draw_text_ui_style(txt, px + 12, py, 15.0, c)
 
   def _render_road(self, rect: rl.Rectangle, model_renderer):
     # v2.7: 路面原位目标框(类色)+行进可读距离。轴序 = 相机系 (side, up, forward)。
