@@ -2667,6 +2667,25 @@ struct SmallObjectTrack {
   detPxH       @20 :UInt16; # 检测框可见高 px(像素门一手值,修订 19)
 }
 
+struct AvoidanceTarget {
+  trackId      @0 :UInt32;
+  tier         @1 :Int8;    # 0 OBSERVE / 1 ALERT_ONLY / 2 PREPARE / 3 COMFORT / 4 EMERGENCY_AEB_HANDOFF
+  cls          @2 :Int8;    # 处置包络类(身高回落后)
+  clsRaw       @3 :Int8;    # wire 原类(不因回落变)
+  dM           @4 :Float32;
+  ttcS         @5 :Float32;   # <0 = 无(static band 语义)
+  tauPotS      @6 :Float32;   # <0 = 无(moving 语义)
+  vRel         @7 :Float32;   # m/s 正=接近
+  hEstM        @8 :Float32;
+  envelopeKmh  @9 :UInt8;
+}
+
+struct AvoidanceState {
+  targets      @0 :List(AvoidanceTarget);
+  vEgoKmh      @1 :Float32;
+  activeTier   @2 :Int8;
+  monoProfile  @3 :Bool;
+}
 struct SmallObjectTracks {
   tracks        @0 :List(SmallObjectTrack);
   frameId       @1 :UInt64;
@@ -2771,6 +2790,7 @@ struct Event {
 
     lateralManeuverPlan @150 :LateralManeuverPlan;
     smallObjectTracks @155 :SmallObjectTracks;   # §7.16 observation surface (rev 18/19)
+    avoidanceState @156 :AvoidanceState;   # §7.2 动作状态面(修订19/26,decider→UI/planner)
 
     # *********** debug ***********
     testJoystick @52 :Joystick;
