@@ -177,6 +177,7 @@ class DevTargetsOverlay:
     try:
       with open(HEARTBEAT_PATH, "w") as f:
         json.dump({"t": time.time(), "enabled": self._enabled, "n": len(self._rows),
+                   "src": __file__,
                    "n_conf": sum(1 for r in self._rows if r.status == "CONF"),
                    "n_tent": sum(1 for r in self._rows if r.status == "TENT"),
                    "n_coast": sum(1 for r in self._rows if r.status == "COAST"),
@@ -184,6 +185,9 @@ class DevTargetsOverlay:
                    "k_trunc": self._k_trunc, "render_ms_max": round(self._render_ms_max, 3),
                    "msg_age_s": None if self._last_msg_t is None else round(now - self._last_msg_t, 2),
                    "err_streak": self._err_streak, "last_err": self._last_err,
+                   "tl": (None if self._tl is None else {"n": self._tl.get("n"),
+                                                         "state": self._tl.get("state"),
+                                                         "conf": self._tl.get("state_conf")}),
                    "render_exc": getattr(self, "_diag", {}) if isinstance(getattr(self, "_diag", {}), dict) else {}}, f)
     except Exception:
       pass
@@ -223,7 +227,7 @@ class DevTargetsOverlay:
     else:
       txt = f"TL OBJ x{n}"
     px = rect.x + rect.width - 158
-    py = rect.y + 34
+    py = rect.y + 78   # 顶栏(经典 UI HUD 顶部条)之下——y+34 会被顶栏盖住
     rl.draw_rectangle_rec(rl.Rectangle(px - 8, py - 7, 164, 28), rl.Color(0x10, 0x14, 0x18, 150))
     try:
       rl.draw_circle(int(px), int(py + 4), 5, c)                # pyray: 圆心必须 int
