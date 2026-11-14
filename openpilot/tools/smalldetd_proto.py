@@ -104,7 +104,7 @@ def iou_match(a, b):
 
 def main():
   ap = argparse.ArgumentParser()
-  ap.add_argument("--plan", default="/data/trt_build/yolov8n_gpu_fp16.plan")
+  ap.add_argument("--plan", default="/data/trt_build/yolo11n_gpu_fp16.plan")
   ap.add_argument("--hz", type=float, default=20.0)
   args = ap.parse_args()
 
