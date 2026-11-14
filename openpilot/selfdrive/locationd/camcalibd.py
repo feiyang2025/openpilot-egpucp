@@ -330,9 +330,131 @@ class CameraSyncMonitor:
     }
 
 
+
+class LaneGeomFitter:
+  """L3 constraint B (spec §6.3): metric lane geometry refines the road focal.
+
+  Model lane lines (metres, calib frame) are projected with the current K and
+  snapped to the nearest strong horizontal edge within ±5 px; the 1-param
+  focal scale s (fx -> s*fx) is a weighted LSQ with a shrinkage prior so data
+  poverty always falls back toward the factory value ("a 5% focal deviation
+  costs about 1 px of residual"). Never writes: shadow mode publishes the
+  result through the candidate message only when the enable param is on.
+  """
+
+  SNAP_PX = 5.0
+  MIN_DEPTH_M = 10.0
+  MAX_DEPTH_M = 60.0
+  MIN_SAMPLES = 200          # per fit batch
+  PRIOR_PX = 1.0             # prior weight: 5% focal deviation ~ 1 px
+
+  def __init__(self, calib_set):
+    self.calib_set = calib_set
+    self.samples = deque(maxlen=2000)   # (dx0, dxm, w) pixel pairs
+    self.last_rms = None
+    self.s_cur = 1.0                    # current focal scale estimate (iterated)
+
+  def update_set(self, calib_set):
+    self.calib_set = calib_set
+
+  def add_sample(self, model_v2, img_gray):
+    cs = self.calib_set
+    if cs is None or Cam.ROAD not in cs.cams:
+      return
+    road = cs.cams[Cam.ROAD]
+    # project with the current scale estimate so consecutive fit batches
+    # iterate toward the true focal (Gauss-Newton style)
+    K = cs.K(Cam.ROAD).copy()
+    K[0, 0] *= self.s_cur
+    # modelV2 lane points live in the road/calib frame (x fwd, y left, z up);
+    # view_from_road needs the y/z flip (get_view_frame_from_road_frame), which
+    # camera_from_calib (device-frame points) deliberately does not include.
+    from openpilot.common.transformations.camera import view_frame_from_device_frame
+    from openpilot.common.transformations.orientation import rot_from_euler
+    cam_from_calib = view_frame_from_device_frame @ rot_from_euler(cs.body_from_calib) @ np.diag([1.0, -1.0, -1.0])
+    h, w = img_gray.shape
+    # horizontal gradient magnitude per row for snapping
+    grad = np.abs(np.diff(img_gray.astype(np.int16), axis=1)).astype(np.float32)
+    cx = float(K[0, 2])
+    for idx in (1, 2):  # laneLines[1] left, [2] right
+      lane = model_v2.laneLines[idx]
+      xs, ys, zs = lane.x, lane.y, lane.z
+      n = min(len(xs), len(ys), len(zs))
+      for i in range(0, n, 4):  # subsample along the line
+        X, Y, Z = float(xs[i]), float(ys[i]), float(zs[i])
+        # modelV2 lane points: x = forward distance (metres), y = lateral, z = height
+        if not (self.MIN_DEPTH_M <= X <= self.MAX_DEPTH_M):
+          continue
+        p = K @ (cam_from_calib @ np.array([X, Y, Z, 1.0])[:3])
+        if p[2] <= 1e-6:
+          continue
+        u0, v0 = p[0] / p[2], p[1] / p[2]
+        if not (0 <= u0 < w - 1 and int(ROAD_ROI_TOP_FRAC * h) <= v0 < h - 1):
+          continue
+        row = grad[int(v0), :]
+        lo, hi = int(max(1, u0 - self.SNAP_PX)), int(min(w - 2, u0 + self.SNAP_PX))
+        if hi <= lo:
+          continue
+        window = row[lo:hi + 1]
+        k = int(np.argmax(window))
+        if window[k] < 12.0:   # weak edge: no confident measurement
+          continue
+        j = lo + k
+        # intensity centroid around the peak: a lane mark is a bright bar with
+        # two symmetric edges; the gradient peak sits on ONE edge (half a mark
+        # width of systematic bias), the intensity centroid tracks the centre
+        i_lo, i_hi = max(0, j - 6), min(w - 2, j + 6)
+        seg = img_gray[int(v0), i_lo:i_hi + 1].astype(float)
+        seg = np.maximum(seg - float(np.median(img_gray[int(v0), :])), 0.0)
+        if seg.sum() > 0:
+          u_edge = float((np.arange(i_lo, i_hi + 1) * seg).sum() / seg.sum())
+        else:
+          u_edge = float(j)
+        a = (u0 - cx) / (K[0, 0])   # x_view/z_view, invariant to the focal scale
+        dxm = u_edge - cx
+        weight = 1.0 / max(X, self.MIN_DEPTH_M)
+        self.samples.append((a, dxm, weight))
+        break
+
+  def fit(self):
+    """Direct fx LSQ over scale-invariant samples: dxm = fx_true * a.
+
+    Prior is a pseudo-observation at the factory focal whose weight makes a
+    5% deviation cost about one typical pixel measurement (spec §6.3).
+    Returns dict(f=..., rms=..., n=...) or None; never writes (shadow).
+    """
+    if len(self.samples) < self.MIN_SAMPLES:
+      return None
+    road = self.calib_set.cams[Cam.ROAD]
+    fx0 = float(road.fx)
+    arr = np.asarray(list(self.samples), dtype=float)
+    a, dxm, wgt = arr[:, 0], arr[:, 1], arr[:, 2]
+    mean_a = float(np.mean(np.abs(a))) or 1e-6
+    w_typ = float(np.mean(wgt))
+    # a 5% focal deviation shifts marks by 0.05*fx0*|a| px; weight the
+    # factory pseudo-observation so that costs one typical measurement
+    pseudo_resid_px = 0.05 * fx0 * mean_a
+    w_p = w_typ / (pseudo_resid_px ** 2)
+    ap = mean_a
+    denom = float(wgt @ (a * a)) + w_p * ap * ap
+    if denom <= 0:
+      return None
+    fx = float(wgt @ (a * dxm) + w_p * ap * (fx0 * ap)) / denom
+    rms = float(np.sqrt(np.mean((fx * a - dxm) ** 2)))
+    self.last_rms = rms
+    self.s_cur = fx / fx0
+    if not (0.92 <= self.s_cur <= 1.08) or fx <= 0:
+      return None
+    return {"f": round(fx, 1), "rms": round(rms, 2), "n": len(self.samples),
+            "converged": True, "mode": "lane_geom", "span": 0.0, "std": rms,
+            "samples": len(self.samples), "t": int(time.time()),
+            "scale": round(self.s_cur, 4)}
+
+
+
 class CamCalibd:
   def __init__(self):
-    self.sm = messaging.SubMaster(['liveCalibration', 'cameraOdometry', 'carState'])
+    self.sm = messaging.SubMaster(['liveCalibration', 'cameraOdometry', 'carState', 'modelV2'])
     self.pm = messaging.PubMaster(['cameraCalibCandidate', 'cameraSyncState'])
     video_mode = os.getenv("USE_WEBCAM") is not None
     if video_mode:
@@ -346,6 +468,11 @@ class CamCalibd:
     ]
     self.vipcs = {s.cam: VisionIpcClient("camerad", s.stream_type, False) for s in self.streams}
     self.sync = CameraSyncMonitor()
+    from openpilot.common.params import Params as _Params
+    self.params = _Params()
+    self.intrinsics_enabled = self.params.get_bool("EnableCameraIntrinsicsAutoCalib")
+    self.lane_fitter = None
+    self.last_lane_fit = 0.0
     self.calib_set = None
     self.generation = 0
     self.last_sync_emit = 0.0
@@ -435,6 +562,10 @@ class CamCalibd:
         self.calib_set = from_live_calibration(self.sm['liveCalibration'], device_type=device_type, sensor=sensor)
         for s in self.streams:
           s.set_cy_from_set(self.calib_set)
+        if self.lane_fitter is None:
+          self.lane_fitter = LaneGeomFitter(self.calib_set)
+        else:
+          self.lane_fitter.update_set(self.calib_set)
 
       now = time.monotonic()
       for s in self.streams:
@@ -517,6 +648,19 @@ class CamCalibd:
           s.last_v0 = round(v0, 1)
           s.add_sample(v0, pitch, s.cy if s.cy is not None else buf.height / 2.0)
         self.emit(s)
+        # L3 shadow (road only): metric lane geometry vs image edges
+        if s.cam == Cam.ROAD and self.lane_fitter is not None and self.sm.alive['modelV2']:
+          try:
+            self.lane_fitter.add_sample(self.sm['modelV2'], img_gray)
+          except Exception:
+            cloudlog.exception("lane fitter sample failed")
+          if time.monotonic() - self.last_lane_fit > 30.0:
+            self.last_lane_fit = time.monotonic()
+            info = self.lane_fitter.fit()
+            if info is not None:
+              cloudlog.info(f"[camcalibd][road] LANE_GEOM f={info['f']:.1f} rms={info['rms']:.2f}px n={info['n']}")
+              if self.intrinsics_enabled:
+                self.publish_candidate(self.streams[0], info)
 
 
 def main():
