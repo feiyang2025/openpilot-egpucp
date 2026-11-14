@@ -165,8 +165,9 @@ class DevTargetsOverlay:
     t0 = time.monotonic()
     try:
       if self._rows:
-        self._render_road(rect, model_renderer)
-        self._render_panel(rect)
+        self._render_road(rect, model_renderer)   # v2.3: 纯诊断
+        self._render_strip(rect)                   # 空间层主力(点+距离)
+        self._render_panel(rect)                   # 列表层
     except Exception as e:                                     # noqa: BLE001
       self._err_streak += 1
       self._last_err = repr(e)[:180]
@@ -177,48 +178,26 @@ class DevTargetsOverlay:
     self._render_ms_max = max(self._render_ms_max * 0.99, ms)
 
   def _render_road(self, rect: rl.Rectangle, model_renderer):
-    # 每个目标: 车体系(d,y,z=0 地面)→屏投影,画类色标记 + 距离文字(与老 lead 显示距离一致)
-    M = getattr(model_renderer, "_car_space_transform", None) if model_renderer is not None else None
+    # v2.3: 投影只做诊断(与 lead 同一 _car_space_transform 的样本值),不再在此层画标记;
     self._road_hits = 0
+    M = getattr(model_renderer, "_car_space_transform", None) if model_renderer is not None else None
     if M is None or not M.any():
       self._diag = {"m": "none_or_zero", "fallback": True}
-      self._render_strip(rect)   # 矩阵未就绪(calib 早期)的退路
       return
-    x0, y0 = rect.x, rect.y
-    x1, y1 = rect.x + rect.width, rect.y + rect.height
-    self._diag = {"m": [round(float(x), 2) for x in np.asarray(M).flatten()[:6]],
-                  "pts": [], "x0": round(x0), "y0": round(y0), "x1": round(x1), "y1": round(y1)}
+    pts = []
     for r in self._rows:
-      pt = M @ np.array([r.d, r.y, 0.0], dtype=np.float32)
-      if abs(pt[2]) < 1e-6:
-        continue
-      u, v = float(pt[0] / pt[2]), float(pt[1] / pt[2])
-      if len(self._diag["pts"]) < 3:
-        self._diag["pts"].append([round(u, 1), round(v, 1), round(float(r.d), 1)])
-      if not (x0 <= u <= x1 and y0 <= v <= y1):
-        continue
-      self._road_hits += 1
-      c = _cls_color(r.cls)
-      if r.px < PX_GATE:
-        col = _with_a(c, 90)                    # 低于像素门: 灰弱显示(资格层语义,§7.16-1)
-        txt_a = 120
-      elif r.status == "CONF":
-        col = _with_a(c, 235)
-        txt_a = 255
-      elif r.status == "COAST":
-        col = _with_a(c, 165)
-        txt_a = 190
-      else:
-        col = _with_a(c, 140)
-        txt_a = 180
-      iu, iv = int(u), int(v)
-      if r.status == "COAST":
-        rl.draw_circle_lines(iu, iv, 6, col)   # 空心圈=coast 保持
-      else:
-        rl.draw_circle(iu, iv, 5, col)
-      # 距离文字 —— 目标上方, 老式 lead 距离显示的等价物
-      draw_text_ui_style(f"{r.d:.0f}m", u + 10.0, v - 12.0, 15.0,
-                         _with_a(rl.Color(0xFF, 0xFF, 0xFF, 255), txt_a))
+      try:
+        pt = M @ np.array([r.d, r.y, 0.0], dtype=np.float32)
+        if abs(pt[2]) < 1e-6:
+          continue
+        u, v = float(pt[0] / pt[2]), float(pt[1] / pt[2])
+        pts.append([round(u, 1), round(v, 1), round(r.d, 1)])
+      except Exception as e:                                # noqa: BLE001
+        pts.append(["EXC", repr(e)[:60]])
+        break
+    self._diag = {"m": [round(float(x), 2) for x in np.asarray(M).flatten()[:6]],
+                  "pts": pts[:3],
+                  "clip": [round(rect.x), round(rect.y), round(rect.x + rect.width), round(rect.y + rect.height)]}
 
   def _render_panel(self, rect: rl.Rectangle):
     row_h, pad, font = 17, 8, 13.0
