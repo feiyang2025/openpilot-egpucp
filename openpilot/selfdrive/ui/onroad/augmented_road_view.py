@@ -149,7 +149,7 @@ class AugmentedRoadView(CameraView):
     # §7.16 观察面 dev targets overlay(默认关;故障自动隐藏,零行车回退)
     _t = time.monotonic()
     self._targets_overlay.update(_t)
-    timing.call('targets', self._targets_overlay.render, self._content_rect)
+    timing.call('targets', self._targets_overlay.render, self._content_rect, self.model_renderer)
     tgt_ms = (time.monotonic() - _t) * 1000.0
 
     # Custom UI extension point - add custom overlays here

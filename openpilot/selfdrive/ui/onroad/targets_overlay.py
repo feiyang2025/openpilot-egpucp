@@ -1,13 +1,14 @@
-# §7.16 观察面 targets overlay(dev overlay,默认关闭)。
-# 设计文档: 文档/T906_jp7.2/主动避让20261112.md 修订 18/19。
-# 硬规则: ①单消息双消费(只订阅 smallObjectTracks,动作档 tier 等 AvoidanceState 接入前显示占位)
-#         ②渲染单调: coast 同步 0.5s 点线保持,禁 1 帧闪没 ③confirmed+coast 永不截断,
-#           tentative 按风险分限 16、超限角标 +k 本地计数 ④故障连续 2 帧自动隐藏+记文件,
-#           零行车回退 ⑤未启用时零成本(不开 socket)。
+# §7.16 观察面 targets overlay v2(dev overlay,默认关闭)。
+# 设计文档: 文档/T906_jp7.2/主动避让20261112.md 修订 18/19/20。
+# v2: 每个目标在路面原位(车体系→屏投影,与 lead 同一变换)画类色标记 + 距离文字
+#     "XXm"(用户要求: 与以前 lead 显示距离一致);矩阵未就绪时退回底部鸟瞰带。
+# 硬规则不变: 单消息双消费;渲染单调 coast 0.5s;confirmed+coast 永不截断,
+#     tentative cap16 +k 本地计数;连续 2 帧失败自动隐藏零行车回退;未启用零成本。
 import json
 import math
 import time
 
+import numpy as np
 import pyray as rl
 
 from openpilot.cereal import messaging
@@ -15,36 +16,35 @@ from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.text_draw import draw_text_ui_style
 
 PARAM_KEY = "DevTargetsOverlay"
-COAST_HOLD_S = 0.5          # §7.16-3,与 tracking.coast_max_s 同源
-TENTATIVE_CAP = 16          # §7.16-2 渲染侧本地截断上限(仅约束渲染,不改 wire)
+COAST_HOLD_S = 0.5
+TENTATIVE_CAP = 16
 PARAM_REFRESH_S = 2.0
 HEARTBEAT_S = 2.0
 HEARTBEAT_PATH = "/tmp/dev_targets_overlay.json"
-HIDE_AFTER_ERRS = 2         # §7.16-4 连续 2 次失败自动隐藏
-PX_GATE = 30.0              # §3.3 站立像素质子门(仅显示用途,判据真理在感知/规划)
+HIDE_AFTER_ERRS = 2
+PX_GATE = 30.0
 F_PX_1280 = 1372.0
-ADULT_H = 1.7              # 推导口径身高(§3.3);detPxH 缺失时估算用
+ADULT_H = 1.7
 
 CLS_NAMES = {0: "PED", 1: "CHD", 2: "CYC", 3: "MOT", 4: "ANI", 5: "CONE", 6: "DEB", 7: "UNK"}
 
 
 def _cls_color(cls_id: int):
   if cls_id == 0:
-    return rl.Color(0xE5, 0x39, 0x35, 255)      # 成人 红
+    return rl.Color(0xE5, 0x39, 0x35, 255)
   if cls_id == 1:
-    return rl.Color(0xD5, 0x00, 0xB0, 255)      # 儿童 品红
+    return rl.Color(0xD5, 0x00, 0xB0, 255)
   if cls_id in (2, 3):
-    return rl.Color(0xFB, 0x8C, 0x00, 255)      # 两轮 橙
+    return rl.Color(0xFB, 0x8C, 0x00, 255)
   if cls_id in (5, 6):
-    return rl.Color(0xFF, 0xD5, 0x4F, 255)      # 低矮 黄
-  return rl.Color(0x9E, 0x9E, 0x9E, 255)         # 其余 灰
+    return rl.Color(0xFF, 0xD5, 0x4F, 255)
+  return rl.Color(0x9E, 0x9E, 0x9E, 255)
 
 
 def _with_a(c: rl.Color, a: int) -> rl.Color:
   return rl.Color(c.r, c.g, c.b, a)
 
 
-# 渲染用快照:detached 的纯 python 值(capnp reader 不跨帧持有)
 class _Row:
   __slots__ = ("tid", "cls", "d", "y", "px", "status", "ttc", "conf", "score", "age_s")
   def __init__(self, tid, cls, d, y, px, status, ttc, conf, score, age_s):
@@ -58,16 +58,15 @@ class DevTargetsOverlay:
     self._sock = None
     self._enabled = False
     self._param_next_t = 0.0
-    self._rows = []            # 当前帧展示行(_Row)
-    self._coast_rows = []      # (expire_t, _Row) 渲染单调保持
+    self._rows = []
     self._last_msg_t = None
     self._err_streak = 0
     self._last_err = ""
     self._render_ms_max = 0.0
     self._hb_next_t = 0.0
     self._k_trunc = 0
+    self._road_hits = 0      # 本帧成功投影到屏内的目标数(心跳里看)
 
-  # ---- lifecycle ----
   def close(self):
     if self._sock is not None:
       try:
@@ -76,7 +75,6 @@ class DevTargetsOverlay:
         pass
       self._sock = None
 
-  # ---- data path ----
   def _ensure_sock(self):
     if self._sock is None:
       self._sock = messaging.sub_sock("smallObjectTracks", timeout=100, conflate=True)
@@ -85,7 +83,6 @@ class DevTargetsOverlay:
     try:
       if now >= self._param_next_t:
         self._param_next_t = now + PARAM_REFRESH_S
-        # 失败自隐藏后重新翻起:参数再读,off→on 触发重试
         self._enabled = bool(ui_state.params.get_bool(PARAM_KEY)) and self._err_streak < HIDE_AFTER_ERRS
     except Exception:
       self._enabled = False
@@ -111,7 +108,7 @@ class DevTargetsOverlay:
           d = math.hypot(tr.x, tr.y)
           px = tr.detPxH if tr.detPxH > 0 else int(ADULT_H * F_PX_1280 / max(d, 1.0))
           stale_s = (now_ns - tr.tExposureNs) / 1e9
-          if stale_s > 1.5 * period_s:                     # validAssoc 断流但仍被持仓 → coast
+          if stale_s > 1.5 * period_s:
             status = "COAST"
           elif tr.confirmed:
             status = "CONF"
@@ -121,9 +118,7 @@ class DevTargetsOverlay:
           ttc = (tr.x / closing) if (tr.x > 0.5 and closing > 0.1) else None
           fresh.append(_Row(tr.trackId, tr.cls, d, tr.y, px, status, ttc, tr.confirmed, tr.score, stale_s))
         fresh.sort(key=lambda r: (r.status != "CONF", -(r.d if r.ttc is None else min(r.ttc, 99.0))))
-      elif self._last_msg_t is None:
-        pass
-    except Exception as e:                                  # noqa: BLE001  # §7.16-4 失败隔离
+    except Exception as e:                                  # noqa: BLE001
       self._err_streak += 1
       self._last_err = repr(e)[:180]
       if self._err_streak >= HIDE_AFTER_ERRS:
@@ -132,7 +127,6 @@ class DevTargetsOverlay:
       return
 
     if self._last_msg_t is not None:
-      # 渲染单调: 消息停发后按 COAST_HOLD_S 点线保持(§7.16-3)
       hold_age = now - self._last_msg_t
       if hold_age > COAST_HOLD_S:
         self._rows, self._last_msg_t = [], None
@@ -144,7 +138,6 @@ class DevTargetsOverlay:
     elif fresh:
       self._rows = fresh
 
-    # 本地截断策略: confirmed+coast 永不截断,仅 tentative 限 16(§7.16-2)
     keep = [r for r in self._rows if r.status in ("CONF", "COAST")]
     tents = [r for r in self._rows if r.status == "TENT"][:TENTATIVE_CAP]
     self._k_trunc = max(0, len(self._rows) - len(keep) - len(tents))
@@ -156,28 +149,67 @@ class DevTargetsOverlay:
                    "n_conf": sum(1 for r in self._rows if r.status == "CONF"),
                    "n_tent": sum(1 for r in self._rows if r.status == "TENT"),
                    "n_coast": sum(1 for r in self._rows if r.status == "COAST"),
+                   "road_hits": self._road_hits,
                    "k_trunc": self._k_trunc, "render_ms_max": round(self._render_ms_max, 3),
                    "msg_age_s": None if self._last_msg_t is None else round(now - self._last_msg_t, 2),
                    "err_streak": self._err_streak, "last_err": self._last_err}, f)
     except Exception:
       pass
 
-  # ---- render path ----
-  def render(self, rect: rl.Rectangle):                      # noqa: N802 (raylib style)
+  def render(self, rect: rl.Rectangle, model_renderer=None):   # noqa: N802
     if not self._enabled:
       return
     t0 = time.monotonic()
     try:
       if self._rows:
+        self._render_road(rect, model_renderer)
         self._render_panel(rect)
-        self._render_strip(rect)
-    except Exception as e:                                   # noqa: BLE001
+    except Exception as e:                                     # noqa: BLE001
       self._err_streak += 1
       self._last_err = repr(e)[:180]
       if self._err_streak >= HIDE_AFTER_ERRS:
         self._enabled = False
     ms = (time.monotonic() - t0) * 1000.0
     self._render_ms_max = max(self._render_ms_max * 0.99, ms)
+
+  def _render_road(self, rect: rl.Rectangle, model_renderer):
+    # 每个目标: 车体系(d,y,z=0 地面)→屏投影,画类色标记 + 距离文字(与老 lead 显示距离一致)
+    M = getattr(model_renderer, "_car_space_transform", None) if model_renderer is not None else None
+    self._road_hits = 0
+    if M is None or not M.any():
+      self._render_strip(rect)   # 矩阵未就绪(calib 早期)的退路
+      return
+    x0, y0 = rect.x, rect.y
+    x1, y1 = rect.x + rect.width, rect.y + rect.height
+    for r in self._rows:
+      pt = M @ np.array([r.d, r.y, 0.0], dtype=np.float32)
+      if abs(pt[2]) < 1e-6:
+        continue
+      u, v = float(pt[0] / pt[2]), float(pt[1] / pt[2])
+      if not (x0 <= u <= x1 and y0 <= v <= y1):
+        continue
+      self._road_hits += 1
+      c = _cls_color(r.cls)
+      if r.px < PX_GATE:
+        col = _with_a(c, 90)                    # 低于像素门: 灰弱显示(资格层语义,§7.16-1)
+        txt_a = 120
+      elif r.status == "CONF":
+        col = _with_a(c, 235)
+        txt_a = 255
+      elif r.status == "COAST":
+        col = _with_a(c, 165)
+        txt_a = 190
+      else:
+        col = _with_a(c, 140)
+        txt_a = 180
+      iu, iv = int(u), int(v)
+      if r.status == "COAST":
+        rl.draw_circle_lines(iu, iv, 6, col)   # 空心圈=coast 保持
+      else:
+        rl.draw_circle(iu, iv, 5, col)
+      # 距离文字 —— 目标上方, 老式 lead 距离显示的等价物
+      draw_text_ui_style(f"{r.d:.0f}m", u + 10.0, v - 12.0, 15.0,
+                         _with_a(rl.Color(0xFF, 0xFF, 0xFF, 255), txt_a))
 
   def _render_panel(self, rect: rl.Rectangle):
     row_h, pad, font = 17, 8, 13.0
@@ -196,32 +228,31 @@ class DevTargetsOverlay:
       col = _with_a(c, alpha)
       cx, cy = px + pad + 5, yy + 8
       if r.status == "COAST":
-        rl.draw_circle_lines(cx, cy, 6, col)                 # 点线语义: 空心圈
+        rl.draw_circle_lines(cx, cy, 6, col)
       elif r.status == "TENT":
-        rl.draw_rectangle_rec(rl.Rectangle(cx - 3, cy - 3, 6, 6), col)   # 虚框语义: 小方块
+        rl.draw_rectangle_rec(rl.Rectangle(cx - 3, cy - 3, 6, 6), col)
       else:
-        rl.draw_circle(cx, cy, 5, col)                        # confirmed: 实心圆
+        rl.draw_circle(cx, cy, 5, col)
       ttc_s = f"{r.ttc:4.1f}s" if r.ttc is not None else "  -- "
       gate = "" if r.px >= PX_GATE else f" <{PX_GATE:.0f}px"
       line = f"{CLS_NAMES.get(r.cls, '?'):4s} {r.status:5s} d{r.d:5.1f} y{r.y:+4.1f} {ttc_s}{gate}"
-      draw_text_ui_style(line, px + pad + 14, yy, font, _with_a(rl.Color(0xFF, 0xFF, 0xFF, 255), alpha if r.status == "CONF" else 200))
+      draw_text_ui_style(line, px + pad + 14, yy, font,
+                         _with_a(rl.Color(0xFF, 0xFF, 0xFF, 255), alpha if r.status == "CONF" else 200))
       yy += row_h
     if self._k_trunc:
       draw_text_ui_style(f"+{self._k_trunc} tentative truncated (risk-sorted, §7.16)",
                          px + pad, yy + 2, 12.0, rl.Color(0xFF, 0xD5, 0x4F, 210))
 
   def _render_strip(self, rect: rl.Rectangle):
-    # 底部鸟瞰带: x = 横向 y∈[-6,6]m 映射,行=距离带(近低远高)
     bands = [(0, 20, 0), (20, 45, 1), (45, 70, 2), (70, 200, 3)]
     base_y = rect.y + rect.height - 34
     cx = rect.x + rect.width / 2.0
-    scale = rect.width / 13.0
     rl.draw_rectangle_rec(rl.Rectangle(rect.x, base_y - 4, rect.width, 42), rl.Color(0x10, 0x14, 0x18, 110))
     draw_text_ui_style("0m", cx - 8, base_y + 6, 11.0, rl.Color(0x90, 0xA4, 0xAE, 170))
     for r in self._rows:
       for lo, hi, band in bands:
         if lo <= r.d < hi:
-          sx = max(rect.x + 8, min(rect.x + rect.width - 8, cx + r.y * (scale / 6.0) * 6.0))
+          sx = max(rect.x + 8, min(rect.x + rect.width - 8, cx + r.y * (rect.width / 13.0)))
           sy = base_y - band * 10 - 6
           c = _cls_color(r.cls)
           if r.px < PX_GATE:
@@ -230,4 +261,5 @@ class DevTargetsOverlay:
             rl.draw_circle_lines(int(sx), int(sy), 4, _with_a(c, 160))
           else:
             rl.draw_circle(int(sx), int(sy), 4 + (1 if r.status == "CONF" else 0), _with_a(c, 235))
+          draw_text_ui_style(f"{r.d:.0f}", sx + 6, sy - 8, 11.0, rl.Color(0xFF, 0xFF, 0xFF, 160))
           break
