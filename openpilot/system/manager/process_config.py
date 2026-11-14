@@ -78,6 +78,10 @@ def smalldet_started(started: bool, params: Params, CP: car.CarParams) -> bool:
 def tl_det_started(started: bool, params: Params, CP: car.CarParams) -> bool:
   return started and params.get_bool("TlDetEnabled")
 
+
+def avoid_started(started: bool, params: Params, CP: car.CarParams) -> bool:
+  return started and params.get_bool("AvoidanceEnabled")
+
 def enable_updated(started: bool, params: Params, CP: car.CarParams) -> bool:
   return not started and params.get_bool("SoftwareMenu")
 
@@ -173,6 +177,7 @@ procs = [
   PythonProcess("radard", "openpilot.selfdrive.carrot.radar.radard_dpath", only_onroad),
   PythonProcess("smalldetd", "openpilot.selfdrive.carrot.sensing.smalldetd", smalldet_started),
   PythonProcess("tl_detd", "openpilot.selfdrive.carrot.sensing.tl_detd", tl_det_started),
+  PythonProcess("avoidanced", "openpilot.selfdrive.carrot.sensing.avoidanced", avoid_started),
   PythonProcess("radarcan", "openpilot.selfdrive.carrot.radar.radarcan", only_onroad),
   PythonProcess("hardwared", "openpilot.system.hardware.hardwared", always_run),
   PythonProcess("modem", "openpilot.system.hardware.tici.modem", always_run, enabled=TICI),
