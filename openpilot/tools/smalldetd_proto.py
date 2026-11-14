@@ -16,7 +16,8 @@ from openpilot.selfdrive.modeld.trt_runner import TrtRunner
 from msgq.visionipc import VisionIpcClient, VisionStreamType
 
 W, H = 640, 640
-CONF_TH = 0.45
+CONF_TH = 0.45                  # 解码预筛(后续按类精筛)
+CONF_TH_BY_CLS = {0: 0.60}     # person 类抬门:家具误报实测聚 0.50-0.55(0.62 门实测全灭=纯误报),真人视角好时 >=0.60
 IOU_TH = 0.45
 MAX_DET = 64
 MIN_V_BOTTOM = 570   # 底边低于此(全帧1080系)才发:地平线附近/以上距离无定义,ODD 外杂物
@@ -153,6 +154,8 @@ def main():
     # 640 系 box(canvas 左上角格式)→ 全帧坐标:full = (canvas + ox) × k
     full = []
     for (bx, by, bw, bh, conf, cid) in dets:
+      if conf < CONF_TH_BY_CLS.get(cid, 0.50):
+        continue
       gx = (bx + ox) * k
       gby = by * k
       gw, gh = bw * k, bh * k
