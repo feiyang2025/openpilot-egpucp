@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # 主动避让20261112.md 结构力学校验脚本(文档 v1.19 附录 D "联合"约束行的 CI 落地)
 # - mechanics 全过 → exit 0;任何力学/一致性回归 → exit 1
-# - 待签决策(pixel 门 60 档、儿童身高下界)不算失败,单列 pending_signatures —— 但一旦
+# - 待签决策(60 档像素门三选一)不算失败,单列 pending_signatures —— 但一旦
 #   签字改数,对应检查自动转为硬门,单边改距离/门/身高/速度会立刻 CI 红。
 # 纯 stdlib,无 openpilot 依赖;输出 JSON: docs/avoidance_structure_validation.json
 import json
@@ -101,11 +101,20 @@ res["pending_signatures"].append({
   "fact": f"min_h 1.4m @D(60,T0=.70)={d60:.2f} m → {px_adult_minH_at60:.1f}px < {PX_GATE_STAND:.0f}px 门;推导身高 1.70m → {px_derivedH_at60:.1f}px 过门,两口身高不一致(1.4 vs 1.7)",
   "guard": "签字后: min_h_class·f_px/D_check(v) ≥ px_gate 硬门",
 })
-res["pending_signatures"].append({
-  "decision": "儿童身高下界(建议 <1.07m 归低矮 40 档)",
-  "fact": f"1.05m 幼童 @D(50,T0=.70)={d50:.2f} m → {px_child105_at50:.1f}px < 30px 门贴线;child ∈ (1.0,1.4] 无显式数值定义",
-  "guard": "签字后: 数值区间写入 odd 块 + 本脚本硬门",
-})
+# ===== 已签决策:儿童身高下界 1.0 m(2026-11-14 用户签收,修订 24)——原 pending#2 转硬门 =====
+CHILD_LB_SIGNED = 1.0
+px_child_lb_at50 = CHILD_LB_SIGNED * F_PX_1280 / d50
+px_child_107_at50 = 1.07 * F_PX_1280 / d50
+chk("child_lb_signed_1p0", CHILD_LB_SIGNED == 1.0, "child ∈ (1.0,1.4] m 下界 1.0 已签(修订 24;上限 1.4 既有)")
+chk("child_lb_subgate_band", abs(px_child_lb_at50 - 28.16) < 0.05,
+    f"1.0m @D(50)={d50:.2f} → {px_child_lb_at50:.2f}px < 30px:子门带 [1.0,1.09) row17 待决处置(忠实入账,不以签代决)")
+chk("child_107_gate_upper", abs(px_child_107_at50 - 30.15) < 0.05,
+    f"1.07m → {px_child_107_at50:.2f}px = 50 档 30px 门上沿复算")
+res["signed_signatures"] = {
+    "child_height_lower_bound_m": CHILD_LB_SIGNED,
+    "signed_at": "2026-11-14",
+    "recorded_in": "修订 24(用户原话:'1.0米儿童身高下界')",
+}
 res["joint_constraint"] = {
   "formula": "min_h_class·f_px/D_check(v) ≥ px_gate(类)",
   "adult60_minH_px": round(px_adult_minH_at60, 2),
