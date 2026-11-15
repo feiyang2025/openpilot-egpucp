@@ -1,0 +1,6 @@
+Metadata-Version: 2.4
+Name: comma-deps-acados
+Version: 0.2.2.post103
+Summary: acados solvers + Python interface, with a slimmed casadi vendored alongside
+Requires-Python: >=3.12
+Requires-Dist: numpy

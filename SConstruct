@@ -76,6 +76,7 @@ allowed_system_libs = {
   "EGL", "GLESv2", "GL",
   "Qt5Charts", "Qt5Core", "Qt5Gui", "Qt5Widgets",
   "dl", "drm", "gbm",  "m", "pthread",
+  "v4l2",  # Jetson NvMmlite 硬编 (libv4l2 为发行版标准库)
 }
 
 def _resolve_lib(env, name):
@@ -287,7 +288,7 @@ SConscript([
   'openpilot/system/loggerd/SConscript',
 ])
 
-if arch == "larch64":
+if arch in ("larch64", "aarch64"):
   SConscript(['openpilot/system/camerad/SConscript'])
 
 # Passive camera timing checks do not require the device-only camerad target.

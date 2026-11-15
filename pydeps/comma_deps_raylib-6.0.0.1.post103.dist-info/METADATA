@@ -1,0 +1,6 @@
+Metadata-Version: 2.4
+Name: comma-deps-raylib
+Version: 6.0.0.1.post103
+Summary: raylib + pyray Python bindings (commaai fork)
+Requires-Python: >=3.12
+Requires-Dist: cffi>=1.17.1

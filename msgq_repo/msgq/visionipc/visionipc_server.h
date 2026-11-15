@@ -35,6 +35,7 @@ class VisionIpcServer {
 
   void create_buffers(VisionStreamType type, size_t num_buffers, size_t width, size_t height);
   void create_buffers_with_sizes(VisionStreamType type, size_t num_buffers, size_t width, size_t height, size_t size, size_t stride, size_t uv_offset);
+  void create_buffers_from_fds(VisionStreamType type, const int fds[], size_t num_buffers, size_t width, size_t height, size_t size, size_t stride, size_t uv_offset);
   void send(VisionBuf * buf, VisionIpcBufExtra * extra, bool sync=true);
   void start_listener();
 };

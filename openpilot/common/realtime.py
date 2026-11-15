@@ -35,13 +35,19 @@ def drop_realtime() -> None:
 
 def set_core_affinity(cores: list[int]) -> None:
   if sys.platform == 'linux' and not PC:
-    os.sched_setaffinity(0, cores)
+    try:
+      os.sched_setaffinity(0, cores)
+    except (PermissionError, OSError):
+      pass
 
 
 def config_realtime_process(cores: int | list[int], priority: int) -> None:
   gc.disable()
   if sys.platform == 'linux' and not PC:
-    os.sched_setscheduler(0, os.SCHED_FIFO, os.sched_param(priority))
+    try:
+      os.sched_setscheduler(0, os.SCHED_FIFO, os.sched_param(priority))
+    except PermissionError:
+      pass  # Jetson/non-root devices cannot set SCHED_FIFO; best-effort
   c = cores if isinstance(cores, list) else [cores, ]
   set_core_affinity(c)
 

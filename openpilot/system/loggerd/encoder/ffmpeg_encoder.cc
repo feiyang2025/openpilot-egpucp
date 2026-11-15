@@ -46,7 +46,8 @@ FfmpegEncoder::~FfmpegEncoder() {
 }
 
 void FfmpegEncoder::encoder_open() {
-  auto codec_id = encoder_info.get_settings(in_width).encode_type == cereal::EncodeIndex::Type::QCAMERA_H264
+  auto settings = encoder_info.get_settings(in_width);
+  auto codec_id = settings.encode_type == cereal::EncodeIndex::Type::QCAMERA_H264
                       ? AV_CODEC_ID_H264
                       : AV_CODEC_ID_FFVHUFF;
   const AVCodec *codec = avcodec_find_encoder(codec_id);
@@ -57,8 +58,25 @@ void FfmpegEncoder::encoder_open() {
   this->codec_ctx->height = frame->height;
   this->codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
   this->codec_ctx->time_base = (AVRational){ 1, encoder_info.fps };
-  int err = avcodec_open2(this->codec_ctx, codec, NULL);
+
+  AVDictionary *opts = nullptr;
+  if (codec_id == AV_CODEC_ID_H264) {
+    // 实时编码: x264 私有选项 (单位 kbps)。codec_ctx->bit_rate 实测未被 wrapper
+    // 映射到 rc (1080p 噪声内容 ~920KB/帧 = 16 倍超调), 用显式 ABR + VBV 硬上限。
+    int bitrate_kbps = settings.bitrate / 1000;
+    av_dict_set(&opts, "preset", "ultrafast", 0);
+    av_dict_set_int(&opts, "bitrate", bitrate_kbps, 0);
+    av_dict_set_int(&opts, "vbv-maxrate", bitrate_kbps, 0);
+    av_dict_set_int(&opts, "vbv-bufsize", bitrate_kbps / encoder_info.fps * 2, 0);
+    this->codec_ctx->gop_size = settings.gop_size;
+  }
+  int err = avcodec_open2(this->codec_ctx, codec, opts ? &opts : NULL);
+  av_dict_free(&opts);
   assert(err >= 0);
+  printf("%20s: codec=%s bit_rate=%lld gop=%d in=%dx%d out=%dx%d\n",
+         encoder_info.publish_name, codec_ctx->codec->name,
+         (long long)codec_ctx->bit_rate, codec_ctx->gop_size,
+         in_width, in_height, frame->width, frame->height);
 
   is_open = true;
   segment_num++;

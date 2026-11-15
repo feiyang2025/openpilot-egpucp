@@ -2,7 +2,26 @@ Import('env', 'arch', 'messaging', 'common', 'visionipc')
 
 libs = [common, messaging, visionipc, 'pthread']
 
-if arch != "Darwin":
+if arch == "aarch64":
+  # Jetson (Tegra): V4L2 MMAP 捕获 + VIC (NvBufSurfTransform) 硬件零拷贝转换 UYVY->NV12.
+  # 依赖 Jetson 多媒体 API 用户态库 (JetPack 自带):
+  #   头文件: /usr/src/jetson_multimedia_api/include
+  #   库:     /usr/lib/aarch64-linux-gnu/nvidia/libnvbufsurface.so, libnvbufsurftransform.so
+  jetson_env = env.Clone()
+  jetson_env.Append(CPPPATH=['/usr/src/jetson_multimedia_api/include', '/usr/local/cuda/include'])
+  jetson_env.Append(LIBPATH=['/usr/lib/aarch64-linux-gnu/nvidia', '/usr/local/cuda/lib64'])
+  jetson_env.Append(RPATH=['/usr/lib/aarch64-linux-gnu/nvidia', '/usr/local/cuda/lib64'])
+  camera_obj = jetson_env.Object(['cameras/camera_jetson.cc'])
+  # CUDA 零拷贝 kernel: 由 nvcc 单独编译 (sm_87 = Jetson Orin GPU 计算能力)。
+  # camera_jetson_cuda.cu 仅含 cuda_runtime 头, 无需额外 CUDA CPPPATH; -I 用 openpilot 源码根
+  # ("#openpilot", 其中 "system/camerad/cameras/camera_jetson_cuda.h" 可解析; 调用侧 g++ 头, 与 nvcc 互不干扰)。
+  _cuda_top = str(Dir('#openpilot').abspath)
+  cuda_obj = jetson_env.Command('cameras/camera_jetson_cuda.o', 'cameras/camera_jetson_cuda.cu',
+    '/usr/local/cuda/bin/nvcc -O2 -std=c++14 -arch=sm_87 -I%s -c $SOURCE -o $TARGET' % _cuda_top)
+  jetson_env.Depends(cuda_obj, 'cameras/camera_jetson_cuda.h')
+  jetson_env.Program('camerad', ['main.cc', camera_obj, cuda_obj],
+                      LIBS=libs + ['nvbufsurface', 'nvbufsurftransform', 'cudart'])
+elif arch != "Darwin":
   camera_obj = env.Object(['cameras/camera_qcom2.cc', 'cameras/camera_common.cc', 'cameras/spectra.cc',
                            'cameras/cdm.cc', 'sensors/ar0231.cc', 'sensors/ox03c10.cc', 'sensors/os04c10.cc'])
   env.Program('camerad', ['main.cc', camera_obj], LIBS=libs)

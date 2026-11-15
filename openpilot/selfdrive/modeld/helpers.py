@@ -41,8 +41,29 @@ def select_vision_streams(available_streams: Collection[VisionStreamT], road_str
   return None, False
 
 
+def _is_jetson() -> bool:
+  import platform as _platform
+  try:
+    if _platform.machine() != 'aarch64':
+      return False
+    model_path = '/proc/device-tree/model'
+    if os.path.exists(model_path):
+      with open(model_path) as _f:
+        if 'jetson' in _f.read().lower():
+          return True
+    if os.path.exists('/sys/devices/soc0'):
+      return True
+    return False
+  except Exception:
+    return False
+
+
 def _default_tg_input_devices(process_name: str, usbgpu: bool):
-  backend = os.getenv("DEV", "QCOM")
+  # Jetson AGX Orin has CUDA GPU
+  if _is_jetson():
+    backend = os.getenv("DEV", "CUDA")
+  else:
+    backend = os.getenv("DEV", "QCOM")
   defaults = {
     'openpilot.selfdrive.modeld.modeld': {
       'default': {'WARP_DEV': backend, 'QUEUE_DEV': backend},
@@ -57,10 +78,20 @@ def _default_tg_input_devices(process_name: str, usbgpu: bool):
 
 def get_tg_input_devices(process_name: str, usbgpu: bool):
   try:
-    with open(TG_INPUT_DEVICES_PATH) as f:
-      return json.load(f)[process_name]['default' if not usbgpu else 'usbgpu']
-  except FileNotFoundError:
-    return _default_tg_input_devices(process_name, usbgpu)
+    devs = json.load(open(TG_INPUT_DEVICES_PATH))[process_name]
+    result = dict(devs['default' if not usbgpu else 'usbgpu'])
+  except (FileNotFoundError, KeyError):
+    result = _default_tg_input_devices(process_name, usbgpu)
+
+  # Override with DEV env var (manager inherits DEV from launch env)
+  if not usbgpu:
+    env_dev = os.getenv('DEV')
+    if env_dev:
+      result['WARP_DEV'] = env_dev
+      result['QUEUE_DEV'] = env_dev
+
+  return result
+
 
 def modeld_pkl_path(usbgpu: bool, model_sha256: str | None = None):
   if not usbgpu:

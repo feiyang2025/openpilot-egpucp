@@ -44,6 +44,10 @@ function cleanup_stale_git_lfs_hooks {
   done
 }
 
+# If the launcher is killed (Ctrl+C, SIGTERM), make sure any recovery UI
+# spawned during this session is not left orphaned on the display.
+trap 'pkill -9 -f "openpilot/system/ui/startup_recovery.py" 2>/dev/null || true' EXIT
+
 function install_runtime_python_package {
   # uv-created Ubuntu environments may intentionally have no pip module. Use
   # the launcher's interpreter and pydeps target with either installer.
@@ -120,12 +124,20 @@ function bootstrap_runtime_dependencies {
      ! ensure_python_package psutil psutil 1 || \
      ! ensure_python_package crcmod crcmod-plus 1 || \
      ! ensure_python_package jsonrpc json-rpc 1 || \
-     ! ensure_python_package qrcode qrcode 1; then
+     ! ensure_python_package qrcode qrcode 1 || \
+     ! ensure_python_package "zmq" "pyzmq==27.2.0" 1 || \
+     ! ensure_python_package "capnp" "pycapnp==2.1.0" 1 || \
+     ! ensure_python_package "zstandard" "zstandard" 1; then
     return 1
   fi
 
   ensure_python_package brotli brotli 0
   ensure_python_package usb pyusb 0
+  # pandad imports usb1 (libusb1), not pyusb; without it pandad crash-loops.
+  ensure_python_package usb1 libusb1 1
+
+  # Startup recovery UI (startup_recovery.py) imports pyray.
+  ensure_python_package pyray "comma-deps-raylib==6.0.0.1.post103" 0
 
   # Xiaoge lane/BSD inference uses a pinned, bundled OpenCV wheel. Keep NumPy
   # from AGNOS and install only into pydeps, never the read-only system venv.
@@ -595,7 +607,50 @@ function show_startup_failure {
   done
 }
 
+
+# 上一次运行遗留的进程会继续占着 msgq 服务名和 TCP/UDP 端口, 新实例启动时就会
+# 报 MultiplePublishersError / OSError 98 Address already in use, 相关进程反复崩溃,
+# 最终 manager 退出并弹 Startup recovery 窗口。启动前先清理干净, 保证只跑一份。
+_openpilot_self_or_ancestor() {
+  local p="$1"
+  [ "$p" = "$$" ] && return 0
+  while [ -n "$p" ] && [ "$p" -gt 1 ] 2>/dev/null; do
+    p=$(awk '{print $4}' "/proc/$p/stat" 2>/dev/null)
+    [ -z "$p" ] && return 1
+    [ "$p" = "$$" ] && return 0
+  done
+  return 1
+}
+
+cleanup_previous_instance() {
+  local pats='openpilot\.(selfdrive|system)\.|[m]anager\.py|[/ ](camerad|encoderd|stream_encoderd|carrot_vision_encoderd|loggerd|pandad|bridge)( |$)|launch_chffrplus|launch_openpilot|startup_recovery|carrot_web_watchdog'
+  local pids p n=0 i
+  pids=$(pgrep -f "$pats" 2>/dev/null || true)
+  for p in $pids; do
+    _openpilot_self_or_ancestor "$p" && continue
+    kill -9 "$p" 2>/dev/null && n=$((n + 1))
+  done
+  # 名单之外的残留 (改名/孙进程) 用端口兜底
+  fuser -k 6999/tcp 7000/tcp 7712/tcp 7713/tcp 7714/tcp 7714/udp 7705/udp 8088/tcp 8888/tcp >/dev/null 2>&1 || true
+  if [ "$n" -gt 0 ]; then
+    echo "已清理上一次运行遗留的 $n 个进程"
+  fi
+  for i in $(seq 1 15); do
+    pgrep -f "[m]anager\.py" >/dev/null 2>&1 || break
+    sleep 1
+  done
+}
+
 function launch {
+  cleanup_previous_instance
+
+  # Kill orphaned startup_recovery.py windows left behind by previous failed
+  # launches. A dead launcher cannot signal the raylib UI process to stop, so
+  # every launch start clears them before showing a fresh state.
+  { pkill -9 -f "openpilot/system/ui/startup_recovery.py" 2>/dev/null || true; sleep 1; }
+  # Also clear any stale tmux pane capture error from aborted starts.
+  DISPLAY= tmux kill-server 2>/dev/null || true
+
   # Protect the checkout throughout bootstrap, SCons and manager initialization.
   # The manager releases this inherited flock after init; background web/recovery
   # servers must not inherit it. Never delete the lock file itself.

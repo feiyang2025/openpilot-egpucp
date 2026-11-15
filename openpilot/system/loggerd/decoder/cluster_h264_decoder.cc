@@ -17,6 +17,27 @@
 #include "third_party/linux/include/v4l2-controls.h"
 #include <linux/videodev2.h>
 
+// Qualcomm MSM VIDC extensions from the downstream msm_vidc kernel uapi. AGNOS
+// targets provide them via the kernel headers; Jetson (Tegra) and other
+// non-Qualcomm toolchains do not, so define the ABI constants here with the
+// same values as openpilot/tools/replay/qcom_decoder.h. The #ifndef guards
+// keep targets that already expose them on their own headers unchanged.
+#ifndef V4L2_EVENT_MSM_VIDC_START
+#define V4L2_EVENT_MSM_VIDC_START (V4L2_EVENT_PRIVATE_START + 0x00001000)
+#endif
+#ifndef V4L2_EVENT_MSM_VIDC_FLUSH_DONE
+#define V4L2_EVENT_MSM_VIDC_FLUSH_DONE (V4L2_EVENT_MSM_VIDC_START + 1)
+#endif
+#ifndef V4L2_EVENT_MSM_VIDC_PORT_SETTINGS_CHANGED_INSUFFICIENT
+#define V4L2_EVENT_MSM_VIDC_PORT_SETTINGS_CHANGED_INSUFFICIENT (V4L2_EVENT_MSM_VIDC_START + 3)
+#endif
+#ifndef V4L2_QCOM_CMD_FLUSH_CAPTURE
+#define V4L2_QCOM_CMD_FLUSH_CAPTURE (1 << 1)
+#endif
+#ifndef V4L2_QCOM_CMD_FLUSH
+#define V4L2_QCOM_CMD_FLUSH (4)
+#endif
+
 namespace {
 
 void xioctl(int fd, unsigned long request, void *arg, const char *message) {

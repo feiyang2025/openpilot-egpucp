@@ -1,0 +1,10 @@
+comma_deps_json11-20170411.0.post103.dist-info/INSTALLER,sha256=zuuue4knoyJ-UwPPXg8fezS7VCrXJQrAP7zeNuwvFQg,4
+comma_deps_json11-20170411.0.post103.dist-info/METADATA,sha256=iWHDxV7Oa3vE1P7Ni6ToT7l9bE9TF3GxAzwXouAlnuQ,149
+comma_deps_json11-20170411.0.post103.dist-info/RECORD,,
+comma_deps_json11-20170411.0.post103.dist-info/REQUESTED,sha256=47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU,0
+comma_deps_json11-20170411.0.post103.dist-info/WHEEL,sha256=tQdaXIvSXjlvdewZYxHYUzSjKDz-vse2DR-lsblAMjM,111
+comma_deps_json11-20170411.0.post103.dist-info/top_level.txt,sha256=BvLdY-OS37HT2-UWi0SBeCKf9FMT6C7hM_2ZFX-zafk,7
+json11/__init__.py,sha256=rGdS9V0KF02aj9Z16YP9PpZpsOtUXm0AjgEdgHm06Mk,358
+json11/__pycache__/__init__.cpython-312.pyc,,
+json11/install/include/json11/json11.hpp,sha256=K8Zmwl--rFQa3V-XqSUmNg5J_4IroANWf4ymopQhv20,9212
+json11/install/lib/libjson11.a,sha256=dcyep9RWKtbXLUFdAnfN69ITRjGoX6YFBBMzQBA-OkA,179284

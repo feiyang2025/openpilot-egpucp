@@ -1,4 +1,5 @@
 #include <cassert>
+#include <cstring>
 
 #include "common/params.h"
 #include "system/loggerd/loggerd.h"
@@ -8,8 +9,29 @@
 #include "system/loggerd/encoder/v4l_encoder.h"
 #define Encoder V4LEncoder
 #else
+#ifdef JETSON_MAIN_ENCODER_NVENC
+// 必须最先包含 (先于 ffmpeg_encoder.h -> encoder.h 的 vendored v4l2-controls),
+// 让系统 v4l2-controls guard 先生效, 否则 v4l2_nv_extensions.h 编译报错
+#include "system/loggerd/encoder/jetson_nvenc_encoder.h"
+#endif
 #include "system/loggerd/encoder/ffmpeg_encoder.h"
+#ifdef JETSON_MAIN_ENCODER_NVENC
+// Jetson: 主路 (road/wide/driver) 用 NVENC 硬编替代 FFV1 软编,
+// qcam/stream 等次级编码器仍走 ffmpeg。
+static std::unique_ptr<VideoEncoder> make_encoder(const EncoderInfo &encoder_info, int in_width, int in_height,
+                                                  VisionStreamType stream_type) {
+  if (strcmp(encoder_info.publish_name, "roadEncodeData") == 0 ||
+      strcmp(encoder_info.publish_name, "wideRoadEncodeData") == 0 ||
+      strcmp(encoder_info.publish_name, "driverEncodeData") == 0 ||
+      strcmp(encoder_info.publish_name, "qRoadEncodeData") == 0) {
+    // stream_type 供 JetsonNvencEncoder 定位 camerad 导出的跨进程 import 参数文件
+    return std::make_unique<JetsonNvencEncoder>(encoder_info, in_width, in_height, (int)stream_type);
+  }
+  return std::make_unique<FfmpegEncoder>(encoder_info, in_width, in_height);
+}
+#else
 #define Encoder FfmpegEncoder
+#endif
 #endif
 
 ExitHandler do_exit;
@@ -49,13 +71,14 @@ bool sync_encoders(EncoderdState *s, VisionStreamType cam_type, uint32_t frame_i
 void encoder_thread(EncoderdState *s, const LogCameraInfo &cam_info, bool encode_on_demand) {
   util::set_thread_name(cam_info.thread_name);
 
-  std::vector<std::unique_ptr<Encoder>> encoders;
+  std::vector<std::unique_ptr<VideoEncoder>> encoders;
   VisionIpcClient vipc_client = VisionIpcClient("camerad", cam_info.stream_type, false);
   Params params;
 
   std::unique_ptr<JpegEncoder> jpeg_encoder;
 
   int cur_seg = 0;
+  uint64_t seg_start_ts = 0;  // E2: 当前段起始帧 timestamp_eof (ns), 时间戳判段
   bool prewarm_pending = encode_on_demand;
   while (!do_exit) {
     if (!vipc_client.connect(false)) {
@@ -70,7 +93,12 @@ void encoder_thread(EncoderdState *s, const LogCameraInfo &cam_info, bool encode
       assert(buf_info.width > 0 && buf_info.height > 0);
 
       for (const auto &encoder_info : cam_info.encoder_infos) {
+#ifdef JETSON_MAIN_ENCODER_NVENC
+        auto &e = encoders.emplace_back(make_encoder(encoder_info, buf_info.width, buf_info.height,
+                                                     cam_info.stream_type));
+#else
         auto &e = encoders.emplace_back(new Encoder(encoder_info, buf_info.width, buf_info.height));
+#endif
         e->set_idle(false);
         e->encoder_open();
       }
@@ -113,14 +141,22 @@ void encoder_thread(EncoderdState *s, const LogCameraInfo &cam_info, bool encode
         continue;
       }
 
-      // do rotation if required
-      const int frames_per_seg = SEGMENT_LENGTH * MAIN_FPS;
-      if (!encode_on_demand && cur_seg >= 0 && extra.frame_id >= ((cur_seg + 1) * frames_per_seg) + s->start_frame_id) {
+      // E2: 段轮转改按真实时间戳判段。camerad 现以 30fps 灌入, 原 frame_id 判据
+      // (SEGMENT_LENGTH * MAIN_FPS = 60*20 = 1200 帧) 会把每段压缩到 40s。
+      // 按 timestamp_eof 累计 SEGMENT_LENGTH 秒轮转, 与 camerad 帧率解耦, 段长恒为 60s。
+      if (seg_start_ts == 0) {
+        seg_start_ts = extra.timestamp_eof;
+      }
+      if (!encode_on_demand && cur_seg >= 0 &&
+          extra.timestamp_eof - seg_start_ts >= (uint64_t)SEGMENT_LENGTH * 1000000000ULL) {
+        LOGW("enc seg rotate: stream=%d seg=%d ts=%" PRIu64, (int)cam_info.stream_type, cur_seg + 1,
+             extra.timestamp_eof);
         for (auto &e : encoders) {
           e->encoder_close();
           e->encoder_open();
         }
         ++cur_seg;
+        seg_start_ts = extra.timestamp_eof;
       }
 
       // encode a frame

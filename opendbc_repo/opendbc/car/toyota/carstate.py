@@ -1,5 +1,4 @@
 import copy
-import numpy as np
 
 from opendbc.can import CANDefine, CANParser
 from opendbc.car import Bus, DT_CTRL, create_button_events, structs
@@ -89,7 +88,7 @@ class CarState(CarStateBase):
       cp.vl["WHEEL_SPEEDS"]["WHEEL_SPEED_RL"],
       cp.vl["WHEEL_SPEEDS"]["WHEEL_SPEED_RR"],
     )
-    ret.vEgoRaw = float(np.mean([ret.wheelSpeeds.fl, ret.wheelSpeeds.fr, ret.wheelSpeeds.rl, ret.wheelSpeeds.rr]))
+    ret.vEgoRaw = (ret.wheelSpeeds.fl + ret.wheelSpeeds.fr + ret.wheelSpeeds.rl + ret.wheelSpeeds.rr) / 4.0
     ret.vEgo, ret.aEgo = self.update_speed_kf(ret.vEgoRaw)
     ret.vEgoCluster = ret.vEgo * 1.015  # minimum of all the cars
 

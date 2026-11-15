@@ -9,6 +9,7 @@ import openpilot.cereal.messaging as messaging
 from openpilot.cereal import car, log
 
 from openpilot.common.params import Params
+from openpilot.system.hardware import JETSON
 from openpilot.common.realtime import config_realtime_process, Priority, Ratekeeper
 from openpilot.common.runtime_diagnostics import RuntimeDiagnostics
 from opendbc.can.native import BACKEND as CAN_BACKEND
@@ -80,11 +81,22 @@ def can_comm_callbacks(logcan: messaging.SubSocket, sendcan: messaging.PubSocket
   return can_recv, can_send
 
 
+
+def _dbg(msg):
+  import time as _t
+  try:
+    with open("/tmp/card_dbg.txt", "a") as f:
+      f.write(f"{_t.time():.3f} {msg}\n")
+  except Exception:
+    pass
+
+
 class Car:
   CI: CarInterfaceBase
   CP: car.CarParams
 
   def __init__(self, CI=None) -> None:
+    _dbg('init: subscribe can')
     self.can_sock = messaging.sub_sock('can', timeout=20)
     self.sm = messaging.SubMaster(['pandaStates', 'carControl', 'onroadEvents', 'carrotMan', 'longitudinalPlan',
                                    'radarState', 'modelV2', 'drivingModelData', 'customReservedRawData0', 'amapNavi',
@@ -109,15 +121,19 @@ class Car:
     is_release = True #self.params.get_bool("IsReleaseBranch")
 
     if CI is None:
-      # wait for one pandaState and one CAN packet
-      print("Waiting for CAN messages...")
-      while True:
-        can = messaging.recv_one_retry(self.can_sock)
-        if len(can.can) > 0:
-          break
+      # 台架模式(Jetson devkit 无 panda/CAN): 不阻塞等 CAN, 直接走 MOCK 车接口
+      self.bench_no_can = JETSON
+      _dbg(f'bench_no_can={self.bench_no_can}')
+      if not self.bench_no_can:
+        # wait for one pandaState and one CAN packet
+        print("Waiting for CAN messages...")
+        while True:
+          can = messaging.recv_one_retry(self.can_sock)
+          if len(can.can) > 0:
+            break
 
       alpha_long_allowed = self.params.get_bool("AlphaLongitudinalEnabled")
-      num_pandas = len(messaging.recv_one_retry(self.sm.sock['pandaStates']).pandaStates)
+      num_pandas = 0 if self.bench_no_can else len(messaging.recv_one_retry(self.sm.sock['pandaStates']).pandaStates)
 
       cached_params = None
       cached_params_raw = self.params.get("CarParamsCache")
@@ -125,13 +141,40 @@ class Car:
         with car.CarParams.from_bytes(cached_params_raw) as _cached_params:
           cached_params = _cached_params
 
-      self.CI = get_car(*self.can_callbacks, obd_callback(self.params), alpha_long_allowed, is_release, num_pandas, cached_params)
-      self.CP = self.CI.CP
+      if self.bench_no_can:
+        # 台架无 CAN 时仍尊重 UI 里选择的车型 (CarSelected3)。用户选了车就走该平台的
+        # CarInterface, 否则 CP.brand 恒为 'mock', selfdrived 会一直报 "Car Unrecognized"。
+        # 没有 CAN 数据时 CarState/CarController 读到的是零信号, 但车名/品牌/参数是对的。
+        from opendbc.car.car_helpers import interfaces as _interfaces
+        from opendbc.car.selected_car import get_selected_car_platform
+        _selected = self.params.get("CarSelected3") or ""
+        _platform = get_selected_car_platform(str(_selected))
+        if _platform is not None:
+          _CI = _interfaces[_platform]
+          self.CP = _CI.get_params(_platform, {0: set(), 1: set(), 2: set()}, [], alpha_long_allowed, is_release, docs=False)
+          self.CP.fingerprintSource = structs.CarParams.FingerprintSource.fixed
+          self.CP.carVin = ""
+          self.CP.carFw = []
+          self.CP.fuzzyFingerprint = False
+          self.params.put("CarName", str(_platform))
+          self.CI = _CI(self.CP)
+          print(f"bench: 无 CAN, 使用所选车型接口 {_platform} ({_selected})")
+        else:
+          from opendbc.car.mock.interface import CarInterface as _MockCarInterface
+          print("bench: 无 CAN, 使用 MOCK 车接口")
+          _dbg('before mock get_params')
+          self.CI = _MockCarInterface(_MockCarInterface.get_params("MOCK", {}, [], alpha_long_allowed, is_release, False))
+          self.CP = self.CI.CP
+        _dbg('after bench CI: brand=' + str(self.CP.brand))
+      else:
+        self.CI = get_car(*self.can_callbacks, obd_callback(self.params), alpha_long_allowed, is_release, num_pandas, cached_params)
+        self.CP = self.CI.CP
 
       # continue onto next fingerprinting step in pandad
       self.params.put_bool("FirmwareQueryDone", True)
     else:
       self.CI, self.CP = CI, CI.CP
+      self.bench_no_can = False
 
     self.CP.alternativeExperience = get_alternative_experience(self.params.get_bool("DisengageOnAccelerator"))
     openpilot_enabled_toggle = self.params.get_bool("OpenpilotEnabledToggle")
@@ -230,7 +273,7 @@ class Car:
   def state_update(self) -> car.CarState:
     """carState update loop, driven by can"""
 
-    can_strs = messaging.drain_sock_raw(self.can_sock, wait_for_one=True)
+    can_strs = messaging.drain_sock_raw(self.can_sock, wait_for_one=not self.bench_no_can)
     recv_ns = time.monotonic_ns()
     if self.card_diag_prev_recv_ns != 0:
       loop_us = (recv_ns - self.card_diag_prev_recv_ns) // 1000
@@ -582,8 +625,14 @@ def main():
   # Share core5 with lower-priority radard, leaving isolated core6 for camera work.
   config_realtime_process(5, Priority.CTRL_HIGH)
   car = Car()
+  _dbg('before card_thread')
   car.card_thread()
 
 
 if __name__ == "__main__":
-  main()
+  import traceback as _tb, io as _io
+  try:
+    main()
+  except Exception:
+    _io.open("/tmp/card_err.log", "w", encoding="utf-8").write(_tb.format_exc())
+    raise

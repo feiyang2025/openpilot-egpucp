@@ -2,6 +2,7 @@
 
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -31,7 +32,8 @@ void logger_rotate(LoggerdState *s) {
 
 void rotate_if_needed(LoggerdState *s) {
   // all encoders ready, trigger rotation
-  bool all_ready = s->ready_to_rotate == s->max_waiting;
+  // >= 而非 ==: 万一有不在 max_waiting 里的编码器也报了就绪, 不能因此卡死轮转
+  bool all_ready = s->max_waiting > 0 && s->ready_to_rotate >= s->max_waiting;
 
   // fallback logic to prevent extremely long segments in the case of camera, encoder, etc. malfunctions
   bool timed_out = false;
@@ -259,12 +261,28 @@ void loggerd_thread() {
   logger_rotate(&s);
   Params().put("CurrentRoute", s.logger.routeName());
 
+  // 台架上没有驾驶员摄像头: camerad 不发布 VISION_STREAM_DRIVER, encoderd 也就
+  // 不会为该流启动编码线程, driverEncodeData 永不出现。若仍按 cameras_logged 全额
+  // 计入 max_waiting (road+qcam+wide+driver = 4), ready_to_rotate 永远集不齐:
+  // 轮转只能靠 72s 超时兜底 ("segment too long. auto rotating"), 而期间 encoderd
+  // 已滚到新段, 每个包都落进 "newer segment" 分支直到队列满 200 帧, 之后持续
+  // "queue is too large" 丢帧 (实测 ~300 条/45s), 录像基本全是丢帧。
+  // 只把 camerad 实际提供的流计入轮转等待。
+  std::set<VisionStreamType> provided_streams;
+  for (int i = 0; i < 50 && provided_streams.empty(); i++) {
+    provided_streams = VisionIpcClient::getAvailableStreams("camerad", false);
+    if (provided_streams.empty()) util::sleep_for(100);
+  }
   std::map<std::string, EncoderInfo> encoder_infos_dict;
   std::vector<RemoteEncoder*> encoders_with_audio;
   for (const auto &cam : cameras_logged) {
+    if (!provided_streams.empty() && provided_streams.count(cam.stream_type) == 0) {
+      LOGW("camerad 未提供 stream %d, 不等待其编码器 (%s)", (int)cam.stream_type, cam.thread_name);
+    } else {
+      s.max_waiting += (int)cam.encoder_infos.size();
+    }
     for (const auto &encoder_info : cam.encoder_infos) {
       encoder_infos_dict[encoder_info.publish_name] = encoder_info;
-      s.max_waiting++;
     }
   }
 

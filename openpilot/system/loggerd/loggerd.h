@@ -13,7 +13,11 @@
 
 #include "system/loggerd/logger.h"
 
-constexpr int MAIN_FPS = 20;
+// 相机链 (camerad 发布 / 编码器帧率 / 录像头部帧率 / 队列上限) 一律按传感器原生 30fps。
+// 之前是 20, 但 camerad 硬件只能出 30fps, 软件抽帧会让两路相机相位错开, modeld 配不上对。
+constexpr int MAIN_FPS = 30;
+// 主路码流类型保持 HECV: Jetson 由 NVENC 硬编 H265 (JETSON_MAIN_ENCODER_NVENC),
+// x264 软编方案已实测否决 (460% CPU 且码率失控)。
 const auto MAIN_ENCODE_TYPE = Hardware::PC() ? cereal::EncodeIndex::Type::BIG_BOX_LOSSLESS : cereal::EncodeIndex::Type::FULL_H_E_V_C;
 #define NO_CAMERA_PATIENCE 500  // fall back to time-based rotation if all cameras are dead
 

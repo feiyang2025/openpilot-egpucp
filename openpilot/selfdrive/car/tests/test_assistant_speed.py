@@ -4,6 +4,7 @@ import time
 import pytest
 
 from openpilot.selfdrive.car.tests.test_toyota_pcm_mode0 import full_helper, make_cs, SubMaster, step  # noqa: F401
+from openpilot.selfdrive.carrot import assistant_speed
 from openpilot.selfdrive.carrot.assistant_speed import AssistantSpeed
 from openpilot.selfdrive.carrot.bluetooth.model import atomic_json, read_json
 
@@ -87,3 +88,30 @@ def test_unsafe_or_unavailable_state_rejects_and_never_runs_later(voice, conditi
   helper.params.values['SpeedFromPCM'] = 0
   step(helper, cs, state(cs))
   assert helper.v_cruise_kph != 100
+
+
+def test_request_file_is_polled_at_most_every_20ms(tmp_path, monkeypatch):
+  now = [1000.0]
+  speed = AssistantSpeed(tmp_path, clock=lambda: now[0])
+  request_reads = 0
+  real_read_json = assistant_speed.read_json
+
+  def counted_read_json(path, default=None):
+    nonlocal request_reads
+    request_reads += int(path.name == 'request.json')
+    return real_read_json(path, default)
+
+  monkeypatch.setattr(assistant_speed, 'read_json', counted_read_json)
+  kwargs = {'allowed': True, 'current': 80, 'minimum': 30, 'maximum': 160}
+  assert speed.read(**kwargs) is None
+  assert request_reads == 1
+
+  atomic_json(tmp_path / 'request.json', {'id': 'b' * 43, 'time': now[0], 'action': 'speed_set', 'value': 100})
+  now[0] += .019
+  assert speed.read(**kwargs) is None
+  assert request_reads == 1
+
+  now[0] += .001
+  command = speed.read(**kwargs)
+  assert command['target'] == 100
+  assert request_reads == 2

@@ -11,6 +11,7 @@ class AssistantSpeed:
   def __init__(self, root=ROOT / 'speed', clock=time.monotonic):
     self.root, self.clock = Path(root), clock
     self.started = clock()
+    self.last_check = None
     self.seen = deque(maxlen=128)
     self.active = None
 
@@ -27,12 +28,16 @@ class AssistantSpeed:
       pass  # The consumed command must remain consumed without a result file.
 
   def read(self, *, allowed, current, minimum, maximum):
+    now = self.clock()
+    if self.last_check is not None and now < self.last_check + .02:
+      return None
+    self.last_check = now
     command = read_json(self.root / 'request.json', {})
     if not isinstance(command, dict) or not IDENTITY.fullmatch(str(command.get('id', ''))) or command['id'] in self.seen:
       return None
     self.seen.append(command['id'])
     self.active = {**command, 'previous': float(current)}
-    now, stamp = self.clock(), command.get('time')
+    stamp = command.get('time')
     cancelled = read_json(self.root / 'cancel.json', {})
     if isinstance(cancelled, dict) and cancelled.get('id') == command['id']:
       self.publish('cancelled', 'permission_revoked')

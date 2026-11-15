@@ -52,6 +52,9 @@ class CarController(CarControllerBase):
   def __init__(self, dbc_names, CP):
     super().__init__(dbc_names, CP)
     self.params = CarControllerParams(self.CP)
+    self.param_reader = Params()
+    self.custom_steer_params = (0, 0, 0)
+    self.custom_steer_params_last_read = None
     self.last_torque = 0
     self.last_angle = 0
     self.alert_active = False
@@ -89,10 +92,14 @@ class CarController(CarControllerBase):
     # *** control msgs ***
     can_sends = []
 
-    params = Params()
-    steerMax = params.get_int("CustomSteerMax")
-    steerDeltaUp = params.get_int("CustomSteerDeltaUp")
-    steerDeltaDown = params.get_int("CustomSteerDeltaDown")
+    if self.custom_steer_params_last_read is None or now_nanos - self.custom_steer_params_last_read >= 100_000_000:
+      self.custom_steer_params = (
+        self.param_reader.get_int("CustomSteerMax"),
+        self.param_reader.get_int("CustomSteerDeltaUp"),
+        self.param_reader.get_int("CustomSteerDeltaDown"),
+      )
+      self.custom_steer_params_last_read = now_nanos
+    steerMax, steerDeltaUp, steerDeltaDown = self.custom_steer_params
     self.params.STEER_MAX = self.params.STEER_MAX if steerMax <= 0 else steerMax
     self.params.STEER_DELTA_UP = self.params.STEER_DELTA_UP if steerDeltaUp <= 0 else steerDeltaUp
     self.params.STEER_DELTA_DOWN = self.params.STEER_DELTA_DOWN if steerDeltaDown <= 0 else steerDeltaDown

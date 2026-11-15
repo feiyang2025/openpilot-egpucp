@@ -4789,6 +4789,42 @@
       "unit": 1,
       "control": "toggle",
       "risk": "high"
+    },
+    {
+      "group": "회피",
+      "name": "AvoidanceLateralEnabled",
+      "title": "横向影子(P3 台架)",
+      "descr": "横向状态机影子: 仅 L0 压线 S 型可演练(δ=0.75,lead≥L_S);L1 跨线需虚线双源+安全窗,当前无源恒拒。\n只出状态面,不接 EPS。心跳 /tmp/avoidanced.json lateral 节。需同时开启避让决策总开关。默认关。热生效。",
+      "egroup": "AVOIDANCE",
+      "etitle": "Lateral Shadow (P3 BENCH)",
+      "edescr": "Lateral state machine shadow: L0 edge-S only (line/gap sources missing, L1 stays denied). No EPS. Default OFF. Hot-read.",
+      "cgroup": "避让",
+      "ctitle": "横向影子(P3 台架)",
+      "cdescr": "横向状态机影子: 仅 L0 压线 S 型可演练(δ=0.75,lead≥L_S);L1 跨线需虚线双源+安全窗,当前无源恒拒。\n只出状态面,不接 EPS。心跳 /tmp/avoidanced.json lateral 节。需同时开启避让决策总开关。默认关。热生效。",
+      "min": 0,
+      "max": 1,
+      "default": 0,
+      "unit": 1,
+      "control": "toggle",
+      "risk": "high"
+    },
+    {
+      "group": "회피",
+      "name": "SignalStopEnabled",
+      "title": "信号灯停车影子(P4 台架)",
+      "descr": "灯色→动作映射影子: 红1帧刹/绿3帧+0.3s+绑定放行/黄dilemma/灯灭MRM。\n当前灯色取自 tl_detd 台架通道,停止线距离无源 → aFloor 恒空,只记录决策面。\n心跳 /tmp/avoidanced.json signal 节。默认关。热生效。",
+      "egroup": "AVOIDANCE",
+      "etitle": "Signal-Stop Shadow (P4 BENCH)",
+      "edescr": "Light-to-action mapping shadow via tl_detd bench channel; no stopline source yet (aFloor empty). Default OFF. Hot-read.",
+      "cgroup": "避让",
+      "ctitle": "信号灯停车影子(P4 台架)",
+      "cdescr": "灯色→动作映射影子: 红1帧刹/绿3帧+0.3s+绑定放行/黄dilemma/灯灭MRM。\n当前灯色取自 tl_detd 台架通道,停止线距离无源 → aFloor 恒空,只记录决策面。\n心跳 /tmp/avoidanced.json signal 节。默认关。热生效。",
+      "min": 0,
+      "max": 1,
+      "default": 0,
+      "unit": 1,
+      "control": "toggle",
+      "risk": "high"
     }
   ]
 }

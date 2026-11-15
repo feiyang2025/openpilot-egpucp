@@ -40,6 +40,22 @@ void VisionBuf::allocate(size_t length) {
   this->frame_id = (uint64_t*)((uint8_t*)this->addr + this->len);
 }
 
+// 接管外部 dmabuf fd 作为 visionipc 缓冲区 (perfD 零拷贝路径)。
+// fd 指向的 dmabuf 必须已包含 pixel data + 尾部 frame_id (len + 8 bytes)。
+// mmap 整个 len+8 区域, frame_id 指针位于 len 偏移处。
+// 注意: mmap 长度必须 <= dmabuf 实际大小, 否则 NVRM dmabuf 返回 MAP_FAILED。
+void VisionBuf::adopt(int fd, size_t length, size_t stride_, size_t uv_offset_) {
+  this->fd = fd;
+  this->len = length;
+  this->stride = stride_;
+  this->uv_offset = uv_offset_;
+  this->mmap_len = this->len + sizeof(uint64_t);
+  this->addr = mmap(NULL, this->mmap_len, PROT_READ | PROT_WRITE, MAP_SHARED, this->fd, 0);
+  assert(this->addr != MAP_FAILED);
+  this->frame_id = (uint64_t*)((uint8_t*)this->addr + this->len);
+  // init_yuv 由调用方完成 (width/height 尚未确定)
+}
+
 void VisionBuf::import(){
   assert(this->fd >= 0);
   this->addr = mmap(NULL, this->mmap_len, PROT_READ | PROT_WRITE, MAP_SHARED, this->fd, 0);
@@ -63,11 +79,17 @@ int VisionBuf::sync(int dir) {
 }
 
 int VisionBuf::free() {
-  int err = munmap(this->addr, this->mmap_len);
-  if (err != 0) return err;
-
-  err = close(this->fd);
-  return err;
+  if (this->addr != nullptr) {
+    int err = munmap(this->addr, this->mmap_len);
+    if (err != 0) return err;
+    this->addr = nullptr;
+  }
+  if (this->fd >= 0) {
+    int err = close(this->fd);
+    this->fd = -1;
+    return err;
+  }
+  return 0;
 }
 
 uint64_t VisionBuf::get_frame_id() {

@@ -1,8 +1,15 @@
+from collections import defaultdict
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
 from hypothesis import given, settings, strategies as st
 
-from opendbc.car import Bus
+from opendbc.car import Bus, structs
+from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.structs import CarParams
 from opendbc.car.fw_versions import build_fw_dict
+from opendbc.car.toyota import carcontroller, carstate
 from opendbc.car.toyota.fingerprints import FW_VERSIONS
 from opendbc.car.toyota.values import CAR, DBC, TSS2_CAR, ANGLE_CONTROL_CAR, RADAR_ACC_CAR, SECOC_CAR, \
                                                   FW_QUERY_CONFIG, PLATFORM_CODE_ECUS, FUZZY_EXCLUDED_PLATFORMS, \
@@ -165,3 +172,53 @@ class TestToyotaFingerprint:
         platforms_with_shared_codes |= {str(platform), *matches}
 
     assert platforms_with_shared_codes == FUZZY_EXCLUDED_PLATFORMS, (len(platforms_with_shared_codes), len(FW_VERSIONS))
+
+
+def test_wheel_speed_average_does_not_use_numpy_mean(monkeypatch):
+  CP = CarParams(carFingerprint=CAR.TOYOTA_COROLLA_TSS2, wheelSpeedFactor=1.0)
+  state = carstate.CarState(CP)
+  messages = defaultdict(lambda: defaultdict(float))
+  messages['WHEEL_SPEEDS'].update(WHEEL_SPEED_FL=10.0, WHEEL_SPEED_FR=20.0,
+                                  WHEEL_SPEED_RL=30.0, WHEEL_SPEED_RR=40.0)
+  parser = SimpleNamespace(vl=messages, can_valid=True)
+
+  def unexpected_mean(*args, **kwargs):
+    raise AssertionError('four wheel speeds must not use the NumPy generic mean path')
+
+  monkeypatch.setattr(np, 'mean', unexpected_mean)
+  CS = state.update({Bus.pt: parser, Bus.cam: parser})
+  assert CS.vEgoRaw == pytest.approx(25.0 * CV.KPH_TO_MS)
+
+
+def test_custom_steer_params_are_refreshed_every_100ms(monkeypatch):
+  class CustomParams:
+    def __init__(self):
+      self.values = {'CustomSteerMax': 1200, 'CustomSteerDeltaUp': 7, 'CustomSteerDeltaDown': 9}
+      self.reads = []
+
+    def get_int(self, key):
+      self.reads.append(key)
+      return self.values[key]
+
+  custom_params = CustomParams()
+  monkeypatch.setattr(carcontroller, 'Params', lambda: custom_params)
+  CP = CarParams(carFingerprint=CAR.TOYOTA_COROLLA_TSS2, openpilotLongitudinalControl=False)
+  controller = carcontroller.CarController({Bus.pt: DBC[CP.carFingerprint][Bus.pt]}, CP)
+  controller.frame = 1
+  control = structs.CarControl(latActive=False, longActive=False).as_reader()
+  state = SimpleNamespace(out=structs.CarState(), pcm_acc_status=0, pcm_follow_distance=0, acc_type=1, lkas_hud={})
+  expected_reads = ['CustomSteerMax', 'CustomSteerDeltaUp', 'CustomSteerDeltaDown']
+
+  for now_nanos in (1_000_000_000, 1_050_000_000, 1_099_999_999):
+    controller.update(control, state, now_nanos)
+  assert custom_params.reads == expected_reads
+  assert controller.params.STEER_MAX == 1200
+  assert controller.params.STEER_DELTA_UP == 7
+  assert controller.params.STEER_DELTA_DOWN == 9
+
+  custom_params.values.update(CustomSteerMax=1600, CustomSteerDeltaUp=11, CustomSteerDeltaDown=13)
+  controller.update(control, state, 1_100_000_000)
+  assert custom_params.reads == expected_reads * 2
+  assert controller.params.STEER_MAX == 1600
+  assert controller.params.STEER_DELTA_UP == 11
+  assert controller.params.STEER_DELTA_DOWN == 13

@@ -41,6 +41,7 @@ class VisionBuf {
 
   void allocate(size_t len);
   void import();
+  void adopt(int fd, size_t len, size_t stride, size_t uv_offset);
   void init_yuv(size_t width, size_t height, size_t stride, size_t uv_offset);
   int sync(int dir);
   int free();

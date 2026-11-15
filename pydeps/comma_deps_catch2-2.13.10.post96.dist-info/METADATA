@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: comma-deps-catch2
+Version: 2.13.10.post96
+Summary: Catch2 C++ test framework headers
+Requires-Python: >=3.12

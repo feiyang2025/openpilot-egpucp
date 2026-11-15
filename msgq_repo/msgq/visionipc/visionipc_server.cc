@@ -64,6 +64,28 @@ void VisionIpcServer::create_buffers_with_sizes(VisionStreamType type, size_t nu
   sockets[type] = PubSocket::create(msg_ctx, get_endpoint_name(name, type), false);
 }
 
+// 用外部 dmabuf fd 创建 visionipc 缓冲区 (perfD 零拷贝路径)。
+// fds[i] 指向的 dmabuf 必须已分配且包含 pixel data + 尾部 frame_id 空间。
+// 像素区 = size 字节, stride/uv_offset 描述布局, frame_id 在 dmabuf 尾部 (size 偏移处)。
+void VisionIpcServer::create_buffers_from_fds(VisionStreamType type, const int fds[], size_t num_buffers, size_t width, size_t height, size_t size, size_t stride, size_t uv_offset) {
+  assert(num_buffers < VISIONIPC_MAX_FDS);
+
+  for (size_t i = 0; i < num_buffers; i++){
+    VisionBuf* buf = new VisionBuf();
+    buf->adopt(fds[i], size, stride, uv_offset);
+    buf->idx = i;
+    buf->type = type;
+
+    buf->init_yuv(width, height, stride, uv_offset);
+
+    buffers[type].push_back(buf);
+  }
+
+  cur_idx[type] = 0;
+
+  // Create msgq publisher for each of the `name` + type combos
+  sockets[type] = PubSocket::create(msg_ctx, get_endpoint_name(name, type), false);
+}
 
 void VisionIpcServer::start_listener(){
   listener_thread = std::thread(&VisionIpcServer::listener, this);

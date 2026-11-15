@@ -79,8 +79,8 @@ OBJ+= $(OCP_OBJ)
 EXTERNAL_DIR=
 EXTERNAL_LIB=
 
-INCLUDE_PATH = /usr/local/venv/lib/python3.12/site-packages/acados/install/include
-LIB_PATH = /usr/local/venv/lib/python3.12/site-packages/acados/install/lib
+INCLUDE_PATH = /data/openpilot/pydeps/acados/install/include
+LIB_PATH = /data/openpilot/pydeps/acados/install/lib
 
 # preprocessor flags for make's implicit rules
 CPPFLAGS+= -I$(INCLUDE_PATH)
@@ -150,7 +150,7 @@ ocp_cython_o: ocp_cython_c
 	-I $(INCLUDE_PATH)/blasfeo/include/ \
 	-I $(INCLUDE_PATH)/hpipm/include/ \
 	-I $(INCLUDE_PATH) \
-	-I /usr/local/venv/lib/python3.12/site-packages/numpy/_core/include \
+	-I /home/nvidia/.local/lib/python3.12/site-packages/numpy/_core/include \
 	-I /usr/include/python3.12 \
 	acados_ocp_solver_pyx.c \
 
@@ -177,7 +177,7 @@ sim_cython_o: sim_cython_c
 	-I $(INCLUDE_PATH)/blasfeo/include/ \
 	-I $(INCLUDE_PATH)/hpipm/include/ \
 	-I $(INCLUDE_PATH) \
-	-I /usr/local/venv/lib/python3.12/site-packages/numpy/_core/include \
+	-I /home/nvidia/.local/lib/python3.12/site-packages/numpy/_core/include \
 	-I /usr/include/python3.12 \
 	acados_sim_solver_pyx.c \
 

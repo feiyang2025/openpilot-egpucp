@@ -45,6 +45,10 @@ ABS_MT_SLOT = 0x2f
 ABS_MT_TRACKING_ID = 0x39
 
 BIG_UI = os.getenv("BIG", "0") == "1"
+# Optional window placement on the physical display: default top-left (0,0).
+# 1024x600 touch panel keeps 56px free at the bottom via UI_OFFSET_Y=32.
+WINDOW_OFFSET_X = int(os.getenv("UI_OFFSET_X", "0"))
+WINDOW_OFFSET_Y = int(os.getenv("UI_OFFSET_Y", "0"))
 ENABLE_VSYNC = os.getenv("ENABLE_VSYNC", "0") == "1"
 SHOW_FPS = os.getenv("SHOW_FPS") == "1"
 SHOW_TOUCHES = os.getenv("SHOW_TOUCHES") == "1"
@@ -636,6 +640,8 @@ class GuiApplication:
       rl.set_config_flags(flags)
 
       rl.init_window(self._scaled_width, self._scaled_height, title)
+      if WINDOW_OFFSET_X or WINDOW_OFFSET_Y:
+        rl.set_window_position(WINDOW_OFFSET_X, WINDOW_OFFSET_Y)
       self._read_framebuffer = _make_framebuffer_reader()
 
       needs_render_texture = self._scale != 1.0 or BURN_IN_MODE or RECORD
@@ -1340,11 +1346,11 @@ class GuiApplication:
 
   @staticmethod
   def _default_width() -> int:
-    return 2160 if GuiApplication.big_ui() else 536
+    return int(os.getenv("UI_WIDTH", "2160" if GuiApplication.big_ui() else "536"))
 
   @staticmethod
   def _default_height() -> int:
-    return 1080 if GuiApplication.big_ui() else 240
+    return int(os.getenv("UI_HEIGHT", "1080" if GuiApplication.big_ui() else "240"))
 
   @staticmethod
   def big_ui() -> bool:

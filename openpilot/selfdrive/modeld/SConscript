@@ -4,7 +4,7 @@ import os
 import sys, subprocess
 from SCons.Script import Action, Value
 from openpilot.common.file_chunker import chunk_file, get_chunk_targets, get_existing_chunks
-from openpilot.common.transformations.camera import _ar_ox_fisheye, _os_fisheye
+from openpilot.common.transformations.camera import _ar_ox_fisheye, _os_fisheye, _imx390_fisheye
 from openpilot.common.transformations.model import MEDMODEL_INPUT_SIZE, DM_INPUT_SIZE
 from openpilot.selfdrive.modeld.constants import ModelConstants
 from openpilot.selfdrive.modeld.big_model import active_manifest, active_model_path
@@ -14,6 +14,7 @@ from openpilot.selfdrive.modeld.helpers import TG_INPUT_DEVICES_PATH, modeld_pkl
 CAMERA_CONFIGS = [
   (_ar_ox_fisheye.width, _ar_ox_fisheye.height),  # tici: 1928x1208
   (_os_fisheye.width, _os_fisheye.height),        # mici: 1344x760
+  (_imx390_fisheye.width, _imx390_fisheye.height),  # jetson: 1920x1080
 ]
 
 Import('env', 'arch')

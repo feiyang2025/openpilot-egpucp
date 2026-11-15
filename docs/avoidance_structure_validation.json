@@ -21,20 +21,15 @@
     "cost_p_act": "PASS",
     "cost_tier_monotone": "PASS",
     "stats_ci_rule_of_three": "PASS",
-    "stats_n_for_1e-4": "PASS"
+    "stats_n_for_1e-4": "PASS",
+    "adult_min_signed_1p45": "PASS",
+    "joint_adult60_signed_pass": "PASS",
+    "child_lb_signed_1p0": "PASS",
+    "child_lb_subgate_band": "PASS",
+    "child_107_gate_upper": "PASS",
+    "child_band_cascade_40": "PASS"
   },
-  "pending_signatures": [
-    {
-      "decision": "60 档像素门三选一 [a]1.45m/[b]盲窗/[c]降速58.8",
-      "fact": "min_h 1.4m @D(60,T0=.70)=66.17 m → 29.0px < 30px 门;推导身高 1.70m → 35.2px 过门,两口身高不一致(1.4 vs 1.7)",
-      "guard": "签字后: min_h_class·f_px/D_check(v) ≥ px_gate 硬门"
-    },
-    {
-      "decision": "儿童身高下界(建议 <1.07m 归低矮 40 档)",
-      "fact": "1.05m 幼童 @D(50,T0=.70)=48.69 m → 29.6px < 30px 门贴线;child ∈ (1.0,1.4] 无显式数值定义",
-      "guard": "签字后: 数值区间写入 odd 块 + 本脚本硬门"
-    }
-  ],
+  "pending_signatures": [],
   "computed": {
     "s715_D_60": "66.171 m (doc 66.18)",
     "s715_D_60_margin_vs_ttc4": "margin 0.495 m (doc 0.49)",
@@ -57,7 +52,20 @@
     "cost_p_act": "p*=0.000999",
     "cost_tier_monotone": "prepare 2e-5 < comfort 9.99e-4 < emergency 2.99e-3",
     "stats_ci_rule_of_three": "3/36000=8.33e-05 (doc 8.3e-5)",
-    "stats_n_for_1e-4": "需 n≥29956, 附录 B 样例 36000 ✓"
+    "stats_n_for_1e-4": "需 n≥29956, 附录 B 样例 36000 ✓",
+    "adult_min_signed_1p45": "成人档最小身高 1.45 已签(修订 25);1.40-1.45 m 归 50 档(D1 改写);[b] 盲窗/[c] 降速 58.8 未采纳",
+    "joint_adult60_signed_pass": "1.45m @D(60,T0=.70)=66.17 → 30.06px ≥ 30px(余 0.06px;D_check=D(v,T0) 口径一并锁定)",
+    "child_lb_signed_1p0": "child ∈ (1.0,1.4] m 下界 1.0 已签(修订 24;上限 1.4 既有)",
+    "child_lb_subgate_band": "1.0m @D(50)=48.69 → 28.18px < 30px:子门带 [1.0,1.09) row17 待决处置(忠实入账,不以签代决)",
+    "child_107_gate_upper": "1.07m → 30.15px = 50 档 30px 门上沿复算",
+    "child_band_cascade_40": "D(40,T0=.70)=33.78 m(修订 25 更正:row17 原误记 21.45/44.4——21.45 实为 D(30));[1.0,1.09) 子带回落 40 档 → 1.0 m 处 40.61px ≥ 30px"
+  },
+  "signed_signatures": {
+    "child_height_lower_bound_m": 1.0,
+    "signed_at": "2026-11-14",
+    "recorded_in": "修订 24(用户原话:'1.0米儿童身高下界')",
+    "adult_min_height_m_60class": 1.45,
+    "child_subgate_band_140_109": "40 档回落([a],修订 25)"
   },
   "joint_constraint": {
     "formula": "min_h_class·f_px/D_check(v) ≥ px_gate(类)",
@@ -69,6 +77,6 @@
       1.7
     ]
   },
-  "verdict": "MECHANICS_PASS_PENDING_SIGNATURES",
+  "verdict": "MECHANICS_PASS_ALL_SIGNED",
   "failed": []
 }
