@@ -197,6 +197,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"AvoidanceEnabled", {PERSISTENT, BOOL}},   // avoidance decider daemon (managed, default off)
     {"AvoidanceExecEnabled", {PERSISTENT, BOOL}},  // P1 execution gate: tier->long accel floor (BENCH ONLY, default off)
     {"AvoidanceShadowEnabled", {PERSISTENT, BOOL}},  // P2 shadow counterfactual: ghost/充分性 counters, no control (BENCH ONLY, default off)
+    {"AvoidanceLateralEnabled", {PERSISTENT, BOOL}},  // P3 lateral state machine shadow: L0 in-lane only (L1 needs line/gap source), no EPS (BENCH ONLY, default off)
+    {"SignalStopEnabled", {PERSISTENT, BOOL}},  // P4 signal-stop decision shadow: light state from tl_detd bench channel, no stopline source yet (BENCH ONLY, default off)
     {"TimezoneName", {PERSISTENT, STRING, ""}},                // 로컬 타임존 IANA 이름 (예: "Asia/Seoul"), 앱/WiFi/GPS로 해석되면 기록
     {"TimezoneSource", {PERSISTENT, STRING, ""}},              // 타임존 출처 우선순위 추적 ("app" > "wifi" > "gps")
     {"CarrotTireTrajectory", {PERSISTENT, INT, "0"}},

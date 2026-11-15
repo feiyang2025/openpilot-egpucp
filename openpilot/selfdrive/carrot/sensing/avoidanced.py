@@ -1,7 +1,12 @@
 # 受管避让决策守护(P0 台架,P0=只出决策状态面,不碰控制链)
 # 订阅 smallObjectTracks + carState → AvoidanceDecider(已签判据) → avoidanceState 20Hz
 # 热重载: daemon 生死由 manager 按 AvoidanceEnabled 轮询门控(拨开关即起停,免重启);
-# P2 影子在本循环内按 AvoidanceShadowEnabled 每周期热读,写 /tmp/avoidance_shadow.json
+# P2 影子: AvoidanceShadowEnabled 每周期热读 → /tmp/avoidance_shadow.json
+# P3 影子: AvoidanceLateralEnabled 每周期热读 → 心跳 lateral 节(不接 EPS)
+#   (线型/邻道 gap 无源 → L1 跨线恒拒,仅 L0 压线 S 可影子演练)
+# P4 影子: SignalStopEnabled 每周期热读 → 心跳 signal 节
+#   (灯色取自 tl_detd 台架通道 /tmp/tl_detd.json;停止线距离无源 →
+#    aFloor 恒空,决策面状态照走,不碰控制链)
 import argparse
 import json
 import sys
@@ -10,10 +15,27 @@ import time
 import openpilot.cereal.messaging as messaging
 from openpilot.common.params import Params
 from openpilot.selfdrive.carrot.sensing.avoidance_decider import AvoidanceDecider
+from openpilot.selfdrive.carrot.sensing.avoidance_lateral import LateralAvoidance
 from openpilot.selfdrive.carrot.sensing.avoidance_shadow import AvoidanceShadow
+from openpilot.selfdrive.carrot.sensing.signal_decider import SignalStopDecider
 
 HB_PATH = "/tmp/avoidanced.json"
+TL_JSON = "/tmp/tl_detd.json"
 PERIOD_S = 0.05
+
+
+def read_tl_state():
+  """tl_detd 台架通道: {"state": "red"/"yellow"/green*/null, "state_conf": x}。"""
+  try:
+    with open(TL_JSON) as f:
+      d = json.load(f)
+    state = d.get("state")
+    conf = float(d.get("state_conf") or 0.0)
+    if state is None:
+      return None, 0.0
+    return str(state), conf
+  except Exception:
+    return None, 0.0
 
 
 def main(argv=None):
@@ -24,6 +46,8 @@ def main(argv=None):
 
   dec = AvoidanceDecider(mono_profile=bool(args.mono))
   shadow = AvoidanceShadow(mono_profile=bool(args.mono))
+  lateral = LateralAvoidance()
+  signal = SignalStopDecider(enabled=False)
   params = Params()
   sub = messaging.sub_sock("smallObjectTracks", timeout=100, conflate=True)
   cs_sock = messaging.sub_sock("carState", timeout=100, conflate=True)
@@ -58,6 +82,24 @@ def main(argv=None):
     w_apply, w_floor, w_reason = shadow.update(
       out, vEgo / 3.6, 0.0, shadow_on, True, now, now_ns,
       genuine=True, dist_km=km, hb=True)
+    # P3 影子(台架): 横向状态机,L0 压线可演练;L1 跨线因线型/gap 无源恒拒;offset 不接 EPS
+    lat_on = params.get_bool("AvoidanceLateralEnabled")
+    xy = {int(tr.trackId): (float(tr.x), float(tr.y)) for tr in trs.tracks}
+    lat_targets = [{"x": xy.get(int(r["trackId"]), (999.0, 0.0))[0],
+                    "y": xy.get(int(r["trackId"]), (999.0, 0.0))[1],
+                    "cls": int(r["cls"]), "hEst": float(r["hEst"]),
+                    "tier": int(r["tier"])} for r in out]
+    lat = lateral.update(lat_targets, vEgo, now, aeb_active=False,
+                         degraded=False) if lat_on else \
+      {"level": 0, "phase": 0, "offsetCmd": 0.0, "aJointFloor": None,
+       "reason": "disabled", "profile": None}
+    # P4 影子(台架): 灯色 0.5s 节流;停止线无源 → d_stop=None(恒等安全)
+    sig_on = params.get_bool("SignalStopEnabled")
+    tl_t, tl_conf = read_tl_state()
+    sig = signal.update(tl_t, tl_conf, None,
+                        vEgo / 3.6, False, now) if sig_on else \
+      {"state": "PROCEED", "reason": "disabled", "aFloor": None, "aim": None,
+       "counters": signal.counters}
     msg = messaging.new_message("avoidanceState")
     st = msg.avoidanceState
     st.vEgoKmh = vEgo
@@ -90,7 +132,12 @@ def main(argv=None):
                       "shadow": {"km": round(shadow.km, 2), "ghost": shadow.n_ghost,
                                   "ghost1p5": shadow.n_ghost_1p5,
                                   "suff": shadow.n_suff, "insuff": shadow.n_insuff,
-                                  "g2Pass": shadow.g2_pass()}}, f)
+                                  "g2Pass": shadow.g2_pass()},
+                      "latOn": lat_on, "sigOn": sig_on,
+                      "lateral": {"level": lat["level"], "phase": lat["phase"],
+                                    "offset": lat["offsetCmd"], "reason": lat["reason"]},
+                      "signal": {"state": sig["state"], "reason": sig["reason"],
+                                   "tl": tl_t, "counters": sig["counters"]}}, f)
       except Exception:
         pass
     target = t0 + n_pub * PERIOD_S

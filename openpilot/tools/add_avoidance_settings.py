@@ -35,6 +35,16 @@ D = {
     "descr": "\"若生效会怎样\"反事实: 幽灵刹车计数(G2 ≤0.5/1000km)、>1.5 m/s² 误减速、充分性 d≥D(v,T0)。\n只计数不控制,心跳 /tmp/avoidance_shadow.json。需同时开启避让决策总开关。默认关。热生效。",
     "edescr": "Counterfactual counters (ghost braking G2, sufficiency). Counting only, no control. Requires P0 gate on. Default OFF. Hot-read.",
   },
+  "AvoidanceLateralEnabled": {
+    "title": "横向影子(P3 台架)", "etitle": "Lateral Shadow (P3 BENCH)",
+    "descr": "横向状态机影子: 仅 L0 压线 S 型可演练(δ=0.75,lead≥L_S);L1 跨线需虚线双源+安全窗,当前无源恒拒。\n只出状态面,不接 EPS。心跳 /tmp/avoidanced.json lateral 节。需同时开启避让决策总开关。默认关。热生效。",
+    "edescr": "Lateral state machine shadow: L0 edge-S only (line/gap sources missing, L1 stays denied). No EPS. Default OFF. Hot-read.",
+  },
+  "SignalStopEnabled": {
+    "title": "信号灯停车影子(P4 台架)", "etitle": "Signal-Stop Shadow (P4 BENCH)",
+    "descr": "灯色→动作映射影子: 红1帧刹/绿3帧+0.3s+绑定放行/黄dilemma/灯灭MRM。\n当前灯色取自 tl_detd 台架通道,停止线距离无源 → aFloor 恒空,只记录决策面。\n心跳 /tmp/avoidanced.json signal 节。默认关。热生效。",
+    "edescr": "Light-to-action mapping shadow via tl_detd bench channel; no stopline source yet (aFloor empty). Default OFF. Hot-read.",
+  },
 }
 MENU = {
   "id": "AVOIDANCE", "ko": "회피", "en": "Avoidance", "zh": "避让",
