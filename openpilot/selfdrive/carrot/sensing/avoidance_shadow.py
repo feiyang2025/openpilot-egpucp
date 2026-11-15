@@ -44,12 +44,19 @@ class AvoidanceShadow:
     """台架影子口径: ghost ≤0.5/1000km 且 >1.5 误减速 0 次。"""
     return self.n_ghost_1p5 == 0 and self.ghost_per_1000km() <= 0.5
 
+  @staticmethod
+  def _td(t):
+    """兼容 dict(avoidanced 决策输出)与属性对象(capnp 列容/测试桩)。"""
+    if isinstance(t, dict):
+      return int(t.get("tier", 0)), float(t.get("dM", 0.0))
+    return int(t.tier), float(t.dM)
+
   def update(self, targets, v_ego_ms, a_target, enabled, engaged,
              now_mono: float, mono_time_ns: int, genuine: bool = True,
              dist_km: float | None = None, hb: bool = True):
-    """targets=AvoidanceState.targets 列容;genuine=剧情真值(默认 True=有真实冲突,
+    """targets=dict/属性对象混合列表;genuine=剧情真值(默认 True=有真实冲突,
     生产接线不供真值时绝不虚增 ghost)。返回 (would_apply, floor, reason)。"""
-    tiers = [int(t.tier) for t in targets] if targets is not None else []
+    tiers = [self._td(t)[0] for t in targets] if targets is not None else []
     floor, reason = self.exec.floor_for(tiers, v_ego_ms, now_mono, mono_time_ns, enabled, engaged)
     would = floor is not None and floor < a_target
     if dist_km is not None:
@@ -67,7 +74,7 @@ class AvoidanceShadow:
       elif reason == "emergency":
         self.n_emerg_req += 1
       # 充分性反事实: 最近 tier≥3 目标距离 vs D(v,T0)
-      cand = [float(t.dM) for t in (targets or []) if int(t.tier) >= 3]
+      cand = [self._td(t)[1] for t in (targets or []) if self._td(t)[0] >= 3]
       if cand:
         d_near = min(cand)
         if d_near >= D_check(v_ego_ms * 3.6):
