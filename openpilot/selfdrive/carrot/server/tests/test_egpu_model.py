@@ -44,6 +44,16 @@ def test_active_gpu_wins_over_recovery_status(feature, monkeypatch):
   assert result['active'] and result['recovery'] == {}
 
 
+def test_active_gpu_does_not_show_model_checking(feature, monkeypatch, tmp_path):
+  write_big_model_status(tmp_path, 'checking', detail='checking model catalog')
+  params = SimpleNamespace(get_bool=lambda key: key in ('UsbGpuHardwareSeen', 'UsbGpuActive'))
+  result = feature.build_status_payload(params)
+  assert result['active'] is True
+  assert result['state'] == 'compiled'
+  assert result['compiled'] is True
+  assert result['detail'] is None
+
+
 @pytest.mark.parametrize("state", ["checking", "downloading", "verifying", "compiling", "error"])
 @pytest.mark.parametrize("sha", ["a" * 64, "b" * 64])
 def test_update_phase_is_not_hidden_by_compiled_model(feature, tmp_path, state, sha):

@@ -35,12 +35,17 @@ def build_status_payload(params: Any | None = None) -> dict[str, Any]:
   # to the previous model until the new download passes verification.
   same_model = manifest is not None and (not status or status.get("sha256") == manifest.sha256)
   phase = status.get("state")
+  active = (_params_bool(params, "UsbGpuActive") and not _params_bool(params, "UsbGpuLoading")) if params is not None else False
   updating = phase in {"checking", "downloading", "verifying", "compiling", "error", "waiting_for_network", "installing"}
   try:
     compiled = active_model_compiled() if same_model and not updating else False
   except Exception:
     compiled = False
-  if updating:
+  if active:
+    # A running eGPU is authoritative; stale delivery status must not show a perpetual check.
+    state, compiled = "compiled", True
+    error_code, detail = None, None
+  elif updating:
     state = phase
   elif compiled:
     state = "installed" if phase == "installed" else "compiled"
@@ -53,8 +58,9 @@ def build_status_payload(params: Any | None = None) -> dict[str, Any]:
   total = int(status.get("total_bytes", fallback_size))
   progress = round(min(100.0, max(0.0, downloaded * 100.0 / total)), 1) if total > 0 else None
   engaged = _params_bool(params, "IsEngaged") if params is not None else False
-  active = (_params_bool(params, "UsbGpuActive") and not _params_bool(params, "UsbGpuLoading")) if params is not None else False
   error_code, detail = status.get('error_code'), status.get('detail')
+  if active:
+    error_code, detail = None, None
   blocked = manifest is not None and (model_cache_dir() / 'precompiled' / manifest.sha256 / 'rejected').exists()
   rejection = rejection_status(model_cache_dir() / 'precompiled' / manifest.sha256) if same_model else {'blocked': False}
   if params is not None and _params_bool(params, 'UsbGpuStartupFailed') and not active:
