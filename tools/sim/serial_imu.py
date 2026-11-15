@@ -85,14 +85,24 @@ def main() -> None:
     if which == "accel":
       dat = new_message("accelerometer", valid=True, logMonoTime=timestamp)
       dat.accelerometer.timestamp = timestamp
+      dat.accelerometer.version = 1
+      dat.accelerometer.sensor = 1   # SENSOR_ACCELEROMETER
+      dat.accelerometer.type = 1     # SENSOR_TYPE_ACCELEROMETER
+      dat.accelerometer.source = "bno055"
       dat.accelerometer.init("acceleration")
       dat.accelerometer.acceleration.v = list(v)
+      dat.accelerometer.acceleration.status = 1
       pm.send("accelerometer", dat)
     else:
       dat = new_message("gyroscope", valid=True, logMonoTime=timestamp)
       dat.gyroscope.timestamp = timestamp
+      dat.gyroscope.version = 2
+      dat.gyroscope.sensor = 5       # SENSOR_GYRO_UNCALIBRATED
+      dat.gyroscope.type = 16        # SENSOR_TYPE_GYROSCOPE_UNCALIBRATED
+      dat.gyroscope.source = "bno055"
       dat.gyroscope.init("gyroUncalibrated")
       dat.gyroscope.gyroUncalibrated.v = list(v)
+      dat.gyroscope.gyroUncalibrated.status = 1
       pm.send("gyroscope", dat)
 
   print(f"IMU: opening {PORT} @ {BAUD}", flush=True)
