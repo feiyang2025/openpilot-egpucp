@@ -10,6 +10,7 @@ from msgq.visionipc import VisionIpcClient, VisionStreamType
 
 
 from openpilot.common.params import Params
+from openpilot.common.transformations.camera_calib import from_live_calibration
 from openpilot.common.impact_dashcam import ImpactDashcam
 from openpilot.common.realtime import config_realtime_process, Priority, Ratekeeper, DT_CTRL
 from openpilot.common.swaglog import cloudlog
@@ -688,7 +689,7 @@ class SelfdriveD:
       trigger, quiet, accel = self.impact_detector.update(
         now=now, timestamp=sample.timestamp / 1e9,
         sensor=list(sample.acceleration.v) if sample.which() == 'acceleration' else [],
-        orientation=orientation, calibration=list(calibration.rpyCalib), valid=valid)
+        orientation=orientation, calibration=list(from_live_calibration(calibration).body_from_calib), valid=valid)
     elif not self.sm.alive['accelerometer']:
       self.impact_detector.above = False
       quiet = False

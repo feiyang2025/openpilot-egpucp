@@ -166,7 +166,7 @@ def main():
       else:
         avoidance_exec.apply(longitudinal_planner.output_a_target, [],
                               sm['carState'].vEgo, time.monotonic(), 0,
-                              enabled=False, engaged=False)
+                              enabled=False, engaged=False, hb=False)
       planner_execution_time = time.monotonic() - planner_start
       longitudinal_planner.publish(
         planner_sm,

@@ -327,7 +327,7 @@ SERVICE_SCHEMAS: dict[str, tuple[int, tuple[tuple[Any, ...], ...]]] = {
     ("calCycle", "i32"),
     ("calPerc", "i8"),
     ("validBlocks", "i32"),
-    ("rpyCalib", "f32_list"),
+    ("rpyCalib", "f32_list"),  # calib-legacy-allow: pending-migration (JS field table; gateway feeds new code)
     ("height", "f32_list"),
   )),
   "roadCameraState": (11, (

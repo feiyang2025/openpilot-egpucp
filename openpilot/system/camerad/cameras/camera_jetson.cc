@@ -214,6 +214,15 @@ public:
   double stream_epoch_tms = 0.;    // 本次开流时刻, 用于"从未出过帧"的情形
   double last_reinit_tms = 0.;     // 上次重初始化时刻, 做退避
   int reinit_attempts = 0;
+  // CSI/v4l2 时间戳的 boottime 锚 (换算逻辑见 process_frame): v4l2/CSI 的时间基准
+  // 与 boottime 差一个未知常数 (bring 重置后归 0), 必须锚定换算。每相机独立锁自己
+  // refine 窗口 (前 45 帧) 内的最小 off (= 本路 SOF->DQBUF 最小延迟)——两路 CSI 同一
+  // 基准, 各自减去自身最小延迟后, 同一物理帧的两路戳自然对齐 (共用单一全局 min 会
+  // 把两路 DQBUF 延迟差残留成 33ms 跨路偏差, 超过 camera_sync 20ms 配对阈值, modeld
+  // 每循环丢帧)。帧主循环单线程, 无需加锁。
+  int64_t ts_anchor_off_ns = 0;
+  int64_t ts_min_off_ns = (int64_t)0x7fffffffffffffffLL;
+  int ts_refine_cnt = 0;
   int v4l2_setup();                // S_FMT + REQBUFS + mmap/EXPBUF + import src_surf
   void v4l2_teardown();            // STREAMOFF + 释放 capture 层 (不动 vic_surfs)
   bool v4l2_reinit();              // 关闭重开设备并重新配置, 失败返回 false
@@ -568,6 +577,40 @@ bool JetsonCameraState::process_frame() {
   last_frame_tms = millis_since_boot();
   reinit_attempts = 0;
 
+  // 把 CSI 时间戳锚定/换算到 boottime 域: 每相机独立取本路 refine 窗口 (前 45 帧) 的
+  // 最小 off (≈ 本路真实 SOF->DQBUF 最小延迟), 之后冻结; |off-锚| >250ms (GMSL bring
+  // 重置基准 / 慢漂移) 时重开窗口重新锚定。
+  {
+    const uint64_t ts_v4l2 = b.timestamp.tv_sec * 1000000000ULL + b.timestamp.tv_usec * 1000ULL;
+    const int64_t now_ns = (int64_t)(millis_since_boot() * 1e6);
+    if (ts_v4l2 == 0) {
+      // bring 重置基准后的无效戳: 用当前时刻; 重开 refine 窗口
+      b.timestamp.tv_sec = (time_t)(now_ns / 1000000000LL);
+      b.timestamp.tv_usec = (suseconds_t)((now_ns % 1000000000LL) / 1000);
+      ts_refine_cnt = 0;
+      ts_min_off_ns = (int64_t)0x7fffffffffffffffLL;
+    } else {
+      const int64_t off = now_ns - (int64_t)ts_v4l2;
+      if (ts_refine_cnt < 45) {
+        if (off < ts_min_off_ns) {
+          ts_min_off_ns = off;
+          ts_anchor_off_ns = off;
+        }
+        if (++ts_refine_cnt == 45) {
+          LOGW("camera %s v4l2 ts anchor frozen: off=%lldms", cc.device_path, (long long)(ts_anchor_off_ns / 1000000LL));
+        }
+      } else if (off > ts_anchor_off_ns + 250000000LL || off < ts_anchor_off_ns - 250000LL * 1000) {
+        ts_min_off_ns = off;
+        ts_anchor_off_ns = off;
+        ts_refine_cnt = 1;
+        LOGW("camera %s v4l2 ts base jumped, re-anchored: off=%lldms", cc.device_path, (long long)(off / 1000000LL));
+      }
+      const uint64_t ts_ns = (uint64_t)((int64_t)ts_v4l2 + ts_anchor_off_ns);
+      b.timestamp.tv_sec = (time_t)(ts_ns / 1000000000ULL);
+      b.timestamp.tv_usec = (suseconds_t)((ts_ns % 1000000000ULL) / 1000);
+    }
+  }
+
   if (env_debug_frames) {
     printf("camera %s frame %u bytesused=%u ts=%lld.%06lld\n", cc.device_path,
            b.sequence, b.bytesused, (long long)b.timestamp.tv_sec, (long long)b.timestamp.tv_usec);
@@ -590,7 +633,7 @@ bool JetsonCameraState::process_frame() {
       goto requeue;
     }
 
-    // v4l2 timestamp 为 CLOCK_MONOTONIC; 车载场景不休眠, 与 CLOCK_BOOTTIME 一致
+    // b.timestamp 已锚定换算到 boottime 域 (见 DQBUF 后的锚定块)
     const uint64_t ts = b.timestamp.tv_sec * 1000000000ULL + b.timestamp.tv_usec * 1000ULL;
     vb->set_frame_id(frame_id);
     VisionIpcBufExtra extra = {frame_id, ts, ts};
@@ -742,7 +785,7 @@ bool JetsonCameraState::process_frame() {
         }
       }
 
-      // v4l2 timestamp 为 CLOCK_MONOTONIC; 车载场景不休眠, 与 CLOCK_BOOTTIME 一致
+      // b.timestamp 已锚定换算到 boottime 域 (见 DQBUF 后的锚定块)
       const uint64_t ts = b.timestamp.tv_sec * 1000000000ULL + b.timestamp.tv_usec * 1000ULL;
       vb->set_frame_id(frame_id);
       VisionIpcBufExtra extra = {frame_id, ts, ts};
@@ -1100,13 +1143,16 @@ void camerad_thread() {
         if (now_ms < g_bring_wait_until) {
           bring_waiting = true;
         } else {
-          LOGW("GMSL bring 重启完成 (第 %d 次), 重新尝试打开断链相机", g_bring_restarts);
+          LOGW("GMSL bring 重启完成 (第 %d 次), 重新打开全部相机", g_bring_restarts);
           g_bring_pending = false;
           ++g_bring_restarts;
           for (auto &cam : cams) {
             cam->released = false;
             cam->reinit_attempts = 0;
             cam->last_reinit_tms = 0.;
+            // bring 重置了 CSI 时间戳基准: 未重开的那一路 b.timestamp 会变成 0,
+            // modeld 按 SOF 配对将永远失败 (modelV2 0Hz), 所以每路都强制重建。
+            if (cam->streaming) cam->v4l2_teardown();
           }
         }
       }

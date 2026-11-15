@@ -38,8 +38,10 @@ def get_calibration_status() -> Dict[str, Any]:
     if calib.calStatus == uncal:
       return {"calibrated": False, "pitch": None, "yaw": None}
 
-    pitch = round(math.degrees(calib.rpyCalib[1]), 1)
-    yaw = round(math.degrees(calib.rpyCalib[2]), 1)
+    from openpilot.common.transformations.camera_calib import from_live_calibration
+    body = from_live_calibration(calib).body_from_calib
+    pitch = round(math.degrees(float(body[1])), 1)
+    yaw = round(math.degrees(float(body[2])), 1)
     return {"calibrated": True, "pitch": pitch, "yaw": yaw}
   except Exception:
     return {"calibrated": False, "pitch": None, "yaw": None}

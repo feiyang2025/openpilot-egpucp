@@ -8,7 +8,7 @@ from collections import defaultdict
 
 from openpilot.cereal import log, messaging
 from openpilot.cereal.services import SERVICE_LIST
-from openpilot.common.transformations.orientation import rot_from_euler
+from openpilot.common.transformations.camera_calib import from_live_calibration
 from openpilot.common.realtime import config_realtime_process
 from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
@@ -157,13 +157,14 @@ class LocationEstimator:
       self.car_speed = abs(msg.vEgo)
 
     elif which == "liveCalibration":
-      # Note that we use this message during calibration
-      if len(msg.rpyCalib) > 0:
-        calib = np.array(msg.rpyCalib)
+      # Note that we use this message during calibration; the body rotation
+      # comes from the single CameraCalibSet source (spec §5.2)
+      if len(msg.rpyCalib) > 0:  # calib-legacy-allow: presence-check (message arrival signal)
+        calib = np.array(msg.rpyCalib)  # calib-legacy-allow: presence-check (arrival + sanity signal)
         if calib.min() < -CALIB_RPY_SANITY_CHECK or calib.max() > CALIB_RPY_SANITY_CHECK:
           return HandleLogResult.INPUT_INVALID
 
-        self.device_from_calib = rot_from_euler(calib)
+        self.device_from_calib = from_live_calibration(msg).device_from_calib()
 
     elif which == "cameraOdometry":
       # camera odometry is delayed depending on the model context frames and temporal frequency

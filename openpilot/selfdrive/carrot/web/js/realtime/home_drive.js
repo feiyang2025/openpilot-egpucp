@@ -123,7 +123,7 @@ window.HomeDrive = (() => {
     [1, 0, 0],
   ];
   // Road-camera intrinsics. Native openpilot selects these from
-  // DEVICE_CAMERAS[(deviceType, sensor)]; the web renderer follows that same
+  // DEVICE_CAMERAS[(deviceType, sensor)]; the web renderer follows that same  // calib-legacy-allow: pending-migration (web gateway debt, spec §7.4)
   // rule so C3/C3X/C4 share one projection path.
   const BASE_CAMERA = {
     width: 1928,
@@ -131,10 +131,11 @@ window.HomeDrive = (() => {
     focalX: 2648,
     focalY: 2648,
   };
-  // Mirror of openpilot common/transformations/camera.py DEVICE_CAMERAS[*].fcam.
+  // Mirror of openpilot common/transformations/camera.py DEVICE_CAMERAS[*].fcam.  // calib-legacy-allow: pending-migration (web gateway debt, spec §7.4)
   const ROAD_CAMERA_PROFILES = {
     ar_ox: { width: 1928, height: 1208, focal: 2648.0 },
     os04c10: { width: 1344, height: 760, focal: 1141.5 },
+    imx390: { width: 1920, height: 1080, focal: 2648.0 * 1920 / 1928 },
   };
   let _roadCameraDeviceType = "";
   let _roadCameraSensor = "";
@@ -344,9 +345,9 @@ window.HomeDrive = (() => {
       selectedPath?.pathSource || "none",
       pathDataSignature(selectedPath?.pathData),
       radarStateSignature(radar),
-      finiteNumber(liveCalibration?.rpyCalib?.[0], 0).toFixed(3),
-      finiteNumber(liveCalibration?.rpyCalib?.[1], 0).toFixed(3),
-      finiteNumber(liveCalibration?.rpyCalib?.[2], 0).toFixed(3),
+      finiteNumber(liveCalibration?.rpyCalib?.[0], 0).toFixed(3),  // calib-legacy-allow: pending-migration (web gateway debt, spec §7.4)
+      finiteNumber(liveCalibration?.rpyCalib?.[1], 0).toFixed(3),  // calib-legacy-allow: pending-migration (web gateway debt, spec §7.4)
+      finiteNumber(liveCalibration?.rpyCalib?.[2], 0).toFixed(3),  // calib-legacy-allow: pending-migration (web gateway debt, spec §7.4)
       liveCalibration?.calStatus ?? "-",
       _roadCameraProfileKey,
       finiteNumber(liveCalibration?.height?.[0], 0).toFixed(2),
@@ -464,7 +465,7 @@ window.HomeDrive = (() => {
   }
 
   function readRpyTriplet(liveCalibration) {
-    const source = Array.isArray(liveCalibration?.rpyCalib) ? liveCalibration.rpyCalib : null;
+    const source = Array.isArray(liveCalibration?.rpyCalib) ? liveCalibration.rpyCalib : null;  // calib-legacy-allow: pending-migration (web gateway debt, spec §7.4)
     if (!source) return null;
     const roll = Number(source[0]);
     const pitch = Number(source[1]);
@@ -620,10 +621,11 @@ window.HomeDrive = (() => {
       4: "tici", 5: "pc", 6: "tizi", 7: "mici",
     });
     const sensorKey = normalizeEnumName(sensor, {
-      0: "unknown", 1: "ar0231", 2: "ox03c10", 3: "os04c10",
+      0: "unknown", 1: "ar0231", 2: "ox03c10", 3: "os04c10", 4: "imx390",
     });
 
     if (sensorKey === "os04c10") return { key: "os04c10", deviceKey, sensorKey };
+    if (sensorKey === "imx390") return { key: "imx390", deviceKey, sensorKey };
     if (sensorKey === "ar0231" || sensorKey === "ox03c10") return { key: "ar_ox", deviceKey, sensorKey };
     // Only tici has a native "unknown sensor" fallback. C3X/C4 must wait for
     // their actual sensor instead of briefly drawing with a guessed camera.
@@ -2549,7 +2551,10 @@ window.HomeDrive = (() => {
     const model = overlayState.modelV2 || null;
     const liveCalibration = overlayState.liveCalibration || null;
     const roadCameraState = overlayState.roadCameraState || null;
-    const cameraProfileReady = applyRoadCameraProfile(hudState?.deviceState?.deviceType, roadCameraState?.sensor);
+    // gateway first (spec §7.4): the running CameraCalibSet is the truth;
+    // the static profile table only fills in while no gateway has arrived
+    const gatewayApplied = applyGatewayCamera(liveCalibration?.calibGateway);
+    const cameraProfileReady = gatewayApplied || applyRoadCameraProfile(hudState?.deviceState?.deviceType, roadCameraState?.sensor);
     const { selectedPath, pathStyle } = roadOverlayPolicy.resolve(overlayState, hudState, paramsState);
     const plotData = buildPlotData(overlayState, hudState);
     const showLaneInfo = finiteNumber(paramsState.ShowLaneInfo, defaultParams.ShowLaneInfo);

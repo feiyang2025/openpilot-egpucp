@@ -86,7 +86,7 @@ def cycle_alerts(duration=200, is_metric=False):
         procs[i].shouldBeRunning = True
       sm['managerState'].processes = procs
 
-      sm['liveCalibration'].rpyCalib = [-1 * random.random() for _ in range(random.randint(0, 3))]
+      sm['liveCalibration'].rpyCalib = [-1 * random.random() for _ in range(random.randint(0, 3))]  # calib-legacy-allow: test-tool
 
       for s in sm.data.keys():
         prob = 0.3 if s in cameras else 0.08

@@ -4,7 +4,9 @@ from openpilot.common.realtime import DT_MDL, DT_DMON
 from openpilot.common.transformations.camera import DEVICE_CAMERAS
 
 VideoStreamMeta = namedtuple("VideoStreamMeta", ["camera_state", "encode_index", "stream", "dt", "frame_sizes"])
-ROAD_CAMERA_FRAME_SIZES = {k: (v.dcam.width, v.dcam.height) for k, v in DEVICE_CAMERAS.items()}
+# audit C6: road frame sizes come from the FORWARD camera; v.dcam was wrong
+# for any device where fcam/dcam differ (latent on imx390, breaks on neo)
+ROAD_CAMERA_FRAME_SIZES = {k: (v.fcam.width, v.fcam.height) for k, v in DEVICE_CAMERAS.items()}
 WIDE_ROAD_CAMERA_FRAME_SIZES = {k: (v.ecam.width, v.ecam.height) for k, v in DEVICE_CAMERAS.items() if v.ecam is not None}
 DRIVER_CAMERA_FRAME_SIZES = {k: (v.dcam.width, v.dcam.height) for k, v in DEVICE_CAMERAS.items()}
 VIPC_STREAM_METADATA = [

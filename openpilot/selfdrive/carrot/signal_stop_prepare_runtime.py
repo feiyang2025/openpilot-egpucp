@@ -56,7 +56,7 @@ class SignalPrepareRuntime(SignalAssistRuntime):
       from openpilot.cereal import messaging
       self.extra = messaging.SubMaster(['liveCalibration', 'roadCameraState', 'deviceState'])
     try:
-      from openpilot.common.transformations.camera import DEVICE_CAMERAS
+      from openpilot.common.transformations.camera_calib import Cam, from_live_calibration
       from openpilot.common.transformations.orientation import rot_from_euler
       self.extra.update(0)
       if now is None:
@@ -72,10 +72,16 @@ class SignalPrepareRuntime(SignalAssistRuntime):
                and 0 <= now-extra.recv_time[k] <= age
                for k, age in [('liveCalibration', 2.), ('roadCameraState', .25), ('deviceState', 2.)])
       calib = extra['liveCalibration']
-      config = DEVICE_CAMERAS.get((str(extra['deviceState'].deviceType), str(extra['roadCameraState'].sensor)))
-      # Current observer coordinates match OS04C10 road frames only.
-      ok = ok and config is not None and config.fcam.size == (1344, 760) and str(calib.calStatus) == 'calibrated'
-      rpy = list(calib.rpyCalib)
+      # Single calibration source (spec §5.2); audit B8: the observer only
+      # needs a plausible road pinhole K, not a hard-coded OS04C10 frame size -
+      # the size gate made this feature permanently disabled on 1920x1080.
+      calib_set = from_live_calibration(calib,
+                                        device_type=str(extra['deviceState'].deviceType),
+                                        sensor=str(extra['roadCameraState'].sensor))
+      road = calib_set.cams.get(Cam.ROAD)
+      ok = ok and road is not None and road.fx > 100. and str(calib.calStatus) == 'calibrated'
+      focal = road.fx if road is not None else 0.0
+      rpy = calib_set.body_from_calib
       pose = sm['livePose']
       ok = (ok and len(rpy) == 3 and np.isfinite(rpy).all()
             and sm.seen['livePose'] and sm.valid['livePose'] and sm.alive['livePose']
@@ -91,17 +97,17 @@ class SignalPrepareRuntime(SignalAssistRuntime):
       if omega.shape != (3,) or std.shape != (3,) or not np.isfinite(omega).all() or not np.isfinite(std).all() or np.any(std < 0):
         context['valid'] = False
         return obs, context
-      yaw = math.degrees((rot_from_euler(rpy).T @ omega)[2])
+      yaw = math.degrees((rot_from_euler(np.asarray(rpy)).T @ omega)[2])
       context['turning'] = abs(yaw) > 1.5 or math.degrees(np.linalg.norm(std)) > 2.
       model = sm['modelV2']
       context['geometry'] = lambda box: housing_range(
-        box, config.fcam.focal_length, rpy, model.roadEdges, model.roadEdgeStds,
+        box, focal, rpy, model.roadEdges, model.roadEdgeStds,
         model.laneLines, model.laneLineProbs, model.laneLineStds)
       context['alignment'] = lambda box, distance: housing_alignment(
-        box, distance, config.fcam.focal_length, rpy, model.roadEdges, model.roadEdgeStds,
+        box, distance, focal, rpy, model.roadEdges, model.roadEdgeStds,
         model.laneLines, model.laneLineProbs, model.laneLineStds)
       context['night_geometry'] = lambda box: night_lamp_support(
-        box, config.fcam.focal_length, rpy, model.roadEdges, model.roadEdgeStds,
+        box, focal, rpy, model.roadEdges, model.roadEdgeStds,
         model.laneLines, model.laneLineProbs, model.laneLineStds)
     except (AttributeError, KeyError, TypeError, ValueError, IndexError):
       context['valid'] = False

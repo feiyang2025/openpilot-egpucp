@@ -354,9 +354,10 @@ def camera_malfunction_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.
 
 
 def calibration_invalid_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMaster, metric: bool, soft_disable_time: int, personality) -> Alert:
-  rpy = sm['liveCalibration'].rpyCalib
-  yaw = math.degrees(rpy[2] if len(rpy) == 3 else math.nan)
-  pitch = math.degrees(rpy[1] if len(rpy) == 3 else math.nan)
+  from openpilot.common.transformations.camera_calib import from_live_calibration
+  rpy = from_live_calibration(sm['liveCalibration']).body_from_calib
+  yaw = math.degrees(rpy[2])
+  pitch = math.degrees(rpy[1])
   angles = tr("Remount Device (Pitch: {pitch:.1f}°, Yaw: {yaw:.1f}°)").format(pitch=pitch, yaw=yaw)
   return NormalPermanentAlert("Calibration Invalid", angles)
 

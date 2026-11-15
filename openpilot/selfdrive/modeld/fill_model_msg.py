@@ -228,7 +228,8 @@ def fill_pose_msg(msg: capnp._DynamicStructBuilder, net_output_data: dict[str, n
 
   cameraOdometry.trans = net_output_data['pose'][0,:3].tolist()
   cameraOdometry.rot = net_output_data['pose'][0,3:].tolist()
-  cameraOdometry.wideFromDeviceEuler = net_output_data['wide_from_device_euler'][0,:].tolist()
+  # calib-legacy-allow: message-writer (model output, merged by calibrationd)
+  cameraOdometry.wideFromDeviceEuler = net_output_data['wide_from_device_euler'][0,:].tolist()  # calib-legacy-allow: message-writer (model output)
   cameraOdometry.roadTransformTrans = net_output_data['road_transform'][0,:3].tolist()
   cameraOdometry.transStd = net_output_data['pose_stds'][0,:3].tolist()
   cameraOdometry.rotStd = net_output_data['pose_stds'][0,3:].tolist()

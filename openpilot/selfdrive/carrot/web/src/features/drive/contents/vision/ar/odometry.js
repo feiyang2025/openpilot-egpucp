@@ -3,7 +3,7 @@
  * AR route-local FLU frame belongs to coordinate_frames.js.
  *
  * This is the JavaScript equivalent of locationd's:
- *   device_from_calib = rot_from_euler(liveCalibration.rpyCalib)
+ *   device_from_calib = rot_from_euler(liveCalibration.rpyCalib)  // calib-legacy-allow: pending-migration (web gateway debt, spec §7.4)
  *   vector_device = device_from_calib @ vector_calib
  */
 
@@ -15,8 +15,8 @@ function finiteVector3(value) {
   return vector.every(Number.isFinite) ? vector : null;
 }
 
-export function deviceFromCalibMatrix(rpyCalib) {
-  const rpy = finiteVector3(rpyCalib);
+export function deviceFromCalibMatrix(rpyCalib) {  // calib-legacy-allow: pending-migration (web gateway debt, spec §7.4)
+  const rpy = finiteVector3(rpyCalib);  // calib-legacy-allow: pending-migration (web gateway debt, spec §7.4)
   if (!rpy) return null;
   const [roll, pitch, yaw] = rpy;
   const cr = Math.cos(roll), sr = Math.sin(roll);
@@ -51,9 +51,9 @@ function rotateIndependentStd(matrix, value) {
   )));
 }
 
-export function odometryInDeviceFrame(odometry, rpyCalib) {
+export function odometryInDeviceFrame(odometry, rpyCalib) {  // calib-legacy-allow: pending-migration (web gateway debt, spec §7.4)
   if (!odometry) return null;
-  const matrix = deviceFromCalibMatrix(rpyCalib);
+  const matrix = deviceFromCalibMatrix(rpyCalib);  // calib-legacy-allow: pending-migration (web gateway debt, spec §7.4)
   const trans = rotateVector(matrix, odometry.trans);
   const rot = rotateVector(matrix, odometry.rot);
   if (!matrix || !trans || !rot) return null;

@@ -160,10 +160,10 @@ window.CarrotVisionCompact = (() => {
     [10, ["liveCalibration", [
       ["calStatus", "enumname", ["uncalibrated", "calibrated", "invalid", "recalibrating"]],
       ["calCycle", "i32"], ["calPerc", "i8"],
-      ["validBlocks", "i32"], ["rpyCalib", "f32list"], ["height", "f32list"],
+      ["validBlocks", "i32"], ["rpyCalib", "f32list"], ["height", "f32list"],  // calib-legacy-allow: pending-migration (web gateway debt, spec §7.4)
     ]]],
     [11, ["roadCameraState", [
-      ["frameId", "u32"], ["sensor", "enumname", ["unknown", "ar0231", "ox03c10", "os04c10"]],
+      ["frameId", "u32"], ["sensor", "enumname", ["unknown", "ar0231", "ox03c10", "os04c10", "imx390"]],
       ["timestampEof", "u64"],
     ]]],
     [12, ["lateralPlan", [

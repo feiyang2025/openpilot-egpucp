@@ -54,7 +54,7 @@ def camera_sample_usable(sm, rhd, demo=False, replay_now=None):
   vectors = (driver.faceOrientation, driver.facePosition, driver.faceOrientationStd, driver.facePositionStd)
   lengths = (2, 2, 2, 2)
   if not demo:
-    vectors += (sm['liveCalibration'].rpyCalib, sm['modelV2'].meta.disengagePredictions.brakeDisengageProbs)
+    vectors += (sm['liveCalibration'].rpyCalib, sm['modelV2'].meta.disengagePredictions.brakeDisengageProbs)  # calib-legacy-allow: estimator-input (DM model vector)
     lengths += (3, 1)
   return all(len(values) >= length and all(math.isfinite(v) for v in values)
              for values, length in zip(vectors, lengths, strict=True))

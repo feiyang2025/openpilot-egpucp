@@ -6,6 +6,7 @@ from openpilot.cereal import messaging, car
 from dataclasses import dataclass, field
 from openpilot.common.params import Params
 from openpilot.common.filter_simple import FirstOrderFilter
+from openpilot.common.transformations.camera_calib import from_live_calibration
 from openpilot.selfdrive.locationd.calibrationd import HEIGHT_INIT
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
 from openpilot.selfdrive.ui.amapnavi_overlay import draw_barriers_mici
@@ -146,8 +147,14 @@ class ModelRenderer(Widget):
     # Update state
     self._experimental_mode = sm['selfdriveState'].experimentalMode
 
+    # Mount height via the single CameraCalibSet source (spec §5.2); legacy
+    # messages without cams fall back to the factory set (height == HEIGHT_INIT).
+    # Cached by calibSeq: _paint runs at frame rate, the set build is not free.
     live_calib = sm['liveCalibration']
-    self._path_offset_z = live_calib.height[0] if live_calib.height else HEIGHT_INIT[0]
+    if getattr(self, '_calib_seq_cache', None) != live_calib.calibSeq:
+      self._calib_seq_cache = live_calib.calibSeq
+      self._calib_set_cache = from_live_calibration(live_calib)
+    self._path_offset_z = self._calib_set_cache.height
 
     if sm.recv_frame['carParams'] != self._params_frame:
       self._params_frame = sm.recv_frame['carParams']

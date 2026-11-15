@@ -120,7 +120,7 @@ export function nanosDeltaMs(aNs, bNs) {
 
 /** 현재 calibration 값이 projection에 쓸 수 있는 실제 3축 회전인가. */
 export function isCalibrationPlausible(calibration) {
-  const rpy = calibration?.rpyCalib;
+  const rpy = calibration?.rpyCalib;  // calib-legacy-allow: pending-migration (web gateway debt, spec §7.4)
   return Array.isArray(rpy)
     && rpy.length >= 3
     && rpy.slice(0, 3).every((value) => {
